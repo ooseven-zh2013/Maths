@@ -1,3 +1,7 @@
+#ifndef NUMBERS_HPP
+#define NUMBERS_HPP
+#pragma once
+
 #include <iostream>
 #include <numeric>
 
@@ -79,8 +83,7 @@ class Fraction {
   using ull = unsigned long long;
 
 public:
-  Fraction() = default;
-  Fraction(ll num_, ll den_ = 1) {
+  Fraction(ll num_ = 1, ll den_ = 1) {
     if (den_ == 0)
       den_ = 1;
     ll g = std::gcd(num_ >= 0 ? num_ : -num_, den_ >= 0 ? den_ : -den_);
@@ -202,8 +205,7 @@ public:
   }
 
   friend std::ostream &operator<<(std::ostream &os, const Fraction &fraction) {
-    long long num_val =
-        fraction.sign ? -static_cast<long long>(fraction.num) : static_cast<long long>(fraction.num);
+    long long num_val = fraction.sign ? -static_cast<long long>(fraction.num) : static_cast<long long>(fraction.num);
     long long den_val = static_cast<long long>(fraction.den);
 
     if (den_val == 1) {
@@ -251,3 +253,5 @@ Integer &Integer::operator^=(const Integer &rhs) {
   *this = *this ^ rhs;
   return *this;
 }
+
+#endif // NUMBERS_HPP
