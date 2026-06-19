@@ -1,0 +1,7 @@
+BasedOnStyle: LLVM  # 基于LLVM风格，在此基础上修改
+IndentWidth: 2      # 缩进宽度为4个空格
+TabWidth: 2         # Tab键对应的宽度
+UseTab: Never       # 禁用Tab，全部用空格缩进
+ColumnLimit: 120    # 代码行最大长度
+BreakBeforeBraces: Attach  # 大括号紧跟语句
+SpaceAfterControlStatementKeyword: true  # if/for等关键字后加空格

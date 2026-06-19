@@ -1,0 +1,45 @@
+# 全局 配置文件 - 所有配置文件的基础
+# 该配置定义了编译标志、索引设置、诊断、代码提示等功能
+# 编译标志部分 - 定义编译器标志
+CompileFlags:
+  Add:
+    - "-Wall"            # 启用所有常用警告
+    - "-Wextra"          # 启用额外的警告
+    - "-std=c++23"       # 使用C++23标准进行编译
+    - "-lstdc++exp"      # 链接实验性C++标准库扩展
+    - "-I/home/ooseven/Project/Maths/include"      # 添加头文件目录
+  Remove:
+    - "-Werror"   # 移除将所有警告作为错误的选项，避免编译中断
+  Compiler: "g++"     # 指定具体的编译器路径
+
+# 索引设置 - 控制代码索引行为
+Index:
+  Background: "Build"    # 在后台构建过程中进行索引，提高代码导航性能
+ 
+# 诊断设置部分 - 控制错误和警告报告
+Diagnostics:
+  ClangTidy:             # Clang-Tidy 静态分析工具配置
+    # 添加一些基础的检查项
+    Add:
+    -  "bugprone-*"          # 检测潜在的逻辑错误（如死代码、可疑的拷贝操作）
+    -  "performance-*"       # 性能优化建议（如不必要的拷贝、移动语义使用）
+    -  "readability-container-size-empty-*" # 建议使用 empty() 代替 size() == 0
+    -  "readability-implicit-bool-conversion-*" # 警告隐式布尔转换可能导致的问题
+    Remove:
+    -  "bugprone-easily-swappable-parameters"  # 禁用参数容易交换的警告
+ 
+# 代码提示设置部分 - 在编辑器中显示辅助信息
+InlayHints:
+  Enabled: true          # 启用内联提示功能
+  ParameterNames: true   # 显示函数参数名称提示
+  DeducedTypes: true     # 显示类型推导结果提示
+  Designators: true      # 显示结构体/类初始化器的设计器提示
+ 
+# 代码补全设置部分 - 控制自动补全行为
+Completion:
+  AllScopes: true        # 启用所有作用域的代码补全，包括私有成员
+ 
+# 语义标记设置部分 - 改进语法高亮
+SemanticTokens:
+  DisabledKinds: ["Macro"] # 禁用宏的特殊语法高亮
+  DisabledModifiers: ["Static"] # 禁用static等修饰符的特殊标记
