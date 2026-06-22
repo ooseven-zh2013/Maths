@@ -67,7 +67,7 @@ inline long double random(long double l, long double r) {
  * @param r 上限
  * @return T 随机数
  */
-template <typename T> inline T random(const T& l,const T& r) {
+template <typename T> inline T random(const T &l, const T &r) {
   if (l > r) {
     throw std::invalid_argument("下限l必须小于等于上限r");
   }

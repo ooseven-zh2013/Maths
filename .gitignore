@@ -1,2 +1,28 @@
-build/*
-output/*
+# 编译输出
+build/
+output/
+/test_*
+*.o
+*.out
+core
+
+# IDE / LSP 缓存
+.idea/
+.vscode/
+*.lingma/
+.cache/
+
+# vim / editor swap
+*.swp
+*.swo
+*.swn
+*.sublime-workspace
+*.sublime-project
+
+# 临时文件
+*.tmp
+*.log
+
+# 代码索引
+tags
+TAGS
