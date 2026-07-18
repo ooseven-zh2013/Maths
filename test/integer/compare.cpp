@@ -1,9 +1,24 @@
 #include "numbers.hpp"
+#include <cassert>
 #include <iostream>
-#define endl '\n'
-signed main() {
-  Integer a(123ll);
-  std::cout << (a != 123ll) << endl;
-  std::cout << (a >= 123ll) << endl;
-  std::cout << (a < 123ll) << endl;
+
+int main() {
+  Integer a(5LL);
+  Integer b(-3LL);
+  Integer c(5ULL);
+
+  // 基本比较
+  assert(a > b);
+  assert(b < a);
+  assert(a >= 5LL);
+  assert(a == c);
+  assert(!(a != 5LL));
+
+  // 与原生整型比较
+  assert(a == 5LL);
+  assert(!(a < 5LL));
+  assert((b <= -3LL));
+
+  std::cout << "compare.cpp: PASS\n";
+  return 0;
 }
