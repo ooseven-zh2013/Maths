@@ -7,7 +7,7 @@ CompileFlags:
     - "-Wextra"          # 启用额外的警告
     - "-std=c++23"       # 使用C++23标准进行编译
     - "-lstdc++exp"      # 链接实验性C++标准库扩展
-    - "-I/home/ooseven/Project/Maths/include"      # 添加头文件目录
+    - "-I/home/ooseven/Projects/Maths/include"      # 添加头文件目录
   Remove:
     - "-Werror"   # 移除将所有警告作为错误的选项，避免编译中断
   Compiler: "g++"     # 指定具体的编译器路径
@@ -40,6 +40,6 @@ Completion:
   AllScopes: true        # 启用所有作用域的代码补全，包括私有成员
  
 # 语义标记设置部分 - 改进语法高亮
-SemanticTokens:
-  DisabledKinds: ["Macro"] # 禁用宏的特殊语法高亮
-  DisabledModifiers: ["Static"] # 禁用static等修饰符的特殊标记
+# SemanticTokens:
+#   DisabledKinds: ["Macro"] # 禁用宏的特殊语法高亮
+#   DisabledModifiers: ["Static"] # 禁用static等修饰符的特殊标记
