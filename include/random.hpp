@@ -8,7 +8,7 @@
 /**
  * @brief 获取共享的随机数生成器（线程不安全）
  */
-inline std::mt19937& get_generator() {
+inline std::mt19937 &get_generator() {
   static std::mt19937 gen(std::random_device{}());
   return gen;
 }

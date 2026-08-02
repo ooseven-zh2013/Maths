@@ -16,7 +16,7 @@ public:
 
   std::string str() const { return name; }
 
-  Name& operator=(std::string_view name_) {
+  Name &operator=(std::string_view name_) {
     if (check(name_)) {
       name = std::string(name_);
       return *this;
@@ -51,7 +51,7 @@ public:
   Variable(std::string_view name_) { convertToName(name_, false); }
   Variable(std::string_view name_, bool allow_numeric) { convertToName(name_, allow_numeric); }
 
-  Variable& operator=(std::string_view name_) {
+  Variable &operator=(std::string_view name_) {
     convertToName(name_, false);
     return *this;
   }
