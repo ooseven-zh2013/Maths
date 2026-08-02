@@ -17,7 +17,7 @@ int main() {
   Variable v2b("a_1");
   assert(v2b.str() == "a_1");
 
-  // 带大括号单索引：输入 a_{x}，输出为 a_x（实现逻辑会在单索引且索引无自身下标时省略大括号）
+  // 带大括号单索引：输入 a_{x}，输出为 a_x
   Variable v3("a_{x}");
   assert(v3.str() == "a_x");
 
@@ -25,11 +25,11 @@ int main() {
   Variable v4("a_{x,b_c}");
   assert(v4.str() == string("a_{x,b_c}"));
 
-  // 单个索引但索引本身带下标：a_{b_c} -> 应当保持大括号
+  // 单个索引但索引本身带下标：a_{b_c}
   Variable v5("a_{b_c}");
   assert(v5.str() == string("a_{b_c}"));
 
-  // 非法名字（字母或纯数字以外）应该抛出异常
+  // 非法名字
 
   bool threw = false;
   try {
@@ -55,6 +55,15 @@ int main() {
 
   try {
     Variable v9(".");
+  } catch (const std::invalid_argument &) {
+    threw = true;
+  }
+  assert(threw);
+
+  // 无大括号索引必须为单个字符：a_bc 非法
+  threw = false;
+  try {
+    Variable v10("a_bc");
   } catch (const std::invalid_argument &) {
     threw = true;
   }

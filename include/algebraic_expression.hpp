@@ -119,7 +119,10 @@ private:
 
       if (name_.front() != '{') {
         // 单索引形式，例如 a_1 或 a_x
-        // 不允许索引中包含下划线（那属于更复杂的嵌套索引，应使用大括号）
+        // 遵循 LaTeX 规范：_ 后不带 {} 时只接受单个字符（字母或数字）
+        if (name_.size() != 1) {
+          throw std::invalid_argument("Invalid variable index: unbraced index must be a single character");
+        }
         if (name_.find('_') != std::string_view::npos) {
           throw std::invalid_argument("Invalid variable index");
         }
