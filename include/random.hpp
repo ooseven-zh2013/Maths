@@ -6,6 +6,14 @@
 #include <stdexcept>
 
 /**
+ * @brief 获取共享的随机数生成器（线程不安全）
+ */
+inline std::mt19937& get_generator() {
+  static std::mt19937 gen(std::random_device{}());
+  return gen;
+}
+
+/**
  * @brief 在[l,r)范围内生成随机数
  *
  * @param l 下限
@@ -16,11 +24,8 @@ inline float random(float l, float r) {
   if (l >= r) {
     throw std::invalid_argument("下限l必须小于上限r");
   }
-
-  std::random_device rd;
-  static std::mt19937 gen(rd());
   std::uniform_real_distribution<float> dis(l, r);
-  return dis(gen);
+  return dis(get_generator());
 }
 
 /**
@@ -34,11 +39,8 @@ inline double random(double l, double r) {
   if (l >= r) {
     throw std::invalid_argument("下限l必须小于上限r");
   }
-
-  std::random_device rd;
-  static std::mt19937 gen(rd());
   std::uniform_real_distribution<double> dis(l, r);
-  return dis(gen);
+  return dis(get_generator());
 }
 
 /**
@@ -52,11 +54,8 @@ inline long double random(long double l, long double r) {
   if (l >= r) {
     throw std::invalid_argument("下限l必须小于上限r");
   }
-
-  std::random_device rd;
-  static std::mt19937 gen(rd());
   std::uniform_real_distribution<long double> dis(l, r);
-  return dis(gen);
+  return dis(get_generator());
 }
 
 /**
@@ -71,11 +70,8 @@ template <typename T> inline T random(const T &l, const T &r) {
   if (l > r) {
     throw std::invalid_argument("下限l必须小于等于上限r");
   }
-
-  std::random_device rd;
-  static std::mt19937 gen(rd());
   std::uniform_int_distribution<T> dis(l, r);
-  return dis(gen);
+  return dis(get_generator());
 }
 
 #endif // RANDOM_H

@@ -192,6 +192,9 @@ public:
     ll numerator, denominator;
     char slash;
     is >> numerator;
+    if (!is) {
+      return is;
+    }
     if (is.peek() == '/') {
       is >> slash >> denominator;
     } else {
@@ -221,8 +224,12 @@ private:
 
   // 约分
   void simplify() {
+    if (b == 0) {
+      throw std::domain_error("分母不能为零");
+    }
     if (a == 0) {
       b = 1;
+      sign = false;
       return;
     }
     ull divisor = gcd(a, b);
