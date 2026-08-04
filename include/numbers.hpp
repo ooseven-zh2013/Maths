@@ -41,7 +41,7 @@ public:
         *this = fracResult / Fraction(sv.substr(denEnd + 2));
       }
     } else {
-      size_t split = sv.find('/');
+          size_t split = sv.rfind('/');
       if (split != std::string_view::npos) {
         Fraction _a = Fraction(sv.substr(0, split));
         Fraction _b = Fraction(sv.substr(split + 1));
