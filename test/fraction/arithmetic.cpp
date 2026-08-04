@@ -102,12 +102,12 @@ int main() {
 
   // 10. 转换为 double
   std::cout << "10. 转换为 double 测试:" << '\n';
-  Fraction dbl_test(1LL, 3LL);
-  double dbl_val = static_cast<double>(dbl_test);
-  std::cout << dbl_test << " = " << dbl_val << " (应该是 0.333...)" << '\n';
-  Fraction neg_dbl(-3LL, 4LL);
-  double neg_dbl_val = static_cast<double>(neg_dbl);
-  std::cout << neg_dbl << " = " << neg_dbl_val << " (应该是 -0.75)" << '\n' << '\n';
+  Fraction dblTest(1LL, 3LL);
+  double dblVal = static_cast<double>(dblTest);
+  std::cout << dblTest << " = " << dblVal << " (应该是 0.333...)" << '\n';
+  Fraction negDbl(-3LL, 4LL);
+  double negDblVal = static_cast<double>(negDbl);
+  std::cout << negDbl << " = " << negDblVal << " (应该是 -0.75)" << '\n' << '\n';
 
   // 11. 流输入输出
   std::cout << "11. 流输入测试（请输入一个分数，如 3/4 或 5）:" << '\n';

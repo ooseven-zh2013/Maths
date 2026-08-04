@@ -1,7 +1,6 @@
+#pragma once
 #ifndef NUMBERS_HPP
 #define NUMBERS_HPP
-#pragma once
-
 #include <compare>
 #include <iostream>
 #include <stdexcept>
@@ -22,9 +21,40 @@ public:
     sign = false;
   }
 
-  Fraction(ll _a, ll _b) { *this = std::make_pair(_a, _b); }
+  Fraction(std::string_view sv) {
+    if (sv.size() >= 6 && sv.substr(0, 6) == "\\frac{") {
+      size_t numEnd = findMatchingBrace(sv, 5);
+      if (numEnd == std::string_view::npos || numEnd + 1 >= sv.size() || sv[numEnd + 1] != '{') {
+        throw std::invalid_argument("不支持的表达式");
+      }
+      size_t denEnd = findMatchingBrace(sv, numEnd + 1);
+      if (denEnd == std::string_view::npos) {
+        throw std::invalid_argument("不支持的表达式");
+      }
+      Fraction fracResult = Fraction(sv.substr(6, numEnd - 6)) / Fraction(sv.substr(numEnd + 2, denEnd - numEnd - 2));
+      if (denEnd == sv.size() - 1) {
+        *this = fracResult;
+      } else {
+        if (sv[denEnd + 1] != '/') {
+          throw std::invalid_argument("不支持的表达式");
+        }
+        *this = fracResult / Fraction(sv.substr(denEnd + 2));
+      }
+    } else {
+      size_t split = sv.find('/');
+      if (split != std::string_view::npos) {
+        Fraction _a = Fraction(sv.substr(0, split));
+        Fraction _b = Fraction(sv.substr(split + 1));
+        *this = _a / _b;
+      } else {
+        *this = Fraction(std::stoll(std::string(sv)));
+      }
+    }
+  }
 
-  Fraction(ull _a, ull _b) { *this = std::make_pair(_a, _b); }
+  Fraction(ll _a, ll _b = 1) { *this = std::make_pair(_a, _b); }
+
+  Fraction(ull _a, ull _b = 1) { *this = std::make_pair(_a, _b); }
 
   // ==================== 赋值运算符 ====================
 
@@ -167,6 +197,11 @@ public:
     return *this;
   }
 
+  Fraction &operator^=(const Integer &exp) {
+    *this = this->pow(exp);
+    return *this;
+  }
+
   // ==================== 幂运算 ====================
 
   // 幂运算：指数为 Integer，返回 Fraction（实现在 Integer 类之后）
@@ -233,6 +268,19 @@ private:
     ull divisor = gcd(a, b);
     a /= divisor;
     b /= divisor;
+  }
+
+  // 找匹配的右花括号（从 start 位置的 { 开始，按嵌套深度匹配）
+  static size_t findMatchingBrace(std::string_view sv, size_t start) {
+    int depth = 0;
+    for (size_t i = start; i < sv.size(); ++i) {
+      if (sv[i] == '{') ++depth;
+      else if (sv[i] == '}') {
+        --depth;
+        if (depth == 0) return i;
+      }
+    }
+    return std::string_view::npos;
   }
 
   static inline ull abs(ll _val) { return _val < 0 ? static_cast<ull>(-_val) : static_cast<ull>(_val); }
@@ -395,6 +443,15 @@ public:
     return *this;
   }
 
+  Integer &operator^=(const Integer &exp) {
+    Fraction result = this->pow(exp);
+    if (result.getDenominator() != 1) {
+      throw std::domain_error("指数运算结果不是整数");
+    }
+    *this = Integer(result.getNumerator());
+    return *this;
+  }
+
   // ==================== 自增自减运算符 ====================
 
   Integer &operator++() {
@@ -487,6 +544,19 @@ private:
 
   // ==================== 私有辅助方法 ====================
 
+  // 找匹配的右花括号（从 start 位置的 { 开始，按嵌套深度匹配）
+  static size_t findMatchingBrace(std::string_view sv, size_t start) {
+    int depth = 0;
+    for (size_t i = start; i < sv.size(); ++i) {
+      if (sv[i] == '{') ++depth;
+      else if (sv[i] == '}') {
+        --depth;
+        if (depth == 0) return i;
+      }
+    }
+    return std::string_view::npos;
+  }
+
   static inline ull abs(ll _val) { return _val < 0 ? static_cast<ull>(-_val) : static_cast<ull>(_val); }
 }; // INTEGER
 
@@ -547,6 +617,16 @@ inline Fraction Fraction::pow(const Integer &exp) const {
     ll finalNum = resultSign ? -static_cast<ll>(resultDen) : static_cast<ll>(resultDen);
     return Fraction(finalNum, static_cast<ll>(resultNum));
   }
+}
+
+// ==================== 幂运算符 ^ ====================
+
+inline Fraction operator^(const Integer &base, const Integer &exp) {
+  return base.pow(exp);
+}
+
+inline Fraction operator^(const Fraction &base, const Integer &exp) {
+  return base.pow(exp);
 }
 
 #endif // NUMBERS_HPP
