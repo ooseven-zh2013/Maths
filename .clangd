@@ -38,8 +38,3 @@ InlayHints:
 # 代码补全设置部分 - 控制自动补全行为
 Completion:
   AllScopes: true        # 启用所有作用域的代码补全，包括私有成员
- 
-# 语义标记设置部分 - 改进语法高亮
-# SemanticTokens:
-#   DisabledKinds: ["Macro"] # 禁用宏的特殊语法高亮
-#   DisabledModifiers: ["Static"] # 禁用static等修饰符的特殊标记
