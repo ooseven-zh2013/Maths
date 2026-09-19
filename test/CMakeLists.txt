@@ -1,56 +1,30 @@
-# CMake test targets for Maths
+# Maths 测试目标定义
 
-cmake_minimum_required(VERSION 3.15)
+# 注册一个测试可执行文件
+# 参数 relative_source_path：相对本目录的源文件路径
+# 目标名由「子目录名_文件名」组成，例如 integer/arithmetic.cpp -> integer_arithmetic
+function(maths_add_test relative_source_path)
+  get_filename_component(name ${relative_source_path} NAME_WE)
+  get_filename_component(dir ${relative_source_path} DIRECTORY)
+  get_filename_component(dirname ${dir} NAME)
+  set(target_name ${dirname}_${name})
 
-include(GNUInstallDirs)
+  add_executable(${target_name} ${relative_source_path})
+  target_link_libraries(${target_name} PRIVATE Maths::Maths maths_warnings)
+  target_include_directories(${target_name} PRIVATE ${CMAKE_CURRENT_LIST_DIR})
+  add_test(NAME ${target_name} COMMAND ${target_name})
+endfunction()
 
-set(TEST_SOURCES_INT
+set(TEST_SOURCES
   integer/arithmetic.cpp
   integer/compare.cpp
   integer/edge_cases.cpp
-)
-
-set(TEST_SOURCES_FRAC
   fraction/arithmetic.cpp
   fraction/compare_more.cpp
   fraction/io_tests.cpp
-)
-
-set(TEST_SOURCES_ALG
   algebraic/variable_tests.cpp
 )
 
-foreach(src IN LISTS TEST_SOURCES_INT)
-  get_filename_component(name ${src} NAME_WE)
-  get_filename_component(dir ${src} DIRECTORY)
-  get_filename_component(dirname ${dir} NAME)
-  set(target_name ${dirname}_${name})
-  add_executable(${target_name} ${src})
-  target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/include)
-  add_test(NAME ${target_name} COMMAND ${CMAKE_COMMAND} -E env "LC_ALL=C.UTF-8" $<TARGET_FILE:${target_name}>)
-endforeach()
-
-foreach(src IN LISTS TEST_SOURCES_FRAC)
-  get_filename_component(name ${src} NAME_WE)
-  get_filename_component(dir ${src} DIRECTORY)
-  get_filename_component(dirname ${dir} NAME)
-  set(target_name ${dirname}_${name})
-  add_executable(${target_name} ${src})
-  target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/include)
-  # some fraction tests expect stdin; wrap with /bin/sh -c to provide input where needed
-  if(name STREQUAL "arithmetic")
-    add_test(NAME ${target_name} COMMAND /bin/sh -c "printf '3/4\n' | $<TARGET_FILE:${target_name}>")
-  else()
-    add_test(NAME ${target_name} COMMAND $<TARGET_FILE:${target_name}>)
-  endif()
-endforeach()
-
-foreach(src IN LISTS TEST_SOURCES_ALG)
-  get_filename_component(name ${src} NAME_WE)
-  get_filename_component(dir ${src} DIRECTORY)
-  get_filename_component(dirname ${dir} NAME)
-  set(target_name ${dirname}_${name})
-  add_executable(${target_name} ${src})
-  target_include_directories(${target_name} PRIVATE ${PROJECT_SOURCE_DIR}/include)
-  add_test(NAME ${target_name} COMMAND $<TARGET_FILE:${target_name}>)
+foreach(src IN LISTS TEST_SOURCES)
+  maths_add_test(${src})
 endforeach()

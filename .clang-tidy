@@ -1,0 +1,20 @@
+---
+# 静态检查规则，供 clang-tidy CLI 与 CI 使用。
+# .clangd 的 ClangTidy 段负责编辑器内的实时诊断，检查集与之基本一致，差异见下方注释。
+Checks: >
+  bugprone-*,
+  performance-*,
+  readability-container-size-empty,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-exception-escape,
+  -readability-implicit-bool-conversion
+
+# 说明：
+#   bugprone-exception-escape —— 测试的 main 允许抛异常，且本库以异常报告错误
+#   readability-implicit-bool-conversion —— 对 sign 这类布尔标志的隐式转换、
+#     以及 bool <=> bool 触发的整型提升过度敏感，噪音大于收益
+WarningsAsErrors: ''
+
+HeaderFilterRegex: '.*[\\/](include|test)[\\/].*'
+
+FormatStyle: file

@@ -5,7 +5,9 @@
 #include <cctype>
 #include <compare>
 #include <map>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "numbers.hpp"

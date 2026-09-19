@@ -1,4 +1,4 @@
-name: CI - Build and Test
+name: CI
 
 on:
   push:
@@ -6,21 +6,73 @@ on:
 
 jobs:
   build-and-test:
+    name: build-and-test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux / macOS 走严格模式：编译告警即失败
+          - os: ubuntu-latest
+            strict: "ON"
+          - os: macos-latest
+            strict: "ON"
+          # Windows 用 MSVC 默认生成器，先只验证可移植性与测试通过
+          - os: windows-latest
+            strict: "OFF"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure (Ninja)
+        if: runner.os != 'Windows'
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMATHS_WARNINGS_AS_ERRORS=${{ matrix.strict }}
+
+      - name: Configure (MSVC)
+        if: runner.os == 'Windows'
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DMATHS_WARNINGS_AS_ERRORS=${{ matrix.strict }}
+
+      - name: Build
+        run: cmake --build build --config Debug
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure -C Debug
+
+  format:
+    name: clang-format
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      # 版本需与本地开发环境一致，否则同一份代码会得出不同结论
+      - name: Install clang-format
+        run: pip install "clang-format==23.1.1"
+
+      - name: Check formatting
+        run: |
+          files=$(find include test -type f \( -name '*.hpp' -o -name '*.cpp' \))
+          clang-format --dry-run --Werror $files
+
+  static-analysis:
+    name: clang-tidy
+    runs-on: ubuntu-latest
+    # 发行版自带的 clang-tidy 版本随镜像变动，与本地开发环境不一定一致，
+    # 故先只输出报告、不阻塞合并；确认结论稳定后可去掉 continue-on-error。
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang-tidy
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build
+          sudo apt-get install -y clang-tidy ninja-build cmake
 
-      - name: Configure (Ninja)
-        run: cmake -S . -B build -G Ninja
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
-      - name: Build
-        run: cmake --build build -- -j 2
-
-      - name: Run tests
-        run: cmake --build build --target test -- -j 2
+      - name: Run clang-tidy
+        run: |
+          files=$(find test -name '*.cpp')
+          clang-tidy -p build $files

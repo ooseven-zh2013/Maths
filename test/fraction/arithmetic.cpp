@@ -1,120 +1,165 @@
+#include "check.hpp"
 #include "numbers.hpp"
 #include <iostream>
+#include <sstream>
+#include <string>
 
 int main() {
-  std::cout << "=== Fraction 类功能测试 ===" << '\n' << '\n';
+  std::cout << "=== Fraction 功能测试 ===" << '\n';
 
-  // 1. 基本构造和赋值
-  std::cout << "1. 构造和赋值测试:" << '\n';
-  Fraction a(3LL, 4LL);  // 3/4
-  Fraction b(-2LL, 5LL); // -2/5
-  Fraction c(6LL, 1LL);  // 6 (整数形式)
-  std::cout << "a = " << a << ", b = " << b << ", c = " << c << '\n' << '\n';
+  // 1. 构造与约分
+  {
+    const Fraction a(3, 4); // 原生 int 字面量也应可用（构造无歧义）
+    CHECK_EQ(a.getNumerator(), 3LL);
+    CHECK_EQ(a.getDenominator(), 4LL);
+    CHECK_TRUE(!a.isNegative());
 
-  // 2. 算术运算
-  std::cout << "2. 算术运算测试:" << '\n';
-  std::cout << a << " + " << b << " = " << (a + b) << '\n';
-  std::cout << a << " - " << b << " = " << (a - b) << '\n';
-  std::cout << a << " * " << b << " = " << (a * b) << '\n';
-  std::cout << a << " / " << b << " = " << (a / b) << '\n' << '\n';
+    const Fraction reduced(2, 4); // 应约分为 1/2
+    CHECK_EQ(reduced.getNumerator(), 1LL);
+    CHECK_EQ(reduced.getDenominator(), 2LL);
 
-  // 3. 复合赋值运算
-  std::cout << "3. 复合赋值运算测试:" << '\n';
-  Fraction d(1LL, 2LL);    // 1/2
-  d += Fraction(1LL, 3LL); // 1/2 + 1/3 = 5/6
-  std::cout << "d += 1/3: d = " << d << '\n';
-  d -= Fraction(1LL, 6LL); // 5/6 - 1/6 = 4/6 = 2/3
-  std::cout << "d -= 1/6: d = " << d << '\n';
-  d *= Fraction(3LL, 4LL); // 2/3 * 3/4 = 6/12 = 1/2
-  std::cout << "d *= 3/4: d = " << d << '\n';
-  d /= Fraction(1LL, 4LL); // 1/2 ÷ 1/4 = 2
-  std::cout << "d /= 1/4: d = " << d << '\n' << '\n';
+    const Fraction doubleNegative(-2, -4); // 双负号相消为正
+    CHECK_EQ(doubleNegative.getNumerator(), 1LL);
+    CHECK_EQ(doubleNegative.getDenominator(), 2LL);
+    CHECK_TRUE(!doubleNegative.isNegative());
+
+    const Fraction integral(6, 3); // 应约分为 2/1
+    CHECK_EQ(integral.getNumerator(), 2LL);
+    CHECK_EQ(integral.getDenominator(), 1LL);
+
+    const Fraction zero(0, 5); // 零应规范化为 0/1 且非负
+    CHECK_EQ(zero.getNumerator(), 0LL);
+    CHECK_EQ(zero.getDenominator(), 1LL);
+    CHECK_TRUE(!zero.isNegative());
+
+    const Fraction unsignedPair(3ULL, 4ULL);
+    CHECK_EQ(unsignedPair.getNumerator(), 3LL);
+    CHECK_TRUE(!unsignedPair.isNegative());
+  }
+
+  // 2. 四则运算
+  {
+    const Fraction a(3, 4);
+    const Fraction b(-2, 5);
+
+    CHECK_EQ(a + b, Fraction(7, 20));
+    CHECK_EQ(a - b, Fraction(23, 20));
+    CHECK_EQ(a * b, Fraction(-3, 10));
+    CHECK_EQ(a / b, Fraction(-15, 8));
+  }
+
+  // 3. 复合赋值
+  {
+    Fraction d(1, 2);
+    d += Fraction(1, 3);
+    CHECK_EQ(d, Fraction(5, 6));
+    d -= Fraction(1, 6);
+    CHECK_EQ(d, Fraction(2, 3));
+    d *= Fraction(3, 4);
+    CHECK_EQ(d, Fraction(1, 2));
+    d /= Fraction(1, 4);
+    CHECK_EQ(d, Fraction(2, 1));
+  }
 
   // 4. 比较运算
-  std::cout << "4. 比较运算测试:" << '\n';
-  Fraction e(1LL, 2LL); // 1/2
-  Fraction f(2LL, 3LL); // 2/3
-  std::cout << e << " < " << f << ": " << (e < f) << " (应该是 1)" << '\n';
-  std::cout << e << " > " << f << ": " << (e > f) << " (应该是 0)" << '\n';
-  std::cout << e << " == " << Fraction(2LL, 4LL) << ": " << (e == Fraction(2LL, 4LL)) << " (应该是 1)" << '\n';
-  std::cout << e << " == 0: " << (e == 0LL) << " (应该是 0)" << '\n';
-  std::cout << e << " == 1: " << (e == 1LL) << " (应该是 0)" << '\n' << '\n';
+  {
+    const Fraction half(1, 2);
+    const Fraction twoThirds(2, 3);
+    CHECK_TRUE(half < twoThirds);
+    CHECK_TRUE(twoThirds > half);
+    CHECK_TRUE(half == Fraction(2, 4));
+    CHECK_TRUE(half <= Fraction(1, 2));
+    CHECK_TRUE(half >= Fraction(1, 2));
+    CHECK_TRUE(half != Fraction(1, 3));
+    CHECK_TRUE(!(half == 0LL));
+    CHECK_TRUE(!(half == 1LL));
 
-  // 5. 负数运算
-  std::cout << "5. 负数运算测试:" << '\n';
-  Fraction g(-3LL, 4LL); // -3/4
-  Fraction h(1LL, 2LL);  // 1/2
-  std::cout << g << " + " << h << " = " << (g + h) << " (应该是 -1/4)" << '\n';
-  std::cout << "-" << g << " = " << (-g) << " (应该是 3/4)" << '\n';
-  std::cout << g << " * " << h << " = " << (g * h) << " (应该是 -3/8)" << '\n' << '\n';
+    // 负数比较
+    const Fraction negHalf(-1, 2);
+    const Fraction negTwoThirds(-2, 3);
+    CHECK_TRUE(negHalf > negTwoThirds); // -1/2 > -2/3
+    CHECK_TRUE(negHalf < half);
+    CHECK_TRUE(negHalf < Fraction(0, 1));
+    CHECK_TRUE(negHalf == Fraction(-2, 4));
+  }
+
+  // 5. 取反与符号
+  {
+    const Fraction g(-3, 4);
+    CHECK_EQ(g + Fraction(1, 2), Fraction(-1, 4));
+    CHECK_EQ(-g, Fraction(3, 4));
+    CHECK_EQ(g * Fraction(1, 2), Fraction(-3, 8));
+    CHECK_TRUE(g.isNegative());
+  }
 
   // 6. 幂运算（正指数）
-  std::cout << "6. 幂运算测试（正指数）:" << '\n';
-  Fraction base1(2LL, 3LL); // 2/3
-  Integer exp1(3LL);        // 3
-  Fraction result1 = base1.pow(exp1);
-  std::cout << "(" << base1 << ")^" << exp1 << " = " << result1 << " (应该是 8/27)" << '\n';
-
-  Fraction base2(-1LL, 2LL); // -1/2
-  Integer exp2(4LL);         // 4
-  Fraction result2 = base2.pow(exp2);
-  std::cout << "(" << base2 << ")^" << exp2 << " = " << result2 << " (应该是 1/16)" << '\n';
-
-  Fraction base3(-2LL, 3LL); // -2/3
-  Integer exp3(3LL);         // 3
-  Fraction result3 = base3.pow(exp3);
-  std::cout << "(" << base3 << ")^" << exp3 << " = " << result3 << " (应该是 -8/27)" << '\n' << '\n';
+  {
+    CHECK_EQ(Fraction(2, 3).pow(Integer(3LL)), Fraction(8, 27));
+    CHECK_EQ(Fraction(-1, 2).pow(Integer(4LL)), Fraction(1, 16));
+    CHECK_EQ(Fraction(-2, 3).pow(Integer(3LL)), Fraction(-8, 27));
+    CHECK_EQ((Fraction(2, 3) ^ Integer(3LL)), Fraction(8, 27));
+  }
 
   // 7. 幂运算（负指数）
-  std::cout << "7. 幂运算测试（负指数）:" << '\n';
-  Fraction base4(2LL, 3LL); // 2/3
-  Integer exp4(-2LL);       // -2
-  Fraction result4 = base4.pow(exp4);
-  std::cout << "(" << base4 << ")^" << exp4 << " = " << result4 << " (应该是 9/4)" << '\n';
-
-  Fraction base5(-1LL, 2LL); // -1/2
-  Integer exp5(-3LL);        // -3
-  Fraction result5 = base5.pow(exp5);
-  std::cout << "(" << base5 << ")^" << exp5 << " = " << result5 << " (应该是 -8)" << '\n' << '\n';
-
-  // 8. 幂运算（零指数）
-  std::cout << "8. 幂运算测试（零指数）:" << '\n';
-  Fraction base6(123LL, 456LL);
-  Integer exp6(0LL);
-  Fraction result6 = base6.pow(exp6);
-  std::cout << "(" << base6 << ")^" << exp6 << " = " << result6 << " (应该是 1)" << '\n' << '\n';
-
-  // 9. 边界情况
-  std::cout << "9. 边界情况测试:" << '\n';
-  Fraction zero(0LL, 1LL);
-  Integer exp_pos(5LL);
-  Fraction result_zero = zero.pow(exp_pos);
-  std::cout << "0^" << exp_pos << " = " << result_zero << " (应该是 0)" << '\n';
-
-  try {
-    Integer exp_neg(-2LL);
-    Fraction result_err = zero.pow(exp_neg);
-    std::cout << "错误：应该抛出异常！" << '\n';
-  } catch (const std::domain_error &e) {
-    std::cout << "正确捕获异常: " << e.what() << '\n';
+  {
+    CHECK_EQ(Fraction(2, 3).pow(Integer(-2LL)), Fraction(9, 4));
+    CHECK_EQ(Fraction(-1, 2).pow(Integer(-3LL)), Fraction(-8, 1));
   }
-  std::cout << '\n';
+
+  // 8. 幂运算（零指数与零底数）
+  {
+    CHECK_EQ(Fraction(123, 456).pow(Integer(0LL)), Fraction(1, 1));
+    CHECK_EQ(Fraction(0, 1).pow(Integer(5LL)), Fraction(0, 1));
+    CHECK_THROWS(Fraction(0, 1).pow(Integer(-2LL)), std::domain_error);
+  }
+
+  // 9. 除零
+  {
+    CHECK_THROWS(Fraction(1, 2) / Fraction(0, 1), std::domain_error);
+    CHECK_THROWS(Fraction(1LL, 0LL), std::domain_error);
+  }
 
   // 10. 转换为 double
-  std::cout << "10. 转换为 double 测试:" << '\n';
-  Fraction dblTest(1LL, 3LL);
-  double dblVal = static_cast<double>(dblTest);
-  std::cout << dblTest << " = " << dblVal << " (应该是 0.333...)" << '\n';
-  Fraction negDbl(-3LL, 4LL);
-  double negDblVal = static_cast<double>(negDbl);
-  std::cout << negDbl << " = " << negDblVal << " (应该是 -0.75)" << '\n' << '\n';
+  {
+    const double third = static_cast<double>(Fraction(1, 3));
+    CHECK_TRUE(third > 0.333 && third < 0.334);
+    CHECK_EQ(static_cast<double>(Fraction(-3, 4)), -0.75);
+    CHECK_EQ(static_cast<double>(Fraction(1, 2)), 0.5);
+  }
 
   // 11. 流输入输出
-  std::cout << "11. 流输入测试（请输入一个分数，如 3/4 或 5）:" << '\n';
-  Fraction input;
-  std::cin >> input;
-  std::cout << "你输入的是: " << input << '\n' << '\n';
+  {
+    std::stringstream ss;
+    ss << "3/4";
+    Fraction fromSlash;
+    ss >> fromSlash;
+    CHECK_EQ(fromSlash, Fraction(3, 4));
 
-  std::cout << "=== 测试完成 ===" << '\n';
-  return 0;
+    std::stringstream ss2;
+    ss2 << "5";
+    Fraction fromInt;
+    ss2 >> fromInt;
+    CHECK_EQ(fromInt, Fraction(5, 1));
+
+    std::ostringstream os;
+    os << Fraction(-3, 4);
+    CHECK_EQ(os.str(), std::string("-3/4"));
+
+    std::ostringstream os2;
+    os2 << Fraction(6, 3);
+    CHECK_EQ(os2.str(), std::string("2")); // 分母为 1 时按整数输出
+  }
+
+  // 12. LaTeX 风格字符串构造
+  {
+    CHECK_EQ(Fraction(std::string_view("\\frac{1}{2}")), Fraction(1, 2));
+    CHECK_EQ(Fraction(std::string_view("\\frac{3}{6}")), Fraction(1, 2));
+    CHECK_EQ(Fraction(std::string_view("\\frac{-3}{6}")), Fraction(-1, 2));
+    CHECK_EQ(Fraction(std::string_view("\\frac{\\frac{1}{2}}{3}")), Fraction(1, 6));
+    CHECK_EQ(Fraction(std::string_view("\\frac{1}{2}/3")), Fraction(1, 6));
+    CHECK_EQ(Fraction(std::string_view("6/3/2")), Fraction(1, 1)); // 左结合：(6/3)/2
+    CHECK_THROWS(Fraction(std::string_view("\\frac{1}{")), std::invalid_argument);
+  }
+
+  TEST_SUMMARY();
 }

@@ -2,8 +2,12 @@
 #ifndef NUMBERS_HPP
 #define NUMBERS_HPP
 #include <compare>
+#include <concepts>
 #include <iostream>
 #include <stdexcept>
+#include <string>
+#include <string_view>
+#include <type_traits>
 #include <utility>
 
 class Integer; // 前向声明
@@ -12,6 +16,14 @@ class Fraction {
 public:
   using ll = long long;
   using ull = unsigned long long;
+
+#if defined(__SIZEOF_INT128__)
+  // 交叉相乘等中间计算使用的更宽类型（GCC/Clang 扩展），避免比较时溢出。
+  // __extension__ 用于抑制 -Wpedantic 对扩展整型的告警。
+  __extension__ using wide = unsigned __int128;
+#else
+  using wide = ull;
+#endif
 
   // ==================== 构造函数 ====================
 
@@ -41,7 +53,7 @@ public:
         *this = fracResult / Fraction(sv.substr(denEnd + 2));
       }
     } else {
-          size_t split = sv.rfind('/');
+      size_t split = sv.rfind('/');
       if (split != std::string_view::npos) {
         Fraction _a = Fraction(sv.substr(0, split));
         Fraction _b = Fraction(sv.substr(split + 1));
@@ -52,9 +64,8 @@ public:
     }
   }
 
-  Fraction(ll _a, ll _b = 1) { *this = std::make_pair(_a, _b); }
-
-  Fraction(ull _a, ull _b = 1) { *this = std::make_pair(_a, _b); }
+  // 统一整型构造：单一模板，避免 (ll,ll) 与 (ull,ull) 双重载在 int 字面量上产生歧义
+  template <std::integral T, std::integral U = T> Fraction(T _a, U _b = U{1}) { setParts(_a, _b); }
 
   // ==================== 赋值运算符 ====================
 
@@ -107,8 +118,9 @@ public:
 
   std::strong_ordering operator<=>(const Fraction &_val) const {
     // 交叉相乘比较：a/b <=> c/d 等价于 a*d <=> c*b
-    ull left = a * _val.b;
-    ull right = _val.a * b;
+    // 中间结果提升到 wide，避免大数比较时溢出
+    const wide left = static_cast<wide>(a) * static_cast<wide>(_val.b);
+    const wide right = static_cast<wide>(_val.a) * static_cast<wide>(b);
 
     if (sign != _val.isNegative()) {
       // 一正一负
@@ -117,11 +129,10 @@ public:
 
     if (sign) {
       // 同负：反转比较结果
-      return right <=> left;
-    } else {
-      // 同正
-      return left <=> right;
+      return threeWay(right, left);
     }
+    // 同正
+    return threeWay(left, right);
   }
 
   std::strong_ordering operator<=>(ll _val) const { return *this <=> Fraction(_val, 1LL); }
@@ -133,7 +144,9 @@ public:
 
   Fraction operator-() const {
     Fraction res(*this);
-    res.sign ^= 1;
+    if (res.a != 0) { // 零取反后仍是规范零，避免输出 "-0"
+      res.sign ^= 1;
+    }
     return res;
   }
 
@@ -245,6 +258,45 @@ private:
 
   // ==================== 私有辅助方法 ====================
 
+  // 三路比较（不依赖扩展整型的 operator<=>）
+  static inline std::strong_ordering threeWay(wide x, wide y) {
+    if (x < y) {
+      return std::strong_ordering::less;
+    }
+    if (x > y) {
+      return std::strong_ordering::greater;
+    }
+    return std::strong_ordering::equal;
+  }
+
+  // 判定整型是否为负（无符号恒为非负）
+  template <std::integral T> static constexpr bool isNegativeValue(T _val) {
+    if constexpr (std::is_signed_v<T>) {
+      return _val < T{0};
+    } else {
+      return false;
+    }
+  }
+
+  // 取整型绝对值：走无符号回绕，规避最小值取负的未定义行为
+  template <std::integral T> static constexpr ull magnitude(T _val) {
+    if constexpr (std::is_signed_v<T>) {
+      if (_val < T{0}) {
+        using U = std::make_unsigned_t<T>;
+        return static_cast<ull>(static_cast<U>(0) - static_cast<U>(_val));
+      }
+    }
+    return static_cast<ull>(_val);
+  }
+
+  // 由整型对设置数值（符号-绝对值表示）
+  template <std::integral T, std::integral U> void setParts(T _a, U _b) {
+    a = magnitude(_a);
+    b = magnitude(_b);
+    sign = isNegativeValue(_a) ^ isNegativeValue(_b);
+    simplify();
+  }
+
   // 计算最大公约数
   static inline ull gcd(ull x, ull y) {
     while (y != 0) {
@@ -274,16 +326,21 @@ private:
   static size_t findMatchingBrace(std::string_view sv, size_t start) {
     int depth = 0;
     for (size_t i = start; i < sv.size(); ++i) {
-      if (sv[i] == '{') ++depth;
+      if (sv[i] == '{')
+        ++depth;
       else if (sv[i] == '}') {
         --depth;
-        if (depth == 0) return i;
+        if (depth == 0)
+          return i;
       }
     }
     return std::string_view::npos;
   }
 
-  static inline ull abs(ll _val) { return _val < 0 ? static_cast<ull>(-_val) : static_cast<ull>(_val); }
+  // 取 ll 绝对值：走无符号回绕，规避 LLONG_MIN 取负的未定义行为
+  static inline ull abs(ll _val) {
+    return _val < 0 ? static_cast<ull>(0) - static_cast<ull>(_val) : static_cast<ull>(_val);
+  }
 };
 class Integer {
 public:
@@ -358,6 +415,11 @@ public:
       // 一正一负
       return _val.isNegative() <=> sign;
     }
+    if (sign) {
+      // 同负：绝对值大的反而小
+      return _val.getAbs() <=> val;
+    }
+    // 同正
     return val <=> _val.getAbs();
   }
 
@@ -369,7 +431,9 @@ public:
 
   Integer operator-() const {
     Integer res(*this);
-    res.sign ^= 1;
+    if (res.val != 0) { // 零取反后仍是规范零，避免输出 "-0"
+      res.sign ^= 1;
+    }
     return res;
   }
 
@@ -530,9 +594,9 @@ public:
   }
 
   friend std::istream &operator>>(std::istream &is, Integer &num) {
-    ll val;
-    is >> val;
-    num = val;
+    ll parsed;
+    is >> parsed;
+    num = parsed;
     return is;
   }
 
@@ -548,16 +612,21 @@ private:
   static size_t findMatchingBrace(std::string_view sv, size_t start) {
     int depth = 0;
     for (size_t i = start; i < sv.size(); ++i) {
-      if (sv[i] == '{') ++depth;
+      if (sv[i] == '{')
+        ++depth;
       else if (sv[i] == '}') {
         --depth;
-        if (depth == 0) return i;
+        if (depth == 0)
+          return i;
       }
     }
     return std::string_view::npos;
   }
 
-  static inline ull abs(ll _val) { return _val < 0 ? static_cast<ull>(-_val) : static_cast<ull>(_val); }
+  // 取 ll 绝对值：走无符号回绕，规避 LLONG_MIN 取负的未定义行为
+  static inline ull abs(ll _val) {
+    return _val < 0 ? static_cast<ull>(0) - static_cast<ull>(_val) : static_cast<ull>(_val);
+  }
 }; // INTEGER
 
 // Fraction::pow 的实现（在 Integer 类定义之后）
@@ -621,12 +690,8 @@ inline Fraction Fraction::pow(const Integer &exp) const {
 
 // ==================== 幂运算符 ^ ====================
 
-inline Fraction operator^(const Integer &base, const Integer &exp) {
-  return base.pow(exp);
-}
+inline Fraction operator^(const Integer &base, const Integer &exp) { return base.pow(exp); }
 
-inline Fraction operator^(const Fraction &base, const Integer &exp) {
-  return base.pow(exp);
-}
+inline Fraction operator^(const Fraction &base, const Integer &exp) { return base.pow(exp); }
 
 #endif // NUMBERS_HPP

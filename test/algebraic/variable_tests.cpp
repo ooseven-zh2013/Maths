@@ -1,74 +1,73 @@
 #include "algebraic_expression.hpp"
-#include <cassert>
+#include "check.hpp"
 #include <iostream>
+#include <string>
 
 int main() {
-  using namespace std;
+  std::cout << "=== Variable 名称解析测试 ===" << '\n';
 
-  // 简单变量
-  Variable v1("a");
-  assert(v1.str() == "a");
-
-  // 带下标的变量（单个索引，无大括号）
-  Variable v2("a_b");
-  assert(v2.str() == "a_b");
-
-  // 带数字索引：a_1
-  Variable v2b("a_1");
-  assert(v2b.str() == "a_1");
-
-  // 带大括号单索引：输入 a_{x}，输出为 a_x
-  Variable v3("a_{x}");
-  assert(v3.str() == "a_x");
-
-  // 多重索引：a_{x,b_c}
-  Variable v4("a_{x,b_c}");
-  assert(v4.str() == string("a_{x,b_c}"));
-
-  // 单个索引但索引本身带下标：a_{b_c}
-  Variable v5("a_{b_c}");
-  assert(v5.str() == string("a_{b_c}"));
-
-  // 非法名字
-
-  bool threw = false;
-  try {
-    Variable v6("1a");
-  } catch (const std::invalid_argument &) {
-    threw = true;
+  // 1. 简单变量
+  {
+    CHECK_EQ(Variable("a").str(), std::string("a"));
+    CHECK_EQ(Variable("alpha").str(), std::string("alpha"));
   }
-  assert(threw);
 
-  try {
-    Variable v7("114_a");
-  } catch (const std::invalid_argument &) {
-    threw = true;
+  // 2. 单字符下标（不带大括号）
+  {
+    CHECK_EQ(Variable("a_b").str(), std::string("a_b"));
+    CHECK_EQ(Variable("a_1").str(), std::string("a_1"));
   }
-  assert(threw);
 
-  try {
-    Variable v8("");
-  } catch (const std::invalid_argument &) {
-    threw = true;
+  // 3. 大括号单下标：a_{x} 规范化为 a_x
+  {
+    CHECK_EQ(Variable("a_{x}").str(), std::string("a_x"));
   }
-  assert(threw);
 
-  try {
-    Variable v9(".");
-  } catch (const std::invalid_argument &) {
-    threw = true;
+  // 4. 多重下标
+  {
+    CHECK_EQ(Variable("a_{x,b_c}").str(), std::string("a_{x,b_c}"));
+    CHECK_EQ(Variable("a_{1,2}").str(), std::string("a_{1,2}"));
   }
-  assert(threw);
 
-  // 无大括号索引必须为单个字符：a_bc 非法
-  threw = false;
-  try {
-    Variable v10("a_bc");
-  } catch (const std::invalid_argument &) {
-    threw = true;
+  // 5. 单下标本身带下标时保留大括号
+  {
+    CHECK_EQ(Variable("a_{b_c}").str(), std::string("a_{b_c}"));
   }
-  assert(threw);
 
-  cout << "variable_tests: PASS\n";
-  return 0;
+  // 6. hasIndex
+  {
+    CHECK_TRUE(!Variable("a").hasIndex());
+    CHECK_TRUE(Variable("a_b").hasIndex());
+    CHECK_TRUE(Variable("a_{x,b}").hasIndex());
+  }
+
+  // 7. 比较
+  {
+    CHECK_TRUE(Variable("a") < Variable("b"));
+    CHECK_TRUE(Variable("a_b") == Variable("a_b"));
+    CHECK_TRUE(Variable("a_b") != Variable("a_c"));
+    CHECK_TRUE(Variable("a") < Variable("a_b")); // 同名时无下标者更小
+    CHECK_TRUE(Variable("a_{b}") == Variable("a_b"));
+  }
+
+  // 8. 非法名称
+  {
+    CHECK_THROWS(Variable("1a"), std::invalid_argument);
+    CHECK_THROWS(Variable("114_a"), std::invalid_argument);
+    CHECK_THROWS(Variable(""), std::invalid_argument);
+    CHECK_THROWS(Variable("."), std::invalid_argument);
+    CHECK_THROWS(Variable("a_bc"), std::invalid_argument); // 无大括号下标必须为单个字符
+    CHECK_THROWS(Variable("a_"), std::invalid_argument);
+    CHECK_THROWS(Variable("abc_"), std::invalid_argument);
+  }
+
+  // 9. Name 基础行为
+  {
+    CHECK_EQ(Name("abc").str(), std::string("abc"));
+    CHECK_THROWS(Name("a1"), std::invalid_argument); // 不能字母数字混合
+    CHECK_THROWS(Name(""), std::invalid_argument);
+    CHECK_TRUE(Name("a") < Name("b"));
+  }
+
+  TEST_SUMMARY();
 }

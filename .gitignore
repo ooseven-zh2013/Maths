@@ -1,16 +1,38 @@
 # 编译输出
 build/
 output/
+out/
+cmake-build-*/
 /test_*
 *.o
 *.out
 core
+
+# 本地 / 用户专属配置（常含本机绝对路径，不宜公开）
+CMakeUserPresets.json
+CMakeSettings.json
+*.user
+*.suo
+*.code-workspace
+.vs/
 
 # IDE / LSP 缓存
 .idea/
 .vscode/
 *.lingma/
 .cache/
+.fleet/
+.zed/
+
+# AI 助手工作目录（含会话记录与本地笔记，不入公开仓库）
+.workbuddy/
+.claude/
+.continue/
+.aider*
+
+# 密钥与环境变量
+.env
+.env.*
 
 # vim / editor swap
 *.swp
@@ -26,3 +48,8 @@ core
 # 代码索引
 tags
 TAGS
+
+# 操作系统杂项
+.DS_Store
+Thumbs.db
+desktop.ini
