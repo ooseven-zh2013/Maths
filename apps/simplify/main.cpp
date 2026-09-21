@@ -98,6 +98,12 @@ int main() {
       continue;
     }
 
+    // 左右两边都与式子无关时记录它没有意义（式子 2x 配上 s = v*t）
+    if (!isRelevantTo(expression, *assignment.unwrap())) {
+      std::cout << "  与式子无关，不记录\n";
+      continue;
+    }
+
     // 赋值可能被拒（右边含变量自身时属于方程，不支持）
     const Result<void> assigned = scope.assign(assignment.unwrap()->variable, assignment.unwrap()->value);
     if (assigned.isErr()) {

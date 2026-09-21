@@ -267,5 +267,22 @@ int main() {
     CHECK_ERR(parseExpression("{}"), MathsError::InvalidExpression);
   }
 
+  // 18. 约束与式子的相关性：两边都无关时不该记录
+  {
+    const Assignment sEqualsVt{Variable("s"), parseExpression("v*t").unwrap()};
+    const Assignment xEquals3{Variable("x"), parseExpression("3").unwrap()};
+
+    // 2x 配上 s = v*t：s 不在式子里，v*t 也不含 x → 无关
+    CHECK_TRUE(!isRelevantTo(parseExpression("2x").unwrap(), sEqualsVt));
+
+    // 2s 配上 s = v*t：左边 s 就在式子里 → 相关
+    CHECK_TRUE(isRelevantTo(parseExpression("2s").unwrap(), sEqualsVt));
+
+    // 2v 配上 s = v*t：右边含 v，代入后 v 会被继续展开 → 相关
+    CHECK_TRUE(isRelevantTo(parseExpression("2v").unwrap(), sEqualsVt));
+
+    CHECK_TRUE(isRelevantTo(parseExpression("2x").unwrap(), xEquals3));
+  }
+
   TEST_SUMMARY();
 }

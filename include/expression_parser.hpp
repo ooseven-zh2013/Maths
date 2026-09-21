@@ -498,4 +498,19 @@ inline Result<std::optional<Assignment>> parseAssignment(std::string_view text) 
   return std::unexpected(MathsError::InvalidExpression);
 }
 
+// 约束是否与式子相关：左边变量出现在式子里，或右边含式子里出现过的变量。
+// 两者都不成立时，这条约束对式子毫无影响，记录它没有意义
+// （例如式子 2x 配上 s = v*t：s、v、t 都不影响 2x）。
+inline bool isRelevantTo(const RationalFunction &expression, const Assignment &assignment) {
+  if (expression.containsVariable(assignment.variable)) {
+    return true; // 左边变量就在式子里，代入时会被替换
+  }
+  for (const Variable &variable : expression.variables()) {
+    if (assignment.value.containsVariable(variable)) {
+      return true; // 右边含式子的变量，代入后还会被继续展开
+    }
+  }
+  return false;
+}
+
 #endif // MATHS_EXPRESSION_PARSER_HPP

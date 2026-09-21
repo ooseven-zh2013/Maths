@@ -152,6 +152,22 @@ public:
     return numerator.containsVariable(variable) || denominator.containsVariable(variable);
   }
 
+  // 分子分母中出现的全部变量
+  std::set<Variable> variables() const {
+    std::set<Variable> result;
+    for (const auto &entry : numerator.getTerms()) {
+      for (const auto &factor : entry.first) {
+        result.insert(factor.first);
+      }
+    }
+    for (const auto &entry : denominator.getTerms()) {
+      for (const auto &factor : entry.first) {
+        result.insert(factor.first);
+      }
+    }
+    return result;
+  }
+
   const std::set<Variable> &discardedConstraints() const { return discarded; }
 
   bool isZero() const { return numerator.isZero(); }
