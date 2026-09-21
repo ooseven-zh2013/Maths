@@ -29,6 +29,7 @@ enum class MathsError {
   // 作用域
   UndefinedVariable,
   NotAnAssignment,
+  CircularReference,
 };
 
 inline std::string_view describe(MathsError error) {
@@ -57,6 +58,8 @@ inline std::string_view describe(MathsError error) {
     return "变量未定义";
   case MathsError::NotAnAssignment:
     return "右边含被赋值的变量本身，那是方程不是赋值";
+  case MathsError::CircularReference:
+    return "该赋值会形成循环引用";
   }
   return "未知错误";
 }

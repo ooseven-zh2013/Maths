@@ -172,7 +172,14 @@ int main() {
   {
     CHECK_ERR(parseAssignment("x"), MathsError::InvalidExpression);         // 缺少等号
     CHECK_ERR(parseAssignment("x + 1 = 2"), MathsError::InvalidExpression); // 需要解方程（左边不是变量）
-    CHECK_ERR(parseAssignment("x + 1 = y"), MathsError::InvalidExpression); // 同上，不能靠移项猜
+    // x + 1 = y 交换成 y = x + 1：y 单独在右边，直接读出，不需要解方程
+    const Result<std::optional<Assignment>> flipped = parseAssignment("x + 1 = y");
+    CHECK_OK(flipped);
+    CHECK_TRUE(flipped.unwrap().has_value());
+    if (flipped.unwrap()) {
+      CHECK_EQ(flipped.unwrap()->variable.str(), std::string("y"));
+      CHECK_EQ(flipped.unwrap()->value.latex(), std::string("x + 1"));
+    }
     CHECK_ERR(parseAssignment("f(x) = 2"), MathsError::InvalidExpression);  // 不是单纯变量
     CHECK_ERR(parseAssignment("x = 2 = 3"), MathsError::InvalidExpression); // 多个等号
     CHECK_ERR(parseAssignment("x = "), MathsError::InvalidExpression);
@@ -267,21 +274,66 @@ int main() {
     CHECK_ERR(parseExpression("{}"), MathsError::InvalidExpression);
   }
 
+  const Variable x("x");
+  const Variable s("s");
+  const Variable t("t");
+  const Variable v("v");
+
   // 18. 约束与式子的相关性：两边都无关时不该记录
   {
     const Assignment sEqualsVt{Variable("s"), parseExpression("v*t").unwrap()};
     const Assignment xEquals3{Variable("x"), parseExpression("3").unwrap()};
 
     // 2x 配上 s = v*t：s 不在式子里，v*t 也不含 x → 无关
-    CHECK_TRUE(!isRelevantTo(parseExpression("2x").unwrap(), sEqualsVt));
+    CHECK_TRUE(!isRelevantTo(parseExpression("2x").unwrap(), Scope(), sEqualsVt));
 
     // 2s 配上 s = v*t：左边 s 就在式子里 → 相关
-    CHECK_TRUE(isRelevantTo(parseExpression("2s").unwrap(), sEqualsVt));
+    CHECK_TRUE(isRelevantTo(parseExpression("2s").unwrap(), Scope(), sEqualsVt));
 
     // 2v 配上 s = v*t：右边含 v，代入后 v 会被继续展开 → 相关
-    CHECK_TRUE(isRelevantTo(parseExpression("2v").unwrap(), sEqualsVt));
+    CHECK_TRUE(isRelevantTo(parseExpression("2v").unwrap(), Scope(), sEqualsVt));
 
-    CHECK_TRUE(isRelevantTo(parseExpression("2x").unwrap(), xEquals3));
+    CHECK_TRUE(isRelevantTo(parseExpression("2x").unwrap(), Scope(), xEquals3));
+
+    // 19. 相关性要考虑已有绑定：x = s 之后，s = v*t 就与式子 2x 相关了
+    Scope bound;
+    CHECK_OK(bound.assign(x, parseExpression("s").unwrap()));
+    CHECK_TRUE(isRelevantTo(parseExpression("2x").unwrap(), bound, sEqualsVt));
+  }
+
+  // 20. 环检测：直接与间接的自引用都要拒绝
+  {
+    Scope scope;
+    CHECK_OK(scope.assign(s, parseExpression("v*t").unwrap()));
+    CHECK_ERR(scope.assign(s, parseExpression("2s").unwrap()), MathsError::NotAnAssignment); // 直接自引用
+    CHECK_OK(scope.assign(x, parseExpression("s").unwrap()));
+    CHECK_ERR(scope.assign(s, parseExpression("x").unwrap()), MathsError::CircularReference); // x → s → x
+    CHECK_ERR(scope.assign(t, parseExpression("t").unwrap()), MathsError::NotAnAssignment);
+  }
+
+  // 21. 表达式 = 变量：左边不含该变量即可交换
+  {
+    const Result<std::optional<Assignment>> swapped = parseAssignment("v*t = x");
+    CHECK_OK(swapped);
+    CHECK_TRUE(swapped.unwrap().has_value());
+    if (swapped.unwrap()) {
+      CHECK_EQ(swapped.unwrap()->variable.str(), std::string("x"));
+      CHECK_EQ(swapped.unwrap()->value.latex(), std::string("tv"));
+    }
+
+    // 左边含该变量时仍然是方程
+    CHECK_ERR(parseAssignment("x + 1 = x"), MathsError::InvalidExpression);
+  }
+
+  // 22. 多重替换的方向：t = v 表示「遇到 t 换成 v」，不会反向污染已展开的部分
+  {
+    Scope scope;
+    CHECK_OK(scope.assign(x, parseExpression("s*v").unwrap()));
+    CHECK_OK(scope.assign(s, parseExpression("2*v").unwrap()));
+    CHECK_OK(scope.assign(t, parseExpression("v").unwrap())); // t 不出现在 2x 的展开里
+
+    // 2x → 2*s*v → 2*(2v)*v = 4v^2，不会被 t = v 绕回去
+    CHECK_EQ(parseExpression("2x").unwrap().substitute(scope).unwrap().latex(), std::string("4v^{2}"));
   }
 
   TEST_SUMMARY();

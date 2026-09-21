@@ -489,9 +489,10 @@ inline Result<std::optional<Assignment>> parseAssignment(std::string_view text) 
     return std::optional<Assignment>{Assignment{*leftVariable, right}};
   }
 
-  // 表达式 = 变量：交换后同上。只在左侧是常数时才交换，
-  // 否则 x + 1 = y 这类需要移项的式子会被误当成 y 的赋值。
-  if (rightVariable && leftConstant) {
+  // 表达式 = 变量：只要左边不含该变量，就能把变量解到右边（vt = x 即 x = vt，
+  // x + 1 = y 即 y = x + 1 —— y 单独在一侧，直接读出，不算解方程）。
+  // 左边含它的话（如 x + 1 = x）才是真正的方程，明确不支持。
+  if (rightVariable && !left.containsVariable(*rightVariable)) {
     return std::optional<Assignment>{Assignment{*rightVariable, left}};
   }
 
@@ -501,13 +502,30 @@ inline Result<std::optional<Assignment>> parseAssignment(std::string_view text) 
 // 约束是否与式子相关：左边变量出现在式子里，或右边含式子里出现过的变量。
 // 两者都不成立时，这条约束对式子毫无影响，记录它没有意义
 // （例如式子 2x 配上 s = v*t：s、v、t 都不影响 2x）。
-inline bool isRelevantTo(const RationalFunction &expression, const Assignment &assignment) {
+// 约束是否与「式子 + 已有绑定」相关。
+// 只看原始式子是不够的：式子 2x 在 x = s 之后，s = v*t 就会影响结果
+// —— 因为 x 的有效值已经变成了 s。
+inline bool isRelevantTo(const RationalFunction &expression, const Scope &scope, const Assignment &assignment) {
+  // 1. 被赋值的变量直接出现在式子里
   if (expression.containsVariable(assignment.variable)) {
-    return true; // 左边变量就在式子里，代入时会被替换
+    return true;
   }
+  // 2. 被赋值的变量出现在某条已有绑定的值里 —— 那条绑定的有效值会变
+  for (const auto &entry : scope.bindings()) {
+    if (entry.second.containsVariable(assignment.variable)) {
+      return true;
+    }
+  }
+  // 3. 右边含式子里出现的变量
   for (const Variable &variable : expression.variables()) {
     if (assignment.value.containsVariable(variable)) {
-      return true; // 右边含式子的变量，代入后还会被继续展开
+      return true;
+    }
+  }
+  // 4. 右边含某条已有绑定的变量名 —— 代入链会继续展开
+  for (const auto &entry : scope.bindings()) {
+    if (assignment.value.containsVariable(entry.first)) {
+      return true;
     }
   }
   return false;

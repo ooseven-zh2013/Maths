@@ -98,8 +98,8 @@ int main() {
       continue;
     }
 
-    // 左右两边都与式子无关时记录它没有意义（式子 2x 配上 s = v*t）
-    if (!isRelevantTo(expression, *assignment.unwrap())) {
+    // 左右两边都与「式子和已有绑定」无关时记录它没有意义
+    if (!isRelevantTo(expression, scope, *assignment.unwrap())) {
       std::cout << "  与式子无关，不记录\n";
       continue;
     }

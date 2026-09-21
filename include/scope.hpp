@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <map>
 #include <ostream>
+#include <set>
 #include <string>
 #include <string_view>
 
@@ -65,9 +66,13 @@ public:
   // ==================== 赋值 ====================
 
   // 右边不得含被赋值的变量本身 —— 那是方程而非赋值（如 x = 2x），需要解方程，明确不支持。
+  // 同时做环检测：x = s、s = t、t = x 这类绕开形式同样拒绝。
   Result<void> assign(const Variable &variable, const RationalFunction &value) {
     if (value.containsVariable(variable)) {
       return Result<void>::err(MathsError::NotAnAssignment);
+    }
+    if (createsCycle(variable, value)) {
+      return Result<void>::err(MathsError::CircularReference);
     }
     values[variable] = value;
     return Result<void>();
@@ -123,6 +128,37 @@ public:
     }
     result += "}";
     return result;
+  }
+
+  // value 里出现的变量，沿现有绑定链是否最终指向 target。
+  // 现有绑定保证无环（每次 assign 都过了检测），visited 只是防御性兜底。
+  bool createsCycle(const Variable &variable, const RationalFunction &value) const {
+    for (const Variable &start : value.variables()) {
+      std::set<Variable> visited;
+      if (reachesVariable(start, variable, visited)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool reachesVariable(const Variable &from, const Variable &target, std::set<Variable> &visited) const {
+    if (from == target) {
+      return true;
+    }
+    if (!visited.insert(from).second) {
+      return false;
+    }
+    const auto found = values.find(from);
+    if (found == values.end()) {
+      return false;
+    }
+    for (const Variable &next : found->second.variables()) {
+      if (reachesVariable(next, target, visited)) {
+        return true;
+      }
+    }
+    return false;
   }
 
 private:
