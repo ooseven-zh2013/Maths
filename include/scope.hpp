@@ -117,4 +117,25 @@ inline Polynomial Polynomial::substitute(const Scope &scope) const {
   return result;
 }
 
+// ==================== 完全求值 ====================
+// 先代入，再要求结果化为常数；只要还有变量残留就说明存在未绑定变量。
+
+inline Result<Fraction> Monomial::evaluate(const Scope &scope) const {
+  const Monomial substituted = substitute(scope);
+  if (!substituted.isConstant()) {
+    return std::unexpected(MathsError::UndefinedVariable);
+  }
+  return substituted.getCoefficient();
+}
+
+inline Result<Fraction> Polynomial::evaluate(const Scope &scope) const {
+  const Result<Monomial> monomial = substitute(scope).toMonomial();
+  // 化简后仍不止一项 → 有变量没绑定；
+  // 只剩一项但仍是变量（如 x + y 只绑定了 x 时的 y）→ 同样未绑定
+  if (monomial.isErr() || !monomial.unwrap().isConstant()) {
+    return std::unexpected(MathsError::UndefinedVariable);
+  }
+  return monomial.unwrap().getCoefficient();
+}
+
 #endif // MATHS_SCOPE_HPP

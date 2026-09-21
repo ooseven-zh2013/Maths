@@ -115,6 +115,32 @@ Result<Fraction> parsed = Fraction::parse(input);
 if (parsed.isErr()) { /* parsed.unwrapErr() */ }
 ```
 
+## 变量绑定与代入
+
+`include/scope.hpp` 提供变量到值的绑定表 `Scope`，以及单项式 / 多项式的代入与求值。
+
+```cpp
+Scope scope;
+scope.assign(Variable("x"), Integer(2));
+scope.assign(Variable("y"), Fraction(1, 3));
+
+const Monomial m(Fraction(3, 1), {{Variable("x"), 1ULL}, {Variable("y"), 1ULL}});
+
+m.substitute(scope);   // "6 y"          —— 部分代入：y 未绑定，原样保留
+m.evaluate(scope);     // Result = 2     —— 完全求值
+```
+
+| 接口 | 语义 |
+| --- | --- |
+| `Monomial::substitute(scope)` / `Polynomial::substitute(scope)` | **部分代入**：已绑定的变量替换为其值并把幂次并进系数，未绑定的原样保留。返回同类型，不会失败 |
+| `Monomial::evaluate(scope)` / `Polynomial::evaluate(scope)` | **完全求值**：要求全部变量都已绑定且结果化为常数，否则返回 `MathsError::UndefinedVariable` |
+
+`Scope` 的值统一以 `Fraction` 存储 —— `Integer` 是分母为 1 的分数，因此整数与分数共用一个空间，
+既不会丢失信息，也不会出现同一变量在两处取值不一致的状态。`assign` 是覆盖语义且不会失败，
+只有 `lookup` 会失败。
+
+`Polynomial` 的代入按「逐项调用 `Monomial::substitute`，再统一合并同类项」实现。
+
 ## 代码规范与静态检查
 
 | 工具 | 配置文件 | 用途 |
@@ -142,6 +168,7 @@ include/                     头文件（header-only）
   result.hpp                   统一结果类型 Result<T>
   numbers.hpp                  Integer、Fraction
   algebraic_expression.hpp     Name、Variable、Monomial、Polynomial
+  scope.hpp                    变量绑定表 Scope、代入与求值
   random.hpp                   区间随机数
 test/                        测试
   check.hpp                    断言宏

@@ -225,5 +225,62 @@ int main() {
     CHECK_EQ(original.substitute(empty), original);
   }
 
+  // ==================== 完全求值 ====================
+
+  // 18. 单项式求值
+  {
+    Scope scope;
+    scope.assign(x, Integer(2LL));
+    scope.assign(y, Fraction(1, 3));
+
+    const Monomial product(Fraction(3, 1), {{x, 1ULL}, {y, 1ULL}});
+    CHECK_OK(product.evaluate(scope));
+    CHECK_EQ(product.evaluate(scope).unwrap(), Fraction(2, 1)); // 3 * 2 * 1/3
+
+    CHECK_EQ(Monomial(Fraction(1, 2), {{x, 2ULL}}).evaluate(scope).unwrap(), Fraction(2, 1)); // 1/2 * 4
+
+    // 变量未绑定
+    CHECK_ERR(Monomial(Fraction(1, 1), {{Variable("z"), 1ULL}}).evaluate(scope), MathsError::UndefinedVariable);
+  }
+
+  // 19. 多项式求值
+  {
+    Scope scope;
+    scope.assign(x, Integer(2LL));
+
+    // (x + 1)(x - 1) = x^2 - 1，代入 x=2 → 3
+    const Polynomial plusOne = Polynomial(x1) + Polynomial(one1);
+    const Polynomial minusOne = Polynomial(x1) - Polynomial(one1);
+    const Polynomial product = (plusOne * minusOne).unwrap();
+    CHECK_OK(product.evaluate(scope));
+    CHECK_EQ(product.evaluate(scope).unwrap(), Fraction(3, 1));
+
+    // 含未绑定变量 y
+    CHECK_ERR((Polynomial(x1) + Polynomial(y1)).evaluate(scope), MathsError::UndefinedVariable);
+
+    // 化简后只剩一项，但那一项本身仍是未绑定变量
+    CHECK_ERR(Polynomial(y1).evaluate(scope), MathsError::UndefinedVariable);
+  }
+
+  // 20. 零单项式与零多项式恒为 0，不需要任何绑定
+  {
+    const Scope empty;
+    CHECK_EQ(Monomial().evaluate(empty).unwrap(), Fraction(0, 1));
+    CHECK_EQ(Polynomial().evaluate(empty).unwrap(), Fraction(0, 1));
+  }
+
+  // 21. 负数与分数取值
+  {
+    Scope scope;
+    scope.assign(x, Integer(-3LL));
+    // 1/2 x^2，x=-3 → 9/2
+    CHECK_EQ(Monomial(Fraction(1, 2), {{x, 2ULL}}).evaluate(scope).unwrap(), Fraction(9, 2));
+
+    Scope half;
+    half.assign(x, Fraction(1, 2));
+    // x + x = 2x，x=1/2 → 1
+    CHECK_EQ((Polynomial(x1) + Polynomial(x1)).evaluate(half).unwrap(), Fraction(1, 1));
+  }
+
   TEST_SUMMARY();
 }
