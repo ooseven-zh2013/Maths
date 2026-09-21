@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <map>
 #include <numeric>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -322,13 +323,14 @@ private:
 
   // L3：分母首项系数取正
   void normalizeSign() {
-    if (denominator.isZero()) {
+    // 首项必须按字典序单项式序取（leadingMonomial），不能用存储序 getTerms().begin()：
+    // 存储序下常数项的键最小，会把常数项的符号当成首项符号，
+    // 例如 (x^2 - 1)/(x - 1) 会被误判并整体取反。
+    const std::optional<Monomial> leading = leadingMonomial(denominator);
+    if (!leading) {
       return;
     }
-    // 「首项」取存储序（VarPowers 字典序）最小的一项；这里只要求确定的取法，
-    // 不追求数学意义上的首项，保证同一分式只有一种符号写法即可。
-    const Fraction &leading = denominator.getTerms().begin()->second;
-    if (leading.isNegative()) {
+    if (leading->getCoefficient().isNegative()) {
       numerator = -numerator;
       denominator = -denominator;
     }

@@ -29,6 +29,7 @@ set(TEST_SOURCES
   random/random_tests.cpp
   scope/scope_tests.cpp
   rational/rational_tests.cpp
+  parser/expression_parser_tests.cpp
 )
 
 foreach(src IN LISTS TEST_SOURCES)

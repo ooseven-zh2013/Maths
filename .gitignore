@@ -1,8 +1,12 @@
 # 编译输出
 build/
+build-release/
 output/
 out/
 cmake-build-*/
+
+# 打包产物：平时忽略，发布时用 git add -f releases/ 强制加入
+releases/
 /test_*
 *.o
 *.out

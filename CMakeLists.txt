@@ -74,3 +74,11 @@ if(MATHS_BUILD_TESTS)
   enable_testing()
   add_subdirectory(test)
 endif()
+
+# ==================== 示例程序 ====================
+
+option(MATHS_BUILD_APPS "构建 apps/ 下的示例程序" ON)
+
+if(MATHS_BUILD_APPS)
+  add_subdirectory(apps)
+endif()

@@ -227,6 +227,57 @@ Result<Fraction> value = r.evaluate(scope);               // 完全求值
 代入后分母可能退化成零多项式（如 `1/(x-1)` 代入 `x = 1`），此时返回 `ZeroDenominator`。
 **那不是程序错误，而是原式的极点**——分式在这里本来就没有定义。
 
+## 示例程序
+
+`apps/` 下是可直接运行的程序。
+
+```bash
+cmake -S . -B build -G Ninja
+cmake --build build
+./build/apps/maths_simplify        # Windows: build\apps\maths_simplify.exe
+```
+
+| 程序 | 说明 |
+| --- | --- |
+| `maths_simplify` | 交互式表达式化简：输入式子与代入条件，输出化简结果 |
+
+```
+式子: (x^2 - 1)/(x - 1)
+条件（变量 = 常数，输入 0=0 结束）:
+> x = 2
+> 0=0
+
+--- 结果 ---
+化简结果: 3
+可化为多项式: 3
+常数结果: 3
+```
+
+支持的运算：`+ - * / ^` 与括号；变量名可含字母、数字、下划线。
+
+条件必须是「变量 = 常数」形式，但有两点放宽与一点克制：
+
+- `3 = x` 会被理解成 `x = 3`（两侧可交换）
+- `x = x`、`2 = 2` 这类恒等式被识别出来并忽略
+- `x + 1 = 2` 这类**需要解方程**的写法明确报错，不猜测
+
+## 打包发布
+
+```bash
+sh scripts/build-releases.sh
+```
+
+脚本以 Release 模式**只构建 `apps/` 下的程序**（`-DMATHS_BUILD_TESTS=OFF` 加上聚合目标
+`maths_apps`，不会连带编译几十个测试），把可执行文件汇总到 `releases/`。
+
+`releases/` 已在 `.gitignore` 中忽略，需要发布时用 `git add -f releases/` 强制加入。
+
+生成器与编译器可通过参数透传给 CMake：
+
+```bash
+sh scripts/build-releases.sh -G Ninja -DCMAKE_CXX_COMPILER=g++
+```
+
 ## 代码规范与静态检查
 
 | 工具 | 配置文件 | 用途 |
@@ -256,10 +307,15 @@ include/                     头文件（header-only）
   algebraic_expression.hpp     Name、Variable、Monomial、Polynomial
   scope.hpp                    变量绑定表 Scope、代入与求值
   rational_function.hpp        分式（有理函数）与有限化简
+  expression_parser.hpp        表达式与代入条件的解析
   random.hpp                   区间随机数
+apps/                        示例程序
 test/                        测试
   check.hpp                    断言宏
+scripts/                     构建脚本
+  build-releases.sh            一键打包可执行文件到 releases/
 cmake/                       CMake 包配置模板
+releases/                    打包产物（已 gitignore）
 ```
 
 ## 许可
