@@ -35,12 +35,12 @@ int main() {
     CHECK_EQ(a + b, Integer(2LL));
     CHECK_EQ(a - b, Integer(8LL));
     CHECK_EQ(a * b, Integer(-15LL));
-    CHECK_EQ(a / b, Integer(-1LL)); // 向零截断
-    CHECK_EQ(a % b, Integer(2LL));  // 余数符号随被除数
+    CHECK_EQ((a / b).unwrap(), Integer(-1LL)); // 向零截断
+    CHECK_EQ((a % b).unwrap(), Integer(2LL));  // 余数符号随被除数
 
-    CHECK_EQ(Integer(-10LL) % Integer(3LL), Integer(-1LL));
-    CHECK_EQ(Integer(-5LL) / Integer(-3LL), Integer(1LL));
-    CHECK_EQ(Integer(-7LL) / Integer(2LL), Integer(-3LL));
+    CHECK_EQ((Integer(-10LL) % Integer(3LL)).unwrap(), Integer(-1LL));
+    CHECK_EQ((Integer(-5LL) / Integer(-3LL)).unwrap(), Integer(1LL));
+    CHECK_EQ((Integer(-7LL) / Integer(2LL)).unwrap(), Integer(-3LL));
     CHECK_EQ(Integer(0LL) - Integer(5LL), Integer(-5LL));
   }
 
@@ -72,24 +72,24 @@ int main() {
 
   // 5. 幂运算（正指数）
   {
-    CHECK_EQ(Integer(2LL).pow(Integer(10LL)), Fraction(1024, 1));
-    CHECK_EQ(Integer(-3LL).pow(Integer(3LL)), Fraction(-27, 1));
-    CHECK_EQ(Integer(-2LL).pow(Integer(4LL)), Fraction(16, 1));
-    CHECK_EQ(Integer(2LL) ^ Integer(10LL), Fraction(1024, 1));
+    CHECK_EQ(Integer(2LL).pow(Integer(10LL)).unwrap(), Fraction(1024, 1));
+    CHECK_EQ(Integer(-3LL).pow(Integer(3LL)).unwrap(), Fraction(-27, 1));
+    CHECK_EQ(Integer(-2LL).pow(Integer(4LL)).unwrap(), Fraction(16, 1));
+    CHECK_EQ((Integer(2LL) ^ Integer(10LL)).unwrap(), Fraction(1024, 1));
   }
 
   // 6. 幂运算（负指数）
   {
-    CHECK_EQ(Integer(2LL).pow(Integer(-3LL)), Fraction(1, 8));
-    CHECK_EQ(Integer(-2LL).pow(Integer(-3LL)), Fraction(-1, 8));
-    CHECK_EQ(Integer(-3LL).pow(Integer(-2LL)), Fraction(1, 9));
+    CHECK_EQ(Integer(2LL).pow(Integer(-3LL)).unwrap(), Fraction(1, 8));
+    CHECK_EQ(Integer(-2LL).pow(Integer(-3LL)).unwrap(), Fraction(-1, 8));
+    CHECK_EQ(Integer(-3LL).pow(Integer(-2LL)).unwrap(), Fraction(1, 9));
   }
 
   // 7. 幂运算（零指数与零底数）
   {
-    CHECK_EQ(Integer(123LL).pow(Integer(0LL)), Fraction(1, 1));
-    CHECK_EQ(Integer(0LL).pow(Integer(5LL)), Fraction(0, 1));
-    CHECK_THROWS(Integer(0LL).pow(Integer(-2LL)), std::domain_error);
+    CHECK_EQ(Integer(123LL).pow(Integer(0LL)).unwrap(), Fraction(1, 1));
+    CHECK_EQ(Integer(0LL).pow(Integer(5LL)).unwrap(), Fraction(0, 1));
+    CHECK_ERR(Integer(0LL).pow(Integer(-2LL)), MathsError::ZeroToNegativePower);
   }
 
   // 8. 复合幂赋值：非整数结果应抛异常
@@ -99,13 +99,13 @@ int main() {
     CHECK_EQ(f, Integer(1024LL));
 
     Integer g(2LL);
-    CHECK_THROWS(g ^= Integer(-1LL), std::domain_error);
+    CHECK_THROWS(g ^= Integer(-1LL), MathsException);
   }
 
   // 9. 除零与取模零
   {
-    CHECK_THROWS(Integer(10LL) / Integer(0LL), std::domain_error);
-    CHECK_THROWS(Integer(10LL) % Integer(0LL), std::domain_error);
+    CHECK_ERR(Integer(10LL) / Integer(0LL), MathsError::DivisionByZero);
+    CHECK_ERR(Integer(10LL) % Integer(0LL), MathsError::DivisionByZero);
   }
 
   // 10. 比较（含同负号情形）

@@ -8,18 +8,18 @@ int main() {
 
   // 1. 除零与取模零
   {
-    CHECK_THROWS(Integer(10LL) / Integer(0LL), std::domain_error);
-    CHECK_THROWS(Integer(10LL) % Integer(0LL), std::domain_error);
-    CHECK_THROWS(Integer(0LL) / Integer(0LL), std::domain_error);
+    CHECK_ERR(Integer(10LL) / Integer(0LL), MathsError::DivisionByZero);
+    CHECK_ERR(Integer(10LL) % Integer(0LL), MathsError::DivisionByZero);
+    CHECK_ERR(Integer(0LL) / Integer(0LL), MathsError::DivisionByZero);
   }
 
   // 2. 取模：余数符号随被除数
   {
-    CHECK_EQ(Integer(10LL) % Integer(3LL), Integer(1LL));
-    CHECK_EQ(Integer(-10LL) % Integer(3LL), Integer(-1LL));
-    CHECK_EQ(Integer(10LL) % Integer(-3LL), Integer(1LL));
-    CHECK_EQ(Integer(-10LL) % Integer(-3LL), Integer(-1LL));
-    CHECK_EQ(Integer(9LL) % Integer(3LL), Integer(0LL));
+    CHECK_EQ((Integer(10LL) % Integer(3LL)).unwrap(), Integer(1LL));
+    CHECK_EQ((Integer(-10LL) % Integer(3LL)).unwrap(), Integer(-1LL));
+    CHECK_EQ((Integer(10LL) % Integer(-3LL)).unwrap(), Integer(1LL));
+    CHECK_EQ((Integer(-10LL) % Integer(-3LL)).unwrap(), Integer(-1LL));
+    CHECK_EQ((Integer(9LL) % Integer(3LL)).unwrap(), Integer(0LL));
   }
 
   // 3. 极值：取绝对值不应触发有符号溢出（UB）

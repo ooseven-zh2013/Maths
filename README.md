@@ -53,6 +53,68 @@ TEST_SUMMARY();                      // 输出汇总并以失败数作为退出�
 
 测试目标名由「子目录名_文件名」组成，例如 `test/integer/arithmetic.cpp` → `integer_arithmetic`。
 
+## 错误处理
+
+全库使用统一的错误分类 `MathsError`（见 `include/maths_error.hpp`）。错误有两条传递路径，
+**错误码完全相同**，因此处理逻辑只需写一套：
+
+| 路径 | 适用场景 | 用法 |
+| --- | --- | --- |
+| `Result<T>` 返回值 | 普通函数与算术运算 | `auto r = a / b; if (r.isErr()) ...` |
+| `MathsException` 异常 | 构造函数、复合赋值 | `catch (const MathsException &e) { e.code(); }` |
+
+### Result 的运算语义
+
+`include/result.hpp` 提供全库统一的结果类型：成功携带 `T`，失败携带 `MathsError`。
+
+- **短路传播**：`+ - * /` 与一元 `-` 可直接作用于 `Result`，先左后右，
+  某一侧失败即停止求值（运算体不执行），两侧都失败时保留**左侧**错误
+- **强制解包**：不提供 `operator T()`，取裸值必须显式调用
+  `unwrap()` / `unwrapOr()` / `unwrapOrElse()` / `expect()`，故"忘记检查"无法通过编译
+- 不提供 `< > <= >=`：比较需要值语义，失败时无意义，请先 `unwrap()`
+
+```cpp
+const Fraction a(1, 2);
+const Fraction zero(0, 1);
+
+Result<Fraction> quotient = a / zero;                    // 不抛异常，返回错误状态
+if (quotient.isErr()) {
+  std::cout << describe(quotient.unwrapErr()) << '\n';   // 除数不能为零
+}
+
+const Fraction value = (a / Fraction(1, 2)).unwrap();    // 失败则抛 MathsException
+```
+
+### 返回 Result 的入口
+
+| 入口 | 失败原因 |
+| --- | --- |
+| `Fraction::operator/`、`Integer::operator/` / `%` | 除零 |
+| `Fraction::pow`、`Integer::pow`、`operator^` | 0 的负数次幂 |
+| `Monomial::operator*`、`Polynomial::operator*` | 同底数幂合并溢出 |
+| `Polynomial::toMonomial` | 无法化简为单项式 |
+| `Fraction::parse` | 表达式非法、分母为零 |
+| `random` | 区间参数非法 |
+
+### 仍然抛异常的入口
+
+构造函数与复合赋值运算符**没有可承载 `Result` 的返回值位置**，故继续抛 `MathsException`
+（错误码与 `Result` 路径一致）：
+
+```cpp
+Fraction(1LL, 0LL);        // MathsException(ZeroDenominator)
+Fraction("\\frac{1}{");    // MathsException(InvalidExpression)
+Variable("x^");            // MathsException(InvalidName)
+a /= zero;                 // 复合赋值内部解包，失败抛 MathsException
+```
+
+解析外部输入想显式处理失败时，改用静态工厂：
+
+```cpp
+Result<Fraction> parsed = Fraction::parse(input);
+if (parsed.isErr()) { /* parsed.unwrapErr() */ }
+```
+
 ## 代码规范与静态检查
 
 | 工具 | 配置文件 | 用途 |
@@ -76,6 +138,8 @@ CI（GitHub Actions）在 Linux / macOS / Windows 三个平台构建并运行测
 
 ```
 include/                     头文件（header-only）
+  maths_error.hpp              统一错误码 MathsError 与 MathsException
+  result.hpp                   统一结果类型 Result<T>
   numbers.hpp                  Integer、Fraction
   algebraic_expression.hpp     Name、Variable、Monomial、Polynomial
   random.hpp                   区间随机数

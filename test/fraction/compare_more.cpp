@@ -35,8 +35,9 @@ int main() {
   CHECK_TRUE(Fraction(9223372036854775807LL, 1) > Fraction(1, 9223372036854775807LL));
 #endif
 
-  // 除以 0 应抛出异常
-  CHECK_THROWS(Fraction(1, 2) / Fraction(0, 1), std::domain_error);
+  // 除以 0：Result 路径返回错误码，不再抛异常
+  CHECK_ERR(Fraction(1, 2) / Fraction(0, 1), MathsError::DivisionByZero);
+  CHECK_OK(Fraction(1, 2) / Fraction(1, 4));
 
   TEST_SUMMARY();
 }

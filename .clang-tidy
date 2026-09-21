@@ -8,7 +8,8 @@ Checks: >
   -bugprone-easily-swappable-parameters,
   -bugprone-exception-escape,
   -readability-implicit-bool-conversion,
-  -performance-unnecessary-copy-initialization
+  -performance-unnecessary-copy-initialization,
+  -performance-enum-size
 
 # 说明：
 #   bugprone-exception-escape —— 测试的 main 允许抛异常，且本库以异常报告错误
@@ -16,6 +17,8 @@ Checks: >
 #     以及 bool <=> bool 触发的整型提升过度敏感，噪音大于收益
 #   performance-unnecessary-copy-initialization —— 断言宏刻意按值拷贝以避免
 #     绑定临时对象的引用成员导致悬垂，此处的拷贝是必要的
+#   performance-enum-size —— 是否给枚举指定更窄的底层类型属于风格选择，
+#     由代码作者决定，不交由 linter 强制
 WarningsAsErrors: ''
 
 HeaderFilterRegex: '.*[\\/](include|test)[\\/].*'

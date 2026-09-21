@@ -22,7 +22,8 @@ int main() {
     const Polynomial zero;
     CHECK_TRUE(zero.isZero());
     CHECK_TRUE(zero.isMonomial()); // 零多项式视为零单项式
-    CHECK_TRUE(zero.toMonomial().isZero());
+    CHECK_OK(zero.toMonomial());   // 零多项式可化简为零单项式
+    CHECK_TRUE(zero.toMonomial().unwrap().isZero());
     CHECK_EQ(zero.str(), std::string("0"));
     CHECK_EQ(zero.getTerms().size(), 0ULL);
 
@@ -41,12 +42,12 @@ int main() {
     const Polynomial merged = Polynomial(twoX) + Polynomial(threeX);
     CHECK_EQ(merged.getTerms().size(), 1ULL);
     CHECK_TRUE(merged.isMonomial());
-    CHECK_EQ(merged.toMonomial().str(), std::string("5 x"));
+    CHECK_EQ(merged.toMonomial().unwrap().str(), std::string("5 x"));
 
     const Polynomial binom = Polynomial(x1) + Polynomial(y1);
     CHECK_EQ(binom.getTerms().size(), 2ULL);
     CHECK_TRUE(!binom.isMonomial());
-    CHECK_THROWS(binom.toMonomial(), std::domain_error);
+    CHECK_ERR(binom.toMonomial(), MathsError::NotAMonomial);
 
     // Monomial + Monomial 直接得到 Polynomial
     CHECK_EQ(x1 + y1, binom);
@@ -55,14 +56,14 @@ int main() {
     CHECK_TRUE(cancelled.isZero());
     CHECK_EQ(cancelled.getTerms().size(), 0ULL);
     CHECK_TRUE(cancelled.isMonomial());
-    CHECK_TRUE(cancelled.toMonomial().isZero());
+    CHECK_TRUE(cancelled.toMonomial().unwrap().isZero());
     CHECK_EQ(cancelled.str(), std::string("0"));
 
     // 三项相加后塌回单项式
     const Polynomial collapsed = Polynomial(x1) + Polynomial(y1) - Polynomial(y1);
     CHECK_EQ(collapsed.getTerms().size(), 1ULL);
     CHECK_TRUE(collapsed.isMonomial());
-    CHECK_EQ(collapsed.toMonomial(), x1);
+    CHECK_EQ(collapsed.toMonomial().unwrap(), x1);
   }
 
   // 3. 减法与取负
@@ -84,25 +85,26 @@ int main() {
     // (x + 1)(x - 1) = x^2 - 1
     const Polynomial plusOne = Polynomial(x1) + Polynomial(one1);
     const Polynomial minusOne = Polynomial(x1) - Polynomial(one1);
-    const Polynomial product = plusOne * minusOne;
+    CHECK_OK(plusOne * minusOne);
+    const Polynomial product = (plusOne * minusOne).unwrap();
     CHECK_EQ(product.getTerms().size(), 2ULL);
     CHECK_EQ(product.str(), std::string("x^2 - 1"));
-    CHECK_THROWS(product.toMonomial(), std::domain_error);
+    CHECK_ERR(product.toMonomial(), MathsError::NotAMonomial);
 
     // (x + y)(x - y) = x^2 - y^2
-    const Polynomial difference = (Polynomial(x1) + Polynomial(y1)) * (Polynomial(x1) - Polynomial(y1));
+    const Polynomial difference = ((Polynomial(x1) + Polynomial(y1)) * (Polynomial(x1) - Polynomial(y1))).unwrap();
     CHECK_EQ(difference.getTerms().size(), 2ULL);
     CHECK_EQ(difference.str(), std::string("x^2 - y^2"));
 
     // (x + y)^2 = x^2 + 2 x y + y^2
     const Polynomial binom = Polynomial(x1) + Polynomial(y1);
-    const Polynomial squared = binom * binom;
+    const Polynomial squared = (binom * binom).unwrap();
     CHECK_EQ(squared.getTerms().size(), 3ULL);
     CHECK_EQ(squared.str(), std::string("x^2 + 2 x y + y^2"));
     CHECK_EQ(squared.degree(), 2ULL);
 
     // Monomial 在左侧参与乘法
-    const Polynomial scaled = x1 * binom;
+    const Polynomial scaled = (x1 * binom).unwrap();
     CHECK_EQ(scaled.getTerms().size(), 2ULL);
     CHECK_EQ(scaled.str(), std::string("x^2 + x y"));
   }
@@ -117,7 +119,7 @@ int main() {
     Polynomial q = Polynomial(x1) + Polynomial(y1);
     q -= Polynomial(y1);
     CHECK_EQ(q.getTerms().size(), 1ULL);
-    CHECK_EQ(q.toMonomial().str(), std::string("x"));
+    CHECK_EQ(q.toMonomial().unwrap().str(), std::string("x"));
 
     Polynomial r = Polynomial(x1);
     r += Polynomial(y1);
@@ -128,16 +130,16 @@ int main() {
   {
     const Polynomial single(Monomial(Fraction(3, 2), {{x, 2ULL}, {y, 1ULL}}));
     CHECK_TRUE(single.isMonomial());
-    CHECK_EQ(single.toMonomial().str(), std::string("3/2 x^2 y"));
+    CHECK_EQ(single.toMonomial().unwrap().str(), std::string("3/2 x^2 y"));
 
     const Polynomial multiple = single + Polynomial(one1);
     CHECK_TRUE(!multiple.isMonomial());
-    CHECK_THROWS(multiple.toMonomial(), std::domain_error);
+    CHECK_ERR(multiple.toMonomial(), MathsError::NotAMonomial);
   }
 
   // 7. 相等：不同构造路径应得到同一个多项式
   {
-    const Polynomial expanded = (Polynomial(x1) + Polynomial(y1)) * (Polynomial(x1) + Polynomial(y1));
+    const Polynomial expanded = ((Polynomial(x1) + Polynomial(y1)) * (Polynomial(x1) + Polynomial(y1))).unwrap();
     const Polynomial manual = Polynomial(Monomial(one, {{x, 2ULL}})) +
                               Polynomial(Monomial(Fraction(2, 1), {{x, 1ULL}, {y, 1ULL}})) +
                               Polynomial(Monomial(one, {{y, 2ULL}}));

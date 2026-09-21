@@ -38,6 +38,24 @@ jobs:
       - name: Run tests
         run: ctest --test-dir build --output-on-failure -C Debug
 
+  release-test:
+    name: release build (NDEBUG)
+    runs-on: ubuntu-latest
+    # test/check.hpp 的断言宏刻意不依赖 assert，Release 下必须同样全绿。
+    # 此前没有任何 job 覆盖这个目标，属于检查盲区。
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMATHS_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
+
   format:
     name: clang-format
     runs-on: ubuntu-latest

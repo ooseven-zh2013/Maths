@@ -52,20 +52,20 @@ int main() {
 
   // 8. 非法名称
   {
-    CHECK_THROWS(Variable("1a"), std::invalid_argument);
-    CHECK_THROWS(Variable("114_a"), std::invalid_argument);
-    CHECK_THROWS(Variable(""), std::invalid_argument);
-    CHECK_THROWS(Variable("."), std::invalid_argument);
-    CHECK_THROWS(Variable("a_bc"), std::invalid_argument); // 无大括号下标必须为单个字符
-    CHECK_THROWS(Variable("a_"), std::invalid_argument);
-    CHECK_THROWS(Variable("abc_"), std::invalid_argument);
+    CHECK_THROWS(Variable("1a"), MathsException);
+    CHECK_THROWS(Variable("114_a"), MathsException);
+    CHECK_THROWS(Variable(""), MathsException);
+    CHECK_THROWS(Variable("."), MathsException);
+    CHECK_THROWS(Variable("a_bc"), MathsException); // 无大括号下标必须为单个字符
+    CHECK_THROWS(Variable("a_"), MathsException);
+    CHECK_THROWS(Variable("abc_"), MathsException);
   }
 
   // 9. Name 基础行为
   {
     CHECK_EQ(Name("abc").str(), std::string("abc"));
-    CHECK_THROWS(Name("a1"), std::invalid_argument); // 不能字母数字混合
-    CHECK_THROWS(Name(""), std::invalid_argument);
+    CHECK_THROWS(Name("a1"), MathsException); // 不能字母数字混合
+    CHECK_THROWS(Name(""), MathsException);
     CHECK_TRUE(Name("a") < Name("b"));
   }
 

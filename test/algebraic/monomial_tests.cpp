@@ -70,14 +70,15 @@ int main() {
   {
     const Monomial a(Fraction(2, 3), {{x, 2ULL}, {y, 1ULL}});
     const Monomial b(Fraction(3, 4), {{y, 1ULL}, {z, 1ULL}});
-    const Monomial product = a * b;
+    const Monomial product = (a * b).unwrap();
     CHECK_EQ(product.getCoefficient(), Fraction(1, 2));
     CHECK_EQ(product.str(), std::string("1/2 x^2 y^2 z"));
     CHECK_EQ(product.degree(), 5ULL);
+    CHECK_OK(a * b);
 
-    CHECK_TRUE((a * Monomial()).isZero());
-    CHECK_TRUE((Monomial() * b).isZero());
-    CHECK_EQ((Monomial(Fraction(2, 3)) * Monomial(Fraction(3, 4))).getCoefficient(), Fraction(1, 2));
+    CHECK_TRUE((a * Monomial()).unwrap().isZero());
+    CHECK_TRUE((Monomial() * b).unwrap().isZero());
+    CHECK_EQ((Monomial(Fraction(2, 3)) * Monomial(Fraction(3, 4))).unwrap().getCoefficient(), Fraction(1, 2));
   }
 
   // 4. 复合乘法赋值
@@ -119,10 +120,10 @@ int main() {
   // 8. 指数只能是常数：x^x 这类写法不合法
   {
     // 变量名中的 '^' 不是合法字符，解析阶段就直接拒绝
-    CHECK_THROWS(Variable("x^2"), std::invalid_argument);
-    CHECK_THROWS(Variable("x^x"), std::invalid_argument);
-    CHECK_THROWS(Variable("a^{b}"), std::invalid_argument);
-    CHECK_THROWS(Variable("x^"), std::invalid_argument);
+    CHECK_THROWS(Variable("x^2"), MathsException);
+    CHECK_THROWS(Variable("x^x"), MathsException);
+    CHECK_THROWS(Variable("a^{b}"), MathsException);
+    CHECK_THROWS(Variable("x^"), MathsException);
 
     // 下标与指数是两回事：x_2 表示「x 的第 2 个」，不等于 x 的 2 次方
     CHECK_EQ(Variable("x_2").str(), std::string("x_2"));
@@ -137,8 +138,12 @@ int main() {
   // 9. 指数合并不得静默溢出
   {
     constexpr auto huge = std::numeric_limits<unsigned long long>::max();
-    CHECK_THROWS(Monomial(one, {{x, huge}}) * Monomial(one, {{x, 1ULL}}), std::overflow_error);
-    CHECK_THROWS(Monomial(one, {{x, huge}, {x, 1ULL}}), std::overflow_error);
+
+    // 乘法路径返回错误码
+    CHECK_ERR(Monomial(one, {{x, huge}}) * Monomial(one, {{x, 1ULL}}), MathsError::ExponentOverflow);
+
+    // 构造路径无法返回 Result，仍抛 MathsException
+    CHECK_THROWS(Monomial(one, {{x, huge}, {x, 1ULL}}), MathsException);
 
     // 未越界时应正常合并
     const Monomial maxed(one, {{x, huge - 1}, {x, 1ULL}});

@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "numbers.hpp"
+#include "result.hpp"
 
 class Name {
 public:
@@ -28,7 +29,7 @@ public:
       name = std::string(name_);
       return *this;
     }
-    throw std::invalid_argument("Invalid name");
+    throw MathsException(MathsError::InvalidName);
   }
 
   auto operator<=>(const Name &oth) const { return name <=> oth.name; }
@@ -120,36 +121,36 @@ private:
         return std::isdigit(static_cast<unsigned char>(c));
       });
       if (allDigits && !allowNumeric) {
-        throw std::invalid_argument("Invalid variable name");
+        throw MathsException(MathsError::InvalidName);
       }
       tmpName = name_;
     } else {
       // 基名必须为字母（不能是纯数字或包含其它字符）
       auto base = name_.substr(0, pos);
       if (!std::all_of(base.begin(), base.end(), [](char c) { return std::isalpha(static_cast<unsigned char>(c)); })) {
-        throw std::invalid_argument("Invalid variable base name");
+        throw MathsException(MathsError::InvalidName);
       }
       tmpName = base;
       name_ = name_.substr(pos + 1);
 
       if (name_.empty()) {
-        throw std::invalid_argument("Invalid variable name");
+        throw MathsException(MathsError::InvalidName);
       }
 
       if (name_.front() != '{') {
         // 单索引形式，例如 a_1 或 a_x
         // 遵循 LaTeX 规范：_ 后不带 {} 时只接受单个字符（字母或数字）
         if (name_.size() != 1) {
-          throw std::invalid_argument("Invalid variable index: unbraced index must be a single character");
+          throw MathsException(MathsError::InvalidName);
         }
         if (name_.find('_') != std::string_view::npos) {
-          throw std::invalid_argument("Invalid variable index");
+          throw MathsException(MathsError::InvalidName);
         }
         tmpIdx.emplace_back(name_, true);
       } else {
         // 大括号形式 a_{...}
         if (name_.back() != '}') {
-          throw std::invalid_argument("Invalid variable name");
+          throw MathsException(MathsError::InvalidName);
         }
         name_ = name_.substr(1, name_.size() - 2);
         size_t last = 0;
@@ -231,18 +232,22 @@ public:
   bool isConstant() const { return factors.empty(); }
   ull degree() const { return maths_detail::degreeOf(factors); }
 
-  // 乘法恒为单项式
-  Monomial operator*(const Monomial &rhs) const {
+  // 乘法结果仍是单项式，但同底数幂合并可能溢出，故返回 Result
+  Result<Monomial> operator*(const Monomial &rhs) const {
     if (isZero() || rhs.isZero()) {
       return Monomial();
     }
     VarPowers merged = factors;
     merged.insert(merged.end(), rhs.factors.begin(), rhs.factors.end());
-    return Monomial(coeff * rhs.coeff, std::move(merged));
+    try {
+      return Monomial(coeff * rhs.coeff, std::move(merged));
+    } catch (const MathsException &error) {
+      return std::unexpected(error.code());
+    }
   }
 
   Monomial &operator*=(const Monomial &rhs) {
-    *this = *this * rhs;
+    *this = (*this * rhs).unwrap();
     return *this;
   }
 
@@ -304,7 +309,7 @@ public:
       if (!merged.empty() && merged.back().first == factor.first) {
         // 同底数幂相加可能溢出，宁可报错也不要静默回绕成错误次数
         if (merged.back().second > std::numeric_limits<ull>::max() - factor.second) {
-          throw std::overflow_error("变量指数超出可表示范围");
+          throw MathsException(MathsError::ExponentOverflow);
         }
         merged.back().second += factor.second;
       } else {
@@ -343,10 +348,10 @@ public:
   // 化简后只剩不超过一项即为单项式（零多项式视为零单项式）
   bool isMonomial() const { return terms.size() <= 1; }
 
-  // 成功化简为单项式，否则抛出 std::domain_error
-  Monomial toMonomial() const {
+  // 成功化简为单项式，否则返回 MathsError::NotAMonomial
+  Result<Monomial> toMonomial() const {
     if (terms.size() > 1) {
-      throw std::domain_error("多项式无法化简为单项式");
+      return std::unexpected(MathsError::NotAMonomial);
     }
     if (terms.empty()) {
       return Monomial();
@@ -379,15 +384,20 @@ public:
     return result;
   }
 
-  Polynomial operator*(const Polynomial &rhs) const {
+  // 展开时可能因指数合并溢出而失败
+  Result<Polynomial> operator*(const Polynomial &rhs) const {
     Polynomial result;
-    for (const auto &[lhsFactors, lhsCoeff] : terms) {
-      for (const auto &[rhsFactors, rhsCoeff] : rhs.terms) {
-        VarPowers merged = lhsFactors;
-        merged.insert(merged.end(), rhsFactors.begin(), rhsFactors.end());
-        Monomial::normalizeFactors(merged);
-        result.addTerm(merged, lhsCoeff * rhsCoeff);
+    try {
+      for (const auto &[lhsFactors, lhsCoeff] : terms) {
+        for (const auto &[rhsFactors, rhsCoeff] : rhs.terms) {
+          VarPowers merged = lhsFactors;
+          merged.insert(merged.end(), rhsFactors.begin(), rhsFactors.end());
+          Monomial::normalizeFactors(merged);
+          result.addTerm(merged, lhsCoeff * rhsCoeff);
+        }
       }
+    } catch (const MathsException &error) {
+      return std::unexpected(error.code());
     }
     return result;
   }
@@ -411,7 +421,7 @@ public:
   }
 
   Polynomial &operator*=(const Polynomial &rhs) {
-    *this = *this * rhs;
+    *this = (*this * rhs).unwrap();
     return *this;
   }
 
@@ -470,7 +480,7 @@ inline Polynomial operator+(const Monomial &lhs, const Polynomial &rhs) { return
 
 inline Polynomial operator-(const Monomial &lhs, const Polynomial &rhs) { return Polynomial(lhs) - rhs; }
 
-inline Polynomial operator*(const Monomial &lhs, const Polynomial &rhs) { return Polynomial(lhs) * rhs; }
+inline Result<Polynomial> operator*(const Monomial &lhs, const Polynomial &rhs) { return Polynomial(lhs) * rhs; }
 
 inline std::ostream &operator<<(std::ostream &os, const Monomial &value) { return os << value.str(); }
 

@@ -68,6 +68,24 @@ inline void report(bool ok, const char *expr, const char *file, int line, const 
     maths_test::report(_thrown, #expr " throws " #exception_type, __FILE__, __LINE__, "");                             \
   } while (false)
 
+// 断言表达式返回 Ok（适用于 Result）
+#define CHECK_OK(expr)                                                                                                 \
+  do {                                                                                                                 \
+    const auto _result = (expr);                                                                                       \
+    maths_test::report(_result.isOk(), #expr " 应为 Ok", __FILE__, __LINE__,                                           \
+                       _result.isErr() ? ("实际是 Err(" + maths_test::show(_result.unwrapErr()) + ")") : "");          \
+  } while (false)
+
+// 断言表达式返回 Err 且错误码匹配
+#define CHECK_ERR(expr, expectedError)                                                                                 \
+  do {                                                                                                                 \
+    const auto _result = (expr);                                                                                       \
+    const bool _isErr = _result.isErr();                                                                               \
+    const bool _matched = _isErr && _result.unwrapErr() == (expectedError);                                            \
+    maths_test::report(_matched, #expr " 应为 Err(" #expectedError ")", __FILE__, __LINE__,                            \
+                       _isErr ? ("实际错误码: " + maths_test::show(_result.unwrapErr())) : std::string("实际是 Ok"));  \
+  } while (false)
+
 // 输出汇总并以失败数作为退出码
 #define TEST_SUMMARY()                                                                                                 \
   do {                                                                                                                 \

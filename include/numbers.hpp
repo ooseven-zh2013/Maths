@@ -10,6 +10,8 @@
 #include <type_traits>
 #include <utility>
 
+#include "result.hpp"
+
 class Integer; // 前向声明
 
 class Fraction {
@@ -33,34 +35,67 @@ public:
     sign = false;
   }
 
+  // 构造函数无法返回 Result，解析失败时抛 MathsException。
+  // 解析外部输入请改用 parse()，以便显式处理失败。
   Fraction(std::string_view sv) {
+    Result<Fraction> parsed = parse(sv);
+    if (parsed.isErr()) {
+      throw MathsException(parsed.unwrapErr());
+    }
+    *this = parsed.unwrap();
+  }
+
+  // 解析 "a/b"、整数或 LaTeX 风格的 \frac{}{}（支持嵌套与连续除法）
+  static Result<Fraction> parse(std::string_view sv) {
     if (sv.size() >= 6 && sv.substr(0, 6) == "\\frac{") {
-      size_t numEnd = findMatchingBrace(sv, 5);
+      const size_t numEnd = findMatchingBrace(sv, 5);
       if (numEnd == std::string_view::npos || numEnd + 1 >= sv.size() || sv[numEnd + 1] != '{') {
-        throw std::invalid_argument("不支持的表达式");
+        return std::unexpected(MathsError::InvalidExpression);
       }
-      size_t denEnd = findMatchingBrace(sv, numEnd + 1);
+      const size_t denEnd = findMatchingBrace(sv, numEnd + 1);
       if (denEnd == std::string_view::npos) {
-        throw std::invalid_argument("不支持的表达式");
+        return std::unexpected(MathsError::InvalidExpression);
       }
-      Fraction fracResult = Fraction(sv.substr(6, numEnd - 6)) / Fraction(sv.substr(numEnd + 2, denEnd - numEnd - 2));
-      if (denEnd == sv.size() - 1) {
-        *this = fracResult;
-      } else {
-        if (sv[denEnd + 1] != '/') {
-          throw std::invalid_argument("不支持的表达式");
-        }
-        *this = fracResult / Fraction(sv.substr(denEnd + 2));
+
+      Result<Fraction> numerator = parse(sv.substr(6, numEnd - 6));
+      if (numerator.isErr()) {
+        return numerator;
       }
-    } else {
-      size_t split = sv.rfind('/');
-      if (split != std::string_view::npos) {
-        Fraction _a = Fraction(sv.substr(0, split));
-        Fraction _b = Fraction(sv.substr(split + 1));
-        *this = _a / _b;
-      } else {
-        *this = Fraction(std::stoll(std::string(sv)));
+      Result<Fraction> denominator = parse(sv.substr(numEnd + 2, denEnd - numEnd - 2));
+      if (denominator.isErr()) {
+        return denominator;
       }
+      Result<Fraction> value = numerator.unwrap() / denominator.unwrap();
+      if (value.isErr() || denEnd == sv.size() - 1) {
+        return value;
+      }
+      if (sv[denEnd + 1] != '/') {
+        return std::unexpected(MathsError::InvalidExpression);
+      }
+      Result<Fraction> tail = parse(sv.substr(denEnd + 2));
+      if (tail.isErr()) {
+        return tail;
+      }
+      return value.unwrap() / tail.unwrap();
+    }
+
+    const size_t split = sv.rfind('/');
+    if (split != std::string_view::npos) {
+      Result<Fraction> numerator = parse(sv.substr(0, split));
+      if (numerator.isErr()) {
+        return numerator;
+      }
+      Result<Fraction> denominator = parse(sv.substr(split + 1));
+      if (denominator.isErr()) {
+        return denominator;
+      }
+      return numerator.unwrap() / denominator.unwrap();
+    }
+
+    try {
+      return Fraction(std::stoll(std::string(sv)));
+    } catch (const std::exception &) {
+      return std::unexpected(MathsError::InvalidExpression);
     }
   }
 
@@ -175,20 +210,17 @@ public:
     return Fraction(num1 * num2, den1 * den2);
   }
 
-  Fraction operator/(const Fraction &_val) const {
+  Result<Fraction> operator/(const Fraction &_val) const {
     if (_val.a == 0) {
-      throw std::domain_error("除数不能为零");
+      return std::unexpected(MathsError::DivisionByZero);
     }
     // a/b ÷ c/d = (a*d) / (b*c)
-    ll num1 = getNumerator();
-    ll den1 = getDenominator();
-    ll num2 = _val.getNumerator();
-    ll den2 = _val.getDenominator();
-
-    return Fraction(num1 * den2, den1 * num2);
+    return Fraction(getNumerator() * _val.getDenominator(), getDenominator() * _val.getNumerator());
   }
 
   // ==================== 复合赋值运算符 ====================
+  // 复合赋值在语义上必须就地修改并返回引用，无法承载 Result，
+  // 因此这里解包：失败时抛 MathsException（错误码与 Result 路径一致）。
 
   Fraction &operator+=(const Fraction &_val) {
     *this = *this + _val;
@@ -206,19 +238,19 @@ public:
   }
 
   Fraction &operator/=(const Fraction &_val) {
-    *this = *this / _val;
+    *this = (*this / _val).unwrap();
     return *this;
   }
 
   Fraction &operator^=(const Integer &exp) {
-    *this = this->pow(exp);
+    *this = this->pow(exp).unwrap();
     return *this;
   }
 
   // ==================== 幂运算 ====================
 
-  // 幂运算：指数为 Integer，返回 Fraction（实现在 Integer 类之后）
-  Fraction pow(const Integer &exp) const;
+  // 幂运算：指数为 Integer（实现在 Integer 类之后）
+  Result<Fraction> pow(const Integer &exp) const;
 
   // ==================== 友元函数 ====================
 
@@ -310,7 +342,7 @@ private:
   // 约分
   void simplify() {
     if (b == 0) {
-      throw std::domain_error("分母不能为零");
+      throw MathsException(MathsError::ZeroDenominator);
     }
     if (a == 0) {
       b = 1;
@@ -460,9 +492,9 @@ public:
     return res;
   }
 
-  Integer operator/(const Integer &_val) const {
+  Result<Integer> operator/(const Integer &_val) const {
     if (_val.val == 0) {
-      throw std::domain_error("除数不能为零");
+      return std::unexpected(MathsError::DivisionByZero);
     }
     Integer res;
     res.val = val / _val.getAbs();
@@ -470,9 +502,9 @@ public:
     return res;
   }
 
-  Integer operator%(const Integer &_val) const {
+  Result<Integer> operator%(const Integer &_val) const {
     if (_val.val == 0) {
-      throw std::domain_error("除数不能为零");
+      return std::unexpected(MathsError::DivisionByZero);
     }
     Integer res;
     res.val = val % _val.getAbs();
@@ -481,6 +513,7 @@ public:
   }
 
   // ==================== 复合赋值运算符 ====================
+  // 复合赋值无法承载 Result，失败时抛 MathsException
 
   Integer &operator+=(const Integer &_val) {
     *this = *this + _val;
@@ -498,19 +531,19 @@ public:
   }
 
   Integer &operator/=(const Integer &_val) {
-    *this = *this / _val;
+    *this = (*this / _val).unwrap();
     return *this;
   }
 
   Integer &operator%=(const Integer &_val) {
-    *this = *this % _val;
+    *this = (*this % _val).unwrap();
     return *this;
   }
 
   Integer &operator^=(const Integer &exp) {
-    Fraction result = this->pow(exp);
+    Fraction result = this->pow(exp).unwrap();
     if (result.getDenominator() != 1) {
-      throw std::domain_error("指数运算结果不是整数");
+      throw MathsException(MathsError::NonIntegralPowerResult);
     }
     *this = Integer(result.getNumerator());
     return *this;
@@ -542,8 +575,8 @@ public:
 
   // ==================== 幂运算 ====================
 
-  // 幂运算：支持负整数指数，返回 Fraction
-  Fraction pow(const Integer &exp) const {
+  // 幂运算：支持负整数指数，结果为分数
+  Result<Fraction> pow(const Integer &exp) const {
     if (exp.val == 0) {
       // 任何数的0次幂为1
       return Fraction(1LL, 1LL);
@@ -552,7 +585,7 @@ public:
     if (val == 0) {
       if (exp.sign) {
         // 0的负数次幂无定义
-        throw std::domain_error("0的负数次幂无定义");
+        return std::unexpected(MathsError::ZeroToNegativePower);
       }
       // 0的正数次幂为0
       return Fraction(0LL, 1LL);
@@ -630,7 +663,7 @@ private:
 }; // INTEGER
 
 // Fraction::pow 的实现（在 Integer 类定义之后）
-inline Fraction Fraction::pow(const Integer &exp) const {
+inline Result<Fraction> Fraction::pow(const Integer &exp) const {
   if (exp == 0LL) {
     // 任何数的0次幂为1
     return Fraction(1LL, 1LL);
@@ -639,7 +672,7 @@ inline Fraction Fraction::pow(const Integer &exp) const {
   if (a == 0) {
     if (exp.isNegative()) {
       // 0的负数次幂无定义
-      throw std::domain_error("0的负数次幂无定义");
+      return std::unexpected(MathsError::ZeroToNegativePower);
     }
     // 0的正数次幂为0
     return Fraction(0LL, 1LL);
@@ -690,8 +723,8 @@ inline Fraction Fraction::pow(const Integer &exp) const {
 
 // ==================== 幂运算符 ^ ====================
 
-inline Fraction operator^(const Integer &base, const Integer &exp) { return base.pow(exp); }
+inline Result<Fraction> operator^(const Integer &base, const Integer &exp) { return base.pow(exp); }
 
-inline Fraction operator^(const Fraction &base, const Integer &exp) { return base.pow(exp); }
+inline Result<Fraction> operator^(const Fraction &base, const Integer &exp) { return base.pow(exp); }
 
 #endif // NUMBERS_HPP

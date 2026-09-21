@@ -45,7 +45,7 @@ int main() {
     CHECK_EQ(a + b, Fraction(7, 20));
     CHECK_EQ(a - b, Fraction(23, 20));
     CHECK_EQ(a * b, Fraction(-3, 10));
-    CHECK_EQ(a / b, Fraction(-15, 8));
+    CHECK_EQ((a / b).unwrap(), Fraction(-15, 8));
   }
 
   // 3. 复合赋值
@@ -94,29 +94,32 @@ int main() {
 
   // 6. 幂运算（正指数）
   {
-    CHECK_EQ(Fraction(2, 3).pow(Integer(3LL)), Fraction(8, 27));
-    CHECK_EQ(Fraction(-1, 2).pow(Integer(4LL)), Fraction(1, 16));
-    CHECK_EQ(Fraction(-2, 3).pow(Integer(3LL)), Fraction(-8, 27));
-    CHECK_EQ((Fraction(2, 3) ^ Integer(3LL)), Fraction(8, 27));
+    CHECK_EQ(Fraction(2, 3).pow(Integer(3LL)).unwrap(), Fraction(8, 27));
+    CHECK_EQ(Fraction(-1, 2).pow(Integer(4LL)).unwrap(), Fraction(1, 16));
+    CHECK_EQ(Fraction(-2, 3).pow(Integer(3LL)).unwrap(), Fraction(-8, 27));
+    CHECK_EQ((Fraction(2, 3) ^ Integer(3LL)).unwrap(), Fraction(8, 27));
   }
 
   // 7. 幂运算（负指数）
   {
-    CHECK_EQ(Fraction(2, 3).pow(Integer(-2LL)), Fraction(9, 4));
-    CHECK_EQ(Fraction(-1, 2).pow(Integer(-3LL)), Fraction(-8, 1));
+    CHECK_EQ(Fraction(2, 3).pow(Integer(-2LL)).unwrap(), Fraction(9, 4));
+    CHECK_EQ(Fraction(-1, 2).pow(Integer(-3LL)).unwrap(), Fraction(-8, 1));
   }
 
   // 8. 幂运算（零指数与零底数）
   {
-    CHECK_EQ(Fraction(123, 456).pow(Integer(0LL)), Fraction(1, 1));
-    CHECK_EQ(Fraction(0, 1).pow(Integer(5LL)), Fraction(0, 1));
-    CHECK_THROWS(Fraction(0, 1).pow(Integer(-2LL)), std::domain_error);
+    CHECK_EQ(Fraction(123, 456).pow(Integer(0LL)).unwrap(), Fraction(1, 1));
+    CHECK_EQ(Fraction(0, 1).pow(Integer(5LL)).unwrap(), Fraction(0, 1));
+    CHECK_ERR(Fraction(0, 1).pow(Integer(-2LL)), MathsError::ZeroToNegativePower);
   }
 
-  // 9. 除零
+  // 9. 除零：Result 路径返回错误码
   {
-    CHECK_THROWS(Fraction(1, 2) / Fraction(0, 1), std::domain_error);
-    CHECK_THROWS(Fraction(1LL, 0LL), std::domain_error);
+    CHECK_ERR(Fraction(1, 2) / Fraction(0, 1), MathsError::DivisionByZero);
+    CHECK_OK(Fraction(1, 2) / Fraction(1, 2));
+
+    // 构造路径无法返回 Result，仍抛 MathsException
+    CHECK_THROWS(Fraction(1LL, 0LL), MathsException);
   }
 
   // 10. 转换为 double
@@ -158,7 +161,17 @@ int main() {
     CHECK_EQ(Fraction(std::string_view("\\frac{\\frac{1}{2}}{3}")), Fraction(1, 6));
     CHECK_EQ(Fraction(std::string_view("\\frac{1}{2}/3")), Fraction(1, 6));
     CHECK_EQ(Fraction(std::string_view("6/3/2")), Fraction(1, 1)); // 左结合：(6/3)/2
-    CHECK_THROWS(Fraction(std::string_view("\\frac{1}{")), std::invalid_argument);
+
+    // 构造函数无法返回 Result，解析失败时抛 MathsException
+    CHECK_THROWS(Fraction(std::string_view("\\frac{1}{")), MathsException);
+
+    // parse 是 Result 路径：解析外部输入时用它才能显式处理失败
+    CHECK_EQ(Fraction::parse("3/4").unwrap(), Fraction(3, 4));
+    CHECK_EQ(Fraction::parse("\\frac{1}{2}").unwrap(), Fraction(1, 2));
+    CHECK_ERR(Fraction::parse("\\frac{1}{"), MathsError::InvalidExpression);
+    CHECK_ERR(Fraction::parse("abc"), MathsError::InvalidExpression);
+    CHECK_ERR(Fraction::parse(""), MathsError::InvalidExpression);
+    CHECK_ERR(Fraction::parse("1/0"), MathsError::DivisionByZero);
   }
 
   TEST_SUMMARY();
