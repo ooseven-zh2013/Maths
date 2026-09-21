@@ -30,7 +30,7 @@ int main() {
     CHECK_EQ(scope.size(), 1ULL);
     CHECK_OK(scope.lookup(x));
     CHECK_EQ(scope.lookup(x).unwrap(), Fraction(1, 2));
-    CHECK_EQ(scope.str(), std::string("{x = 1/2}"));
+    CHECK_EQ(scope.str(), std::string(R"({"x": "1/2"})"));
   }
 
   // 3. 绑定整数：按等值分数存储
@@ -40,7 +40,7 @@ int main() {
     CHECK_EQ(scope.lookup(y).unwrap(), Fraction(5, 1));
     CHECK_EQ(scope.lookup(y).unwrap().getDenominator(), 1LL);
     CHECK_TRUE(!scope.lookup(y).unwrap().isNegative());
-    CHECK_EQ(scope.str(), std::string("{y = 5}"));
+    CHECK_EQ(scope.str(), std::string(R"({"y": "5"})"));
   }
 
   // 4. 重复赋值是覆盖语义，不报错
@@ -99,7 +99,7 @@ int main() {
     scope.assign(y, Integer(-3LL));
     scope.assign(x, Fraction(1, 2));
     CHECK_EQ(scope.size(), 2ULL);
-    CHECK_EQ(scope.str(), std::string("{x = 1/2, y = -3}"));
+    CHECK_EQ(scope.str(), std::string(R"({"x": "1/2", "y": "-3"})"));
   }
 
   // 8. 带下标的变量名
@@ -110,7 +110,7 @@ int main() {
     CHECK_TRUE(scope.contains(indexed));
     CHECK_TRUE(!scope.contains(Variable("a_{i,k}")));
     CHECK_EQ(scope.lookup(indexed).unwrap(), Fraction(3, 4));
-    CHECK_EQ(scope.str(), std::string("{a_{i,j} = 3/4}"));
+    CHECK_EQ(scope.str(), std::string(R"({"a_{i,j}": "3/4"})"));
   }
 
   // ==================== 代入替换 ====================
@@ -280,6 +280,19 @@ int main() {
     half.assign(x, Fraction(1, 2));
     // x + x = 2x，x=1/2 → 1
     CHECK_EQ((Polynomial(x1) + Polynomial(x1)).evaluate(half).unwrap(), Fraction(1, 1));
+  }
+
+  // 22. str() 输出 JSON；值写成字符串，因此可交给 Fraction::parse 往返
+  {
+    Scope scope;
+    scope.assign(x, Fraction(1, 2));
+    scope.assign(y, Integer(-3LL));
+    CHECK_EQ(scope.str(), std::string(R"({"x": "1/2", "y": "-3"})"));
+
+    CHECK_EQ(Fraction::parse("1/2").unwrap(), scope.lookup(x).unwrap());
+    CHECK_EQ(Fraction::parse("-3").unwrap(), scope.lookup(y).unwrap());
+
+    CHECK_EQ(Scope().str(), std::string("{}"));
   }
 
   TEST_SUMMARY();

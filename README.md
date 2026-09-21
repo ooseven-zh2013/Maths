@@ -141,6 +141,17 @@ m.evaluate(scope);     // Result = 2     —— 完全求值
 
 `Polynomial` 的代入按「逐项调用 `Monomial::substitute`，再统一合并同类项」实现。
 
+`Scope::str()` 输出 JSON，键是变量名，值是分数文本：
+
+```cpp
+scope.assign(Variable("x"), Fraction(1, 2));
+scope.assign(Variable("y"), Integer(-3));
+scope.str();   // {"x": "1/2", "y": "-3"}
+```
+
+值写成字符串而不是 JSON 数字，是为了不把精确分数浮点化（`0.5` 会丢掉 1/3 这类值），
+并且可直接交给 `Fraction::parse` 反向解析，保证输出可往返。
+
 ## 代码规范与静态检查
 
 | 工具 | 配置文件 | 用途 |

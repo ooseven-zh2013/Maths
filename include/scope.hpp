@@ -20,6 +20,41 @@
 #include <map>
 #include <ostream>
 #include <string>
+#include <string_view>
+
+namespace maths_detail {
+
+// JSON 字符串转义。按当前变量名的字符集（字母 / 数字 / 下划线 / 大括号 / 逗号）
+// 其实无需转义，做完整处理是为了将来放宽字符集时不产出非法 JSON。
+inline std::string jsonEscape(std::string_view text) {
+  std::string result;
+  result.reserve(text.size());
+  for (char c : text) {
+    switch (c) {
+    case '"':
+      result += "\\\"";
+      break;
+    case '\\':
+      result += "\\\\";
+      break;
+    case '\n':
+      result += "\\n";
+      break;
+    case '\r':
+      result += "\\r";
+      break;
+    case '\t':
+      result += "\\t";
+      break;
+    default:
+      result += c;
+      break;
+    }
+  }
+  return result;
+}
+
+} // namespace maths_detail
 
 class Scope {
 public:
@@ -57,10 +92,10 @@ public:
 
   const Bindings &bindings() const { return values; }
 
+  // JSON 对象：键是变量名，值是分数文本（如 "1/2"、"5"）。
+  // 值用字符串而非 JSON 数字，一是避免浮点化丢精度，二是可直接交给
+  // Fraction::parse 反向解析，保证 str() 的输出可往返。
   std::string str() const {
-    if (values.empty()) {
-      return "{}";
-    }
     std::string result = "{";
     bool first = true;
     for (const auto &[variable, value] : values) {
@@ -68,9 +103,11 @@ public:
         result += ", ";
       }
       first = false;
-      result += variable.str();
-      result += " = ";
-      result += maths_detail::renderFraction(value);
+      result += '"';
+      result += maths_detail::jsonEscape(variable.str());
+      result += "\": \"";
+      result += maths_detail::jsonEscape(maths_detail::renderFraction(value));
+      result += '"';
     }
     result += "}";
     return result;
