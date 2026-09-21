@@ -97,16 +97,16 @@ int main() {
     CHECK_TRUE(simple.has_value());
     if (simple) {
       CHECK_EQ(simple->variable.str(), std::string("x"));
-      CHECK_EQ(simple->value, Fraction(2, 1));
+      CHECK_EQ(simple->value.latex(), std::string("2"));
     }
 
-    // 右边允许是常数表达式
+    // 右边是常数表达式（会被求值成一个分数）
     const Result<std::optional<Assignment>> evaluated = parseAssignment("x = 1/2 + 1/3");
     CHECK_OK(evaluated);
     const std::optional<Assignment> &sum = evaluated.unwrap();
     CHECK_TRUE(sum.has_value());
     if (sum) {
-      CHECK_EQ(sum->value, Fraction(5, 6));
+      CHECK_EQ(sum->value.latex(), std::string("\\frac{5}{6}"));
     }
 
     // 负值与分数
@@ -115,7 +115,7 @@ int main() {
     const std::optional<Assignment> &bound = negative.unwrap();
     CHECK_TRUE(bound.has_value());
     if (bound) {
-      CHECK_EQ(bound->value, Fraction(-3, 4));
+      CHECK_EQ(bound->value.latex(), std::string("-\\frac{3}{4}"));
     }
   }
 
@@ -127,7 +127,7 @@ int main() {
     CHECK_TRUE(swapped.has_value());
     if (swapped) {
       CHECK_EQ(swapped->variable.str(), std::string("x"));
-      CHECK_EQ(swapped->value, Fraction(3, 1));
+      CHECK_EQ(swapped->value.latex(), std::string("3"));
     }
 
     const Result<std::optional<Assignment>> fractional = parseAssignment("1/2 = a_b");
@@ -135,7 +135,7 @@ int main() {
     const std::optional<Assignment> &bound = fractional.unwrap();
     CHECK_TRUE(bound.has_value());
     if (bound) {
-      CHECK_EQ(bound->value, Fraction(1, 2));
+      CHECK_EQ(bound->value.latex(), std::string("\\frac{1}{2}"));
     }
   }
 
@@ -148,15 +148,40 @@ int main() {
     CHECK_TRUE(!parseAssignment("1/2 = 2/4").unwrap().has_value()); // 约分后相等
   }
 
-  // 11. 不支持的形式：明确报错，不猜测
+  // 11. 右边可以是含其它变量的表达式
+  {
+    // x = y：y 不是 x 自己，允许（相当于给 x 起别名）
+    const Result<std::optional<Assignment>> alias = parseAssignment("x = y");
+    CHECK_OK(alias);
+    CHECK_TRUE(alias.unwrap().has_value());
+    if (alias.unwrap()) {
+      CHECK_EQ(alias.unwrap()->variable.str(), std::string("x"));
+      CHECK_EQ(alias.unwrap()->value.latex(), std::string("y"));
+    }
+
+    const Result<std::optional<Assignment>> product = parseAssignment("s = v*t");
+    CHECK_OK(product);
+    CHECK_TRUE(product.unwrap().has_value());
+    if (product.unwrap()) {
+      CHECK_EQ(product.unwrap()->variable.str(), std::string("s"));
+      CHECK_EQ(product.unwrap()->value.latex(), std::string("tv"));
+    }
+  }
+
+  // 12. 不支持的形式：明确报错，不猜测
   {
     CHECK_ERR(parseAssignment("x"), MathsError::InvalidExpression);         // 缺少等号
-    CHECK_ERR(parseAssignment("x = y"), MathsError::InvalidExpression);     // 右边是变量而非常数
-    CHECK_ERR(parseAssignment("x + 1 = 2"), MathsError::InvalidExpression); // 需要解方程
+    CHECK_ERR(parseAssignment("x + 1 = 2"), MathsError::InvalidExpression); // 需要解方程（左边不是变量）
+    CHECK_ERR(parseAssignment("x + 1 = y"), MathsError::InvalidExpression); // 同上，不能靠移项猜
     CHECK_ERR(parseAssignment("f(x) = 2"), MathsError::InvalidExpression);  // 不是单纯变量
     CHECK_ERR(parseAssignment("x = 2 = 3"), MathsError::InvalidExpression); // 多个等号
     CHECK_ERR(parseAssignment("x = "), MathsError::InvalidExpression);
     CHECK_ERR(parseAssignment("= 2"), MathsError::InvalidExpression);
+
+    // 自引用属于方程而非赋值
+    CHECK_ERR(parseAssignment("x = 2x"), MathsError::NotAnAssignment);
+    CHECK_ERR(parseAssignment("x = x + 1"), MathsError::NotAnAssignment);
+    CHECK_ERR(parseAssignment("x = 1/x"), MathsError::NotAnAssignment);
   }
 
   // ==================== LaTeX 写法 ====================

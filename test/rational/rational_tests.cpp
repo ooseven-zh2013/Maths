@@ -1,5 +1,6 @@
 #include "check.hpp"
 #include "rational_function.hpp"
+#include "scope.hpp"
 #include <iostream>
 #include <string>
 
@@ -191,7 +192,7 @@ int main() {
   // 14. 代入与求值
   {
     Scope scope;
-    scope.assign(x, Integer(2LL));
+    CHECK_OK(scope.assign(x, Integer(2LL)));
 
     const RationalFunction r =
         RationalFunction::make(Polynomial(x1) + Polynomial(one1), Polynomial(x1) - Polynomial(one1)).unwrap();
@@ -201,7 +202,7 @@ int main() {
 
     // 代入后分母退化为零多项式
     Scope pole;
-    pole.assign(x, Integer(1LL));
+    CHECK_OK(pole.assign(x, Integer(1LL)));
     CHECK_ERR(r.substitute(pole), MathsError::ZeroDenominator);
     CHECK_ERR(r.evaluate(pole), MathsError::ZeroDenominator);
 
@@ -213,7 +214,7 @@ int main() {
   // 15. 代入后仍保留已记录的约束
   {
     Scope scope;
-    scope.assign(x, Integer(3LL));
+    CHECK_OK(scope.assign(x, Integer(3LL)));
 
     const RationalFunction reduced =
         RationalFunction::make(Polynomial(x1), Polynomial(Monomial(Fraction(1, 1), {{x, 2ULL}}))).unwrap();

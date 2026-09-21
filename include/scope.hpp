@@ -2,18 +2,20 @@
 #ifndef MATHS_SCOPE_HPP
 #define MATHS_SCOPE_HPP
 
-// 变量到值的绑定表：把一个变量映射到它的值（形式上类似命名空间，但绑定的是值本身）。
+// 变量到值的绑定表（形式上类似命名空间，但绑定的是值本身）。
 //
-// 值统一以 Fraction 存储。Integer 数学上是 Fraction 的子集（分母为 1 的分数），
-// 因此整数与分数共用一个空间既不丢信息，也不会出现「同一变量在两套表里
-// 有两个不一致的值」这种状态。
+// 值统一以 RationalFunction 存储 —— 常数是分式的特例（分母为 1），
+// 于是整数、分数、多项式、分式共用一个空间，既不丢信息也不会出现两套表不一致。
 //
-// 赋值是覆盖语义（与 map 一致），不存在的变量重复赋值不会报错；
-// 只有「读取未绑定的变量」才是错误，由 lookup 返回 MathsError::UndefinedVariable。
+// 因此支持把变量绑定到**含其它变量的表达式**，例如 s = v*t、x = 1/(a+b)。
+// 右边可以引用式子里没出现过的变量，它们会在代入时继续被替换（见 substitute 的不动点迭代）。
+//
+// 赋值**不允许自引用**：x = 2x、x = x + 1 这类是方程而不是赋值，需要解方程，因此明确报错。
 
 #include "algebraic_expression.hpp"
 #include "maths_error.hpp"
 #include "numbers.hpp"
+#include "rational_function.hpp"
 #include "result.hpp"
 
 #include <cstddef>
@@ -24,8 +26,8 @@
 
 namespace maths_detail {
 
-// JSON 字符串转义。按当前变量名的字符集（字母 / 数字 / 下划线 / 大括号 / 逗号）
-// 其实无需转义，做完整处理是为了将来放宽字符集时不产出非法 JSON。
+// JSON 字符串转义。按当前变量名与表达式的字符集其实无需转义，
+// 做完整处理是为了将来放宽字符集时不产出非法 JSON。
 inline std::string jsonEscape(std::string_view text) {
   std::string result;
   result.reserve(text.size());
@@ -58,15 +60,27 @@ inline std::string jsonEscape(std::string_view text) {
 
 class Scope {
 public:
-  using Bindings = std::map<Variable, Fraction>;
+  using Bindings = std::map<Variable, RationalFunction>;
 
   // ==================== 赋值 ====================
 
-  // 已绑定则覆盖
-  void assign(const Variable &variable, const Fraction &value) { values[variable] = value; }
+  // 右边不得含被赋值的变量本身 —— 那是方程而非赋值（如 x = 2x），需要解方程，明确不支持。
+  Result<void> assign(const Variable &variable, const RationalFunction &value) {
+    if (value.containsVariable(variable)) {
+      return Result<void>::err(MathsError::NotAnAssignment);
+    }
+    values[variable] = value;
+    return Result<void>();
+  }
 
-  // 整数按等值分数存储（分母为 1）
-  void assign(const Variable &variable, const Integer &value) { values[variable] = Fraction::fromInteger(value); }
+  // 常数与整数的便捷入口
+  Result<void> assign(const Variable &variable, const Fraction &value) {
+    return assign(variable, RationalFunction(value));
+  }
+
+  Result<void> assign(const Variable &variable, const Integer &value) {
+    return assign(variable, RationalFunction(Fraction::fromInteger(value)));
+  }
 
   // ==================== 查询 ====================
 
@@ -75,7 +89,7 @@ public:
   std::size_t size() const { return values.size(); }
 
   // 变量未绑定时返回 MathsError::UndefinedVariable
-  Result<Fraction> lookup(const Variable &variable) const {
+  Result<RationalFunction> lookup(const Variable &variable) const {
     const auto found = values.find(variable);
     if (found == values.end()) {
       return std::unexpected(MathsError::UndefinedVariable);
@@ -92,9 +106,7 @@ public:
 
   const Bindings &bindings() const { return values; }
 
-  // JSON 对象：键是变量名，值是分数文本（如 "1/2"、"5"）。
-  // 值用字符串而非 JSON 数字，一是避免浮点化丢精度，二是可直接交给
-  // Fraction::parse 反向解析，保证 str() 的输出可往返。
+  // JSON 对象：键是变量名，值是表达式文本
   std::string str() const {
     std::string result = "{";
     bool first = true;
@@ -106,7 +118,7 @@ public:
       result += '"';
       result += maths_detail::jsonEscape(variable.str());
       result += "\": \"";
-      result += maths_detail::jsonEscape(maths_detail::renderFraction(value));
+      result += maths_detail::jsonEscape(value.str());
       result += '"';
     }
     result += "}";
@@ -117,62 +129,106 @@ private:
   Bindings values;
 };
 
-inline std::ostream &operator<<(std::ostream &os, const Scope &scope) { return os << scope.str(); }
+// ==================== 代入的实现 ====================
+// 放在 Scope 定义之后：algebraic_expression.hpp 与 rational_function.hpp 里只有声明。
 
-// ==================== 代入替换 ====================
-// 实现放在 Scope 定义之后：algebraic_expression.hpp 里只有前向声明，避免循环包含。
-
-inline Monomial Monomial::substitute(const Scope &scope) const {
+// 一次替换：已绑定的变量换成它的值，未绑定的原样保留。
+// 结果用 RationalFunction 承载，因为绑定值本身可能是分式。
+inline RationalFunction Monomial::substitute(const Scope &scope) const {
   if (isZero()) {
-    return Monomial();
+    return RationalFunction(Fraction(0, 1));
   }
 
-  Fraction substitutedCoeff = coeff;
+  RationalFunction result(coeff);
   VarPowers remaining;
-  remaining.reserve(factors.size());
 
   for (const auto &[variable, exponent] : factors) {
-    const Result<Fraction> value = scope.lookup(variable);
+    const Result<RationalFunction> value = scope.lookup(variable);
     if (value.isErr()) {
       remaining.push_back({variable, exponent}); // 未绑定：原样保留
       continue;
     }
-    // 已绑定：把 value^exponent 并进系数，变量本身消失。
-    // 指数恒为非负（零次幂在规范化时已删除），因此 pow 不会失败。
-    substitutedCoeff = substitutedCoeff * value.unwrap().pow(Integer(exponent)).unwrap();
+
+    // value^exponent 并进结果（指数非负，零次幂在规范化时已删除）
+    RationalFunction power(Fraction(1, 1));
+    for (unsigned long long i = 0; i < exponent; ++i) {
+      power = power * value.unwrap();
+    }
+    result = result * power;
   }
 
-  return Monomial(substitutedCoeff, std::move(remaining));
-}
-
-inline Polynomial Polynomial::substitute(const Scope &scope) const {
-  Polynomial result;
-  for (const auto &[factors, coefficient] : terms) {
-    const Monomial substituted = Monomial(coefficient, factors).substitute(scope);
-    result.addTerm(substituted.getFactors(), substituted.getCoefficient());
+  if (!remaining.empty()) {
+    result = result * RationalFunction(Monomial(Fraction(1, 1), std::move(remaining)));
   }
   return result;
 }
 
-// ==================== 完全求值 ====================
-// 先代入，再要求结果化为常数；只要还有变量残留就说明存在未绑定变量。
-
-inline Result<Fraction> Monomial::evaluate(const Scope &scope) const {
-  const Monomial substituted = substitute(scope);
-  if (!substituted.isConstant()) {
-    return std::unexpected(MathsError::UndefinedVariable);
+inline RationalFunction Polynomial::substitute(const Scope &scope) const {
+  RationalFunction result(Fraction(0, 1));
+  for (const auto &entry : terms) {
+    result = result + Monomial(entry.second, entry.first).substitute(scope);
   }
-  return substituted.getCoefficient();
+  return result;
 }
+
+// 完全求值统一委托给 RationalFunction：代入后要求分子分母都化为常数。
+// 绑定值可能是分式，所以不能像原来那样直接看单项式的系数。
+inline Result<Fraction> Monomial::evaluate(const Scope &scope) const { return RationalFunction(*this).evaluate(scope); }
 
 inline Result<Fraction> Polynomial::evaluate(const Scope &scope) const {
-  const Result<Monomial> monomial = substitute(scope).toMonomial();
-  // 化简后仍不止一项 → 有变量没绑定；
-  // 只剩一项但仍是变量（如 x + y 只绑定了 x 时的 y）→ 同样未绑定
-  if (monomial.isErr() || !monomial.unwrap().isConstant()) {
+  return RationalFunction(*this).evaluate(scope);
+}
+
+// 反复替换直到不再变化，处理 s = v*t、v = a*b 这类链式绑定。
+// 迭代上限取 size() + 1，足以展开任意无环依赖链，同时避免循环绑定导致的不终止
+// （循环绑定虽然被 assign 拦住了自引用，但 a = b、b = a 仍是环，这里保底）。
+inline Result<RationalFunction> RationalFunction::substitute(const Scope &scope) const {
+  RationalFunction current = *this;
+  const std::size_t limit = scope.size() + 1;
+
+  for (std::size_t iteration = 0; iteration < limit; ++iteration) {
+    // 必须用 current 的分子分母。若用 *this 的，每一轮都在替换原始式子，
+    // 链式绑定（s = v*t 且 v = a*b）就只能展开一层。
+    const RationalFunction replacedNumerator = current.getNumerator().substitute(scope);
+    const RationalFunction replacedDenominator = current.getDenominator().substitute(scope);
+
+    if (replacedDenominator.isZero()) {
+      return std::unexpected(MathsError::ZeroDenominator);
+    }
+
+    const Result<RationalFunction> quotient = replacedNumerator / replacedDenominator;
+    if (quotient.isErr()) {
+      return quotient;
+    }
+    if (quotient.unwrap() == current) {
+      break; // 到达不动点
+    }
+    current = quotient.unwrap();
+  }
+
+  // 代入不改变此前化简已经丢掉的定义域约束，照旧保留
+  current.discarded = discarded;
+  return current;
+}
+
+// 完全求值：要求代入后分子分母都化为常数
+inline Result<Fraction> RationalFunction::evaluate(const Scope &scope) const {
+  const Result<RationalFunction> expanded = substitute(scope);
+  if (expanded.isErr()) {
+    return std::unexpected(expanded.unwrapErr());
+  }
+
+  const Result<Monomial> numeratorValue = expanded.unwrap().getNumerator().toMonomial();
+  const Result<Monomial> denominatorValue = expanded.unwrap().getDenominator().toMonomial();
+  if (numeratorValue.isErr() || !numeratorValue.unwrap().isConstant() || denominatorValue.isErr() ||
+      !denominatorValue.unwrap().isConstant()) {
     return std::unexpected(MathsError::UndefinedVariable);
   }
-  return monomial.unwrap().getCoefficient();
+
+  // 分母非零由 substitute 保证，除法不会失败
+  return numeratorValue.unwrap().getCoefficient() / denominatorValue.unwrap().getCoefficient();
 }
+
+inline std::ostream &operator<<(std::ostream &os, const Scope &scope) { return os << scope.str(); }
 
 #endif // MATHS_SCOPE_HPP

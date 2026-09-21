@@ -132,12 +132,28 @@ m.evaluate(scope);     // Result = 2     —— 完全求值
 
 | 接口 | 语义 |
 | --- | --- |
-| `Monomial::substitute(scope)` / `Polynomial::substitute(scope)` | **部分代入**：已绑定的变量替换为其值并把幂次并进系数，未绑定的原样保留。返回同类型，不会失败 |
-| `Monomial::evaluate(scope)` / `Polynomial::evaluate(scope)` | **完全求值**：要求全部变量都已绑定且结果化为常数，否则返回 `MathsError::UndefinedVariable` |
+| `Monomial::substitute(scope)` / `Polynomial::substitute(scope)` | **部分代入**：已绑定的变量换成其值，未绑定的原样保留。因为绑定值可能是分式，结果为 `RationalFunction` |
+| `Monomial::evaluate(scope)` / `Polynomial::evaluate(scope)` | **完全求值**：要求代入后化为常数，否则返回 `MathsError::UndefinedVariable` |
 
-`Scope` 的值统一以 `Fraction` 存储 —— `Integer` 是分母为 1 的分数，因此整数与分数共用一个空间，
-既不会丢失信息，也不会出现同一变量在两处取值不一致的状态。`assign` 是覆盖语义且不会失败，
-只有 `lookup` 会失败。
+`Scope` 的值统一以 `RationalFunction` 存储 —— 常数是分式的特例（分母为 1），
+于是整数、分数、多项式、分式共用一个空间，既不丢信息也不会出现两套表不一致。
+
+因此**值可以是含其它变量的表达式**，例如 `s = v*t`。右边引用的变量不必出现在原式里，
+它们会在代入时继续被替换（`substitute` 会迭代到不动点）：
+
+```cpp
+Scope scope;
+scope.assign(Variable("s"), parseExpression("v*t").unwrap());   // s = v*t
+scope.assign(Variable("v"), Integer(3));
+scope.assign(Variable("t"), Integer(4));
+
+parseExpression("2s").unwrap().substitute(scope).unwrap().latex();   // "24"
+```
+
+**赋值不允许自引用**：`x = 2x`、`x = x + 1` 这类是方程而不是赋值（需要解方程），
+因此返回 `MathsError::NotAnAssignment`。这也是 `assign` 返回 `Result<void>` 的原因。
+
+`assign` 是覆盖语义；`lookup` 在变量未绑定时返回 `UndefinedVariable`。
 
 `Polynomial` 的代入按「逐项调用 `Monomial::substitute`，再统一合并同类项」实现。
 
@@ -282,11 +298,13 @@ cmake --build build
 **LaTeX 写法同样接受**：`\frac{a}{b}`、`\cdot`、`\times`、`\div`、`x^{2}`、`\left( \right)`；
 输出一律采用 LaTeX。
 
-条件必须是「变量 = 常数」形式，但有两点放宽与一点克制：
+条件形式：**变量 = 表达式**。
 
-- `3 = x` 会被理解成 `x = 3`（两侧可交换）
+- 右边可以是常数，也可以是含其它变量的表达式：`s = v*t`
+- 右边**不能含被赋值的变量本身** —— `x = 2x`、`x = x + 1` 是方程不是赋值，会被拒绝
+- 左边是常数时可交换：`3 = x` 理解为 `x = 3`
 - `x = x`、`2 = 2` 这类恒等式被识别出来并忽略
-- `x + 1 = 2` 这类**需要解方程**的写法明确报错，不猜测
+- `x + 1 = 2` 这类需要解方程的写法明确报错，不猜测
 
 式子解析失败时程序会提示并**重新索取输入**，不会直接退出。
 

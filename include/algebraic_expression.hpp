@@ -259,6 +259,7 @@ inline std::strong_ordering compareLex(const VarPowers &lhs, const VarPowers &rh
 } // namespace maths_detail
 
 class Polynomial;
+class RationalFunction;
 class Scope;
 
 class Monomial {
@@ -300,9 +301,9 @@ public:
 
   Monomial operator-() const { return Monomial(-coeff, factors); }
 
-  // 把 Scope 中已绑定的变量替换为其值，未绑定的变量原样保留；
-  // 被替换掉的变量其幂次会并进系数（定义见 scope.hpp）
-  Monomial substitute(const Scope &scope) const;
+  // 把 Scope 中已绑定的变量替换为其值，未绑定的变量原样保留。
+  // 绑定值本身可以是分式（如 s = v*t、x = a/b），所以结果用 RationalFunction 承载（定义见 scope.hpp）
+  RationalFunction substitute(const Scope &scope) const;
 
   // 完全求值：所有变量都必须已绑定且结果化为常数，否则返回 MathsError::UndefinedVariable
   Result<Fraction> evaluate(const Scope &scope) const;
@@ -424,13 +425,26 @@ public:
 
   const std::map<VarPowers, Fraction> &getTerms() const { return terms; }
 
+  // 是否含某个变量（任一项的变量因子里出现即算）
+  bool containsVariable(const Variable &variable) const {
+    for (const auto &entry : terms) {
+      for (const auto &factor : entry.first) {
+        if (factor.first == variable) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   bool isZero() const { return terms.empty(); }
 
   // 化简后只剩不超过一项即为单项式（零多项式视为零单项式）
   bool isMonomial() const { return terms.size() <= 1; }
 
-  // 对每一项调用 Monomial::substitute，再统一合并同类项（定义见 scope.hpp）
-  Polynomial substitute(const Scope &scope) const;
+  // 对每一项调用 Monomial::substitute，再统一合并同类项（定义见 scope.hpp）。
+  // 结果可能不再是多项式，故返回 RationalFunction
+  RationalFunction substitute(const Scope &scope) const;
 
   // 完全求值：所有变量都必须已绑定且结果化为常数，否则返回 MathsError::UndefinedVariable
   Result<Fraction> evaluate(const Scope &scope) const;

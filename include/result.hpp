@@ -191,6 +191,45 @@ private:
   std::variant<T, MathsError> data_;
 };
 
+// ==================== Result<void>：只表示成功或失败，不携带值 ====================
+
+template <> class [[nodiscard]] Result<void> {
+public:
+  using ValueType = void;
+
+  Result() = default;
+
+  static Result err(MathsError error) {
+    Result result;
+    result.error_ = error;
+    return result;
+  }
+
+  bool isOk() const noexcept { return !error_.has_value(); }
+  bool isErr() const noexcept { return error_.has_value(); }
+  explicit operator bool() const noexcept { return isOk(); }
+
+  void unwrap() const {
+    if (isErr()) {
+      throw MathsException(error());
+    }
+  }
+
+  MathsError unwrapErr() const {
+    if (isOk()) {
+      throw std::runtime_error("unwrapErr 被调用，但结果是 Ok");
+    }
+    return *error_;
+  }
+
+  const MathsError &error() const { return *error_; }
+
+  bool operator==(const Result &rhs) const { return error_ == rhs.error_; }
+
+private:
+  std::optional<MathsError> error_;
+};
+
 // ==================== 流输出（输出结果本身，不涉及解包） ====================
 
 template <class T> std::ostream &operator<<(std::ostream &os, const Result<T> &result) {

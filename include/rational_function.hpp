@@ -20,7 +20,10 @@
 #include "maths_error.hpp"
 #include "numbers.hpp"
 #include "result.hpp"
-#include "scope.hpp"
+
+// Substitute / evaluate 需要 Scope 的完整定义，因此实现放在 scope.hpp。
+// 这里只用前向声明，依赖保持单向：scope.hpp → rational_function.hpp
+class Scope;
 
 #include <algorithm>
 #include <map>
@@ -33,7 +36,15 @@
 
 namespace maths_detail {
 
-// 有理数 gcd：gcd(a/b, c/d) = gcd(a, c) / lcm(b, d)，结果非负
+// 取 long long 的无符号绝对值，规避 LLONG_MIN 取负的未定义行为
+inline unsigned long long magnitudeOf(long long value) {
+  return value < 0 ? static_cast<unsigned long long>(0) - static_cast<unsigned long long>(value)
+                   : static_cast<unsigned long long>(value);
+}
+
+// 有理数 gcd：gcd(a/b, c/d) = gcd(a, c) / lcm(b, d)，结果非负。
+// 必须走无符号版本：std::gcd 在内部对操作数调用 std::abs，
+// 遇到 LLONG_MIN 会直接断言失败（Integer(LLONG_MIN) 转成分数就会踩到）。
 inline Fraction gcdFraction(const Fraction &lhs, const Fraction &rhs) {
   if (lhs == 0LL) {
     return rhs.isNegative() ? -rhs : rhs;
@@ -41,8 +52,8 @@ inline Fraction gcdFraction(const Fraction &lhs, const Fraction &rhs) {
   if (rhs == 0LL) {
     return lhs.isNegative() ? -lhs : lhs;
   }
-  return Fraction(std::gcd(lhs.getNumerator(), rhs.getNumerator()),
-                  std::lcm(lhs.getDenominator(), rhs.getDenominator()));
+  const unsigned long long numeratorGcd = std::gcd(magnitudeOf(lhs.getNumerator()), magnitudeOf(rhs.getNumerator()));
+  return Fraction(static_cast<long long>(numeratorGcd), std::lcm(lhs.getDenominator(), rhs.getDenominator()));
 }
 
 // 多项式的数值内容：所有系数的 gcd
@@ -136,6 +147,11 @@ public:
   const Polynomial &getNumerator() const { return numerator; }
   const Polynomial &getDenominator() const { return denominator; }
 
+  // 是否含某个变量（分子或分母中出现即算）
+  bool containsVariable(const Variable &variable) const {
+    return numerator.containsVariable(variable) || denominator.containsVariable(variable);
+  }
+
   const std::set<Variable> &discardedConstraints() const { return discarded; }
 
   bool isZero() const { return numerator.isZero(); }
@@ -207,37 +223,14 @@ public:
   }
 
   // ==================== 代入与求值 ====================
+  // 实现放在 scope.hpp（Scope 的完整定义之后），此处只声明，避免循环包含。
 
-  // 代入：分子分母分别代入。
-  // 代入后分母可能退化成零多项式（例如 1/(x-1) 代入 x=1），此时返回 ZeroDenominator。
-  Result<RationalFunction> substitute(const Scope &scope) const {
-    const Polynomial substitutedNumerator = numerator.substitute(scope);
-    const Polynomial substitutedDenominator = denominator.substitute(scope);
-    if (substitutedDenominator.isZero()) {
-      return std::unexpected(MathsError::ZeroDenominator);
-    }
-    RationalFunction result = fromParts(substitutedNumerator, substitutedDenominator);
-    result.discarded = discarded;
-    return result;
-  }
+  // 反复替换直到不再变化，以处理 s = v*t、v = a*b 这类链式绑定。
+  // 代入后分母退化成零多项式时（例如 1/(x-1) 代入 x=1）返回 ZeroDenominator。
+  Result<RationalFunction> substitute(const Scope &scope) const;
 
-  // 完全求值：要求所有变量都已绑定，且分子分母都化为常数
-  Result<Fraction> evaluate(const Scope &scope) const {
-    const Result<RationalFunction> substituted = substitute(scope);
-    if (substituted.isErr()) {
-      return std::unexpected(substituted.unwrapErr());
-    }
-
-    const Result<Monomial> substitutedNumerator = substituted.unwrap().numerator.toMonomial();
-    const Result<Monomial> substitutedDenominator = substituted.unwrap().denominator.toMonomial();
-    if (substitutedNumerator.isErr() || !substitutedNumerator.unwrap().isConstant() || substitutedDenominator.isErr() ||
-        !substitutedDenominator.unwrap().isConstant()) {
-      return std::unexpected(MathsError::UndefinedVariable);
-    }
-
-    // 分母非零由 substitute 保证，除法不会失败
-    return substitutedNumerator.unwrap().getCoefficient() / substitutedDenominator.unwrap().getCoefficient();
-  }
+  // 完全求值：要求代入后分子分母都化为常数，否则 UndefinedVariable
+  Result<Fraction> evaluate(const Scope &scope) const;
 
   // ==================== 化为多项式 ====================
 
@@ -289,6 +282,14 @@ public:
         denominatorMonomial.unwrap().getCoefficient() == 1LL) {
       return numerator.latex(); // 分母恰为 1，退化成多项式
     }
+
+    // 分式整体为负时把负号提到 \frac 外：-\frac{3}{4} 而不是 \frac{-3}{4}。
+    // 分母首项已由 normalizeSign 归一为正，所以只看分子首项即可。
+    const std::optional<Monomial> numeratorLead = leadingMonomial(numerator);
+    if (numeratorLead && numeratorLead->getCoefficient().isNegative()) {
+      return "-\\frac{" + (-numerator).latex() + "}{" + denominator.latex() + "}";
+    }
+
     return "\\frac{" + numerator.latex() + "}{" + denominator.latex() + "}";
   }
 

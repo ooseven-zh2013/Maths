@@ -437,7 +437,7 @@ inline Result<RationalFunction> parseExpression(std::string_view text) {
 
 struct Assignment {
   Variable variable;
-  Fraction value;
+  RationalFunction value; // 右边可以是含其它变量的表达式，如 s = v*t
 };
 
 // 解析代入条件 "变量 = 常数"。
@@ -462,10 +462,13 @@ inline Result<std::optional<Assignment>> parseAssignment(std::string_view text) 
     return std::unexpected(rightHand.unwrapErr());
   }
 
-  const std::optional<Variable> leftVariable = expression_detail::asSingleVariable(leftHand.unwrap());
-  const std::optional<Variable> rightVariable = expression_detail::asSingleVariable(rightHand.unwrap());
-  const std::optional<Fraction> leftConstant = expression_detail::asConstant(leftHand.unwrap());
-  const std::optional<Fraction> rightConstant = expression_detail::asConstant(rightHand.unwrap());
+  const RationalFunction &left = leftHand.unwrap();
+  const RationalFunction &right = rightHand.unwrap();
+
+  const std::optional<Variable> leftVariable = expression_detail::asSingleVariable(left);
+  const std::optional<Variable> rightVariable = expression_detail::asSingleVariable(right);
+  const std::optional<Fraction> leftConstant = expression_detail::asConstant(left);
+  const std::optional<Fraction> rightConstant = expression_detail::asConstant(right);
 
   // x = x：同一个变量，恒等式
   if (leftVariable && rightVariable && *leftVariable == *rightVariable) {
@@ -477,13 +480,19 @@ inline Result<std::optional<Assignment>> parseAssignment(std::string_view text) 
     return std::optional<Assignment>{};
   }
 
-  if (leftVariable && rightConstant) {
-    return std::optional<Assignment>{Assignment{*leftVariable, *rightConstant}};
+  // 变量 = 表达式。右边不得含被赋值的变量本身 —— 那是方程而非赋值
+  // （x = 2x、x = x + 1 都需要解方程，明确不支持）。
+  if (leftVariable) {
+    if (right.containsVariable(*leftVariable)) {
+      return std::unexpected(MathsError::NotAnAssignment);
+    }
+    return std::optional<Assignment>{Assignment{*leftVariable, right}};
   }
 
-  // C = x 交换成 x = C
+  // 表达式 = 变量：交换后同上。只在左侧是常数时才交换，
+  // 否则 x + 1 = y 这类需要移项的式子会被误当成 y 的赋值。
   if (rightVariable && leftConstant) {
-    return std::optional<Assignment>{Assignment{*rightVariable, *leftConstant}};
+    return std::optional<Assignment>{Assignment{*rightVariable, left}};
   }
 
   return std::unexpected(MathsError::InvalidExpression);

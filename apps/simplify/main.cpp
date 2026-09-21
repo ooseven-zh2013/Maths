@@ -70,7 +70,8 @@ int main() {
   }
 
   Scope scope;
-  std::cout << "\n条件（变量 = 常数，输入 0=0 结束）:\n";
+  std::cout << "\n条件（变量 = 表达式，输入 0=0 结束）:\n";
+  std::cout << "  右边可用式子里没有的变量，如 s = v*t；但不能含被赋值的变量本身（那是方程）\n";
   while (true) {
     std::cout << "> ";
     std::string line;
@@ -89,7 +90,7 @@ int main() {
 
     const Result<std::optional<Assignment>> assignment = parseAssignment(line);
     if (assignment.isErr()) {
-      std::cout << "  忽略: 只接受「变量 = 常数」形式（" << describe(assignment.unwrapErr()) << "）\n";
+      std::cout << "  忽略: " << describe(assignment.unwrapErr()) << '\n';
       continue;
     }
     if (!assignment.unwrap().has_value()) {
@@ -97,7 +98,12 @@ int main() {
       continue;
     }
 
-    scope.assign(assignment.unwrap()->variable, assignment.unwrap()->value);
+    // 赋值可能被拒（右边含变量自身时属于方程，不支持）
+    const Result<void> assigned = scope.assign(assignment.unwrap()->variable, assignment.unwrap()->value);
+    if (assigned.isErr()) {
+      std::cout << "  不接受: " << describe(assigned.unwrapErr()) << '\n';
+      continue;
+    }
     std::cout << "  当前条件: " << scope.str() << '\n';
   }
 

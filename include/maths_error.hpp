@@ -28,6 +28,7 @@ enum class MathsError {
   InvalidRange,
   // 作用域
   UndefinedVariable,
+  NotAnAssignment,
 };
 
 inline std::string_view describe(MathsError error) {
@@ -54,6 +55,8 @@ inline std::string_view describe(MathsError error) {
     return "区间参数非法";
   case MathsError::UndefinedVariable:
     return "变量未定义";
+  case MathsError::NotAnAssignment:
+    return "右边含被赋值的变量本身，那是方程不是赋值";
   }
   return "未知错误";
 }
