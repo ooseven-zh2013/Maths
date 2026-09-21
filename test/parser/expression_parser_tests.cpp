@@ -80,7 +80,7 @@ int main() {
     CHECK_ERR(parseExpression("1 +"), MathsError::InvalidExpression);
     CHECK_ERR(parseExpression("(1"), MathsError::InvalidExpression);
     CHECK_ERR(parseExpression("1)"), MathsError::InvalidExpression); // 残留字符
-    CHECK_ERR(parseExpression("1 2"), MathsError::InvalidExpression);
+    CHECK_ERR(parseExpression("()"), MathsError::InvalidExpression);
     CHECK_ERR(parseExpression("@"), MathsError::InvalidExpression);
     CHECK_ERR(parseExpression("x^"), MathsError::InvalidExpression);
     CHECK_ERR(parseExpression("x^y"), MathsError::InvalidExpression); // 指数必须是整数
@@ -194,6 +194,52 @@ int main() {
     CHECK_ERR(parseExpression("\\frac{1}{"), MathsError::InvalidExpression);
     CHECK_ERR(parseExpression("\\frac{1}"), MathsError::InvalidExpression);
     CHECK_ERR(parseExpression("\\unknown{x}"), MathsError::InvalidExpression);
+  }
+
+  // ==================== 隐含乘法 ====================
+
+  // 15. xy 即 x*y：数学书写习惯，也是与 latex() 输出闭环的前提
+  {
+    CHECK_EQ(parseExpression("xy").unwrap().str(), std::string("x y"));
+    CHECK_EQ(parseExpression("x*y").unwrap().str(), std::string("x y"));
+    CHECK_EQ(parseExpression("x y").unwrap().str(), std::string("x y"));
+
+    // 输入两种写法必须得到完全相同的式子
+    CHECK_EQ(parseExpression("xy").unwrap(), parseExpression("x*y").unwrap());
+
+    CHECK_EQ(parseExpression("2x").unwrap().str(), std::string("2 x"));
+    CHECK_EQ(parseExpression("2(x + 1)").unwrap().str(), std::string("2 x + 2"));
+    CHECK_EQ(parseExpression("x(x + 1)").unwrap().str(), std::string("x^2 + x"));
+  }
+
+  // 16. 变量名 = 单个字母 + 可选下标；连续字母不再合并成名字
+  {
+    CHECK_EQ(parseExpression("x").unwrap().str(), std::string("x"));
+    CHECK_EQ(parseExpression("x_1").unwrap().str(), std::string("x_1"));
+    CHECK_EQ(parseExpression("x_{i,j}").unwrap().str(), std::string("x_{i,j}"));
+    CHECK_EQ(parseExpression("a_1b").unwrap().str(), std::string("a_1 b")); // a_1 乘 b
+    CHECK_EQ(parseExpression("x^2y").unwrap().str(), std::string("x^2 y"));
+  }
+
+  // 17. 多字母变量名用花括号声明
+  {
+    CHECK_EQ(parseExpression("{node}").unwrap().str(), std::string("node"));
+    // 单字符组成的索引不补花括号，与 Variable 的既有输出规则一致
+    CHECK_EQ(parseExpression("{node}_{car}").unwrap().str(), std::string("node_car"));
+    CHECK_EQ(parseExpression("{node}_{i,j}").unwrap().str(), std::string("node_{i,j}"));
+    CHECK_EQ(parseExpression("{x}").unwrap().str(), std::string("x")); // 与裸写 x 等价
+    CHECK_EQ(parseExpression("{x}").unwrap(), parseExpression("x").unwrap());
+
+    // 不加花括号就退回隐含乘法（四个变量按名字排序输出）
+    CHECK_EQ(parseExpression("node").unwrap().str(), std::string("d e n o"));
+
+    // 与系数、指数组合
+    CHECK_EQ(parseExpression("2{node}").unwrap().str(), std::string("2 node"));
+    CHECK_EQ(parseExpression("{node}^2").unwrap().str(), std::string("node^2"));
+    CHECK_EQ(parseExpression("{node}{car}").unwrap().str(), std::string("car node"));
+
+    // 空花括号不是合法变量
+    CHECK_ERR(parseExpression("{}"), MathsError::InvalidExpression);
   }
 
   TEST_SUMMARY();

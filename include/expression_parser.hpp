@@ -178,6 +178,17 @@ private:
     }
   }
 
+  // 下一个位置能否开始一个因子 —— 用于识别隐含乘法
+  bool startsPrimary() const {
+    if (atEnd()) {
+      return false;
+    }
+    const char character = peek();
+    return std::isalpha(static_cast<unsigned char>(character)) != 0 ||
+           std::isdigit(static_cast<unsigned char>(character)) != 0 || character == '(' || character == '{' ||
+           character == '\\';
+  }
+
   Result<RationalFunction> parseMultiplicative() {
     Result<RationalFunction> left = parsePower();
     if (left.isErr()) {
@@ -186,23 +197,29 @@ private:
     while (true) {
       skipSpaces();
       const char operation = peek();
-      if (operation != '*' && operation != '/') {
+
+      // 隐含乘法：数学书写里 xy 就是 x*y，2x 就是 2*x。
+      // 没有这一条的话，xy 会被 parseVariable 吞成一个变量名。
+      if (operation != '*' && operation != '/' && !startsPrimary()) {
         return left;
       }
-      ++position;
+      if (operation == '*' || operation == '/') {
+        ++position;
+      }
+
       Result<RationalFunction> right = parsePower();
       if (right.isErr()) {
         return right;
       }
-      if (operation == '*') {
-        left = left.unwrap() * right.unwrap();
+      if (operation == '/') {
+        Result<RationalFunction> quotient = left.unwrap() / right.unwrap();
+        if (quotient.isErr()) {
+          return quotient;
+        }
+        left = quotient;
         continue;
       }
-      Result<RationalFunction> quotient = left.unwrap() / right.unwrap();
-      if (quotient.isErr()) {
-        return quotient;
-      }
-      left = quotient;
+      left = left.unwrap() * right.unwrap();
     }
   }
 
@@ -258,6 +275,9 @@ private:
       ++position;
       return inner;
     }
+    if (peek() == '{') {
+      return parseBracedVariable();
+    }
     if (isDigit()) {
       return parseNumber();
     }
@@ -265,6 +285,37 @@ private:
       return parseVariable();
     }
     return std::unexpected(MathsError::InvalidExpression);
+  }
+
+  // {name} 一次性声明多字母变量名，可跟下标：{node}_{car}。
+  // 不用花括号的话，连续的字母按隐含乘法拆开（node 即 n*o*d*e）。
+  Result<RationalFunction> parseBracedVariable() {
+    std::string name;
+    if (!takeBracedGroup(text, position, name) || name.empty()) {
+      return std::unexpected(MathsError::InvalidExpression);
+    }
+
+    if (!atEnd() && peek() == '_') {
+      ++position;
+      if (!atEnd() && peek() == '{') {
+        std::string index;
+        if (!takeBracedGroup(text, position, index)) {
+          return std::unexpected(MathsError::InvalidExpression);
+        }
+        name += "_{" + index + "}";
+      } else if (!atEnd()) {
+        name += '_';
+        name += peek();
+        ++position;
+      }
+    }
+
+    try {
+      const Variable variable(name);
+      return RationalFunction(Monomial(Fraction(1, 1), {{variable, 1ULL}}));
+    } catch (const MathsException &error) {
+      return std::unexpected(error.code());
+    }
   }
 
   Result<RationalFunction> parseNumber() {
@@ -281,10 +332,33 @@ private:
   }
 
   Result<RationalFunction> parseVariable() {
+    // 变量名 = 单个字母 + 可选下标（x、a_1、x_{i,j}）。
+    // 连续字母不合并成一个名字，而是留给 parseMultiplicative 做隐含乘法：xy 即 x*y。
+    // 这样「输入 xy」与「输入 x*y」得到同一个式子，也与 latex() 的输出闭环。
     const size_t start = position;
-    while (!atEnd() && (std::isalnum(static_cast<unsigned char>(peek())) != 0 || peek() == '_')) {
+    ++position; // 调用方已确认首字符是字母
+
+    if (!atEnd() && peek() == '_') {
       ++position;
+      if (!atEnd() && peek() == '{') {
+        int depth = 0;
+        while (!atEnd()) {
+          if (peek() == '{') {
+            ++depth;
+          } else if (peek() == '}') {
+            --depth;
+            if (depth == 0) {
+              ++position;
+              break;
+            }
+          }
+          ++position;
+        }
+      } else if (!atEnd()) {
+        ++position; // 单字符下标
+      }
     }
+
     const std::string name(text.substr(start, position - start));
     try {
       const Variable variable(name);

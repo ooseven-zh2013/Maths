@@ -58,7 +58,10 @@ bool readExpression(RationalFunction &out) {
 
 int main() {
   std::cout << "=== 表达式化简 ===\n";
-  std::cout << "运算: + - * / ^ 与括号；变量名可含字母、数字、下划线\n";
+  std::cout << "运算: + - * / ^ 与括号\n";
+  std::cout << "变量名: 单个字母可带下标 —— x、a_1、x_{i,j}\n";
+  std::cout << "多字母变量名用花括号: {node}、{node}_{car}\n";
+  std::cout << "乘法可省略: xy 即 x*y，2x 即 2*x（所以 {node} 不加花括号会变成 n*o*d*e）\n";
   std::cout << "LaTeX 写法同样接受: \\frac{a}{b}、\\cdot、\\times、\\div、x^{2}\n\n";
 
   RationalFunction expression(Fraction(0, 1));
