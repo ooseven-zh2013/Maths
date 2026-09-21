@@ -213,6 +213,7 @@ inline bool displayOrderLess(const VarPowers &lhs, const VarPowers &rhs) {
 } // namespace maths_detail
 
 class Polynomial;
+class Scope;
 
 class Monomial {
 public:
@@ -252,6 +253,10 @@ public:
   }
 
   Monomial operator-() const { return Monomial(-coeff, factors); }
+
+  // 把 Scope 中已绑定的变量替换为其值，未绑定的变量原样保留；
+  // 被替换掉的变量其幂次会并进系数（定义见 scope.hpp）
+  Monomial substitute(const Scope &scope) const;
 
   // 加减的结果不保证仍是单项式，因此返回 Polynomial（定义见 Polynomial 之后）
   Polynomial operator+(const Monomial &rhs) const;
@@ -347,6 +352,9 @@ public:
 
   // 化简后只剩不超过一项即为单项式（零多项式视为零单项式）
   bool isMonomial() const { return terms.size() <= 1; }
+
+  // 对每一项调用 Monomial::substitute，再统一合并同类项（定义见 scope.hpp）
+  Polynomial substitute(const Scope &scope) const;
 
   // 成功化简为单项式，否则返回 MathsError::NotAMonomial
   Result<Monomial> toMonomial() const {

@@ -25,6 +25,8 @@ enum class MathsError {
   InvalidName,
   // 参数
   InvalidRange,
+  // 作用域
+  UndefinedVariable,
 };
 
 inline std::string_view describe(MathsError error) {
@@ -47,6 +49,8 @@ inline std::string_view describe(MathsError error) {
     return "非法的名字";
   case MathsError::InvalidRange:
     return "区间参数非法";
+  case MathsError::UndefinedVariable:
+    return "变量未定义";
   }
   return "未知错误";
 }

@@ -143,6 +143,10 @@ public:
     return sign ? -result : result;
   }
 
+  // 由 Integer 构造等值分数。直接搬内部表示，不经过 getVal()，
+  // 避免 |value| 接近 2^63 时的有符号溢出。
+  static Fraction fromInteger(const Integer &value);
+
   // ==================== 值获取方法 ====================
 
   inline ll getNumerator() const { return sign ? -static_cast<ll>(a) : static_cast<ll>(a); }
@@ -722,6 +726,15 @@ inline Result<Fraction> Fraction::pow(const Integer &exp) const {
 }
 
 // ==================== 幂运算符 ^ ====================
+
+// Fraction::fromInteger 的实现（在 Integer 类定义之后）
+inline Fraction Fraction::fromInteger(const Integer &value) {
+  Fraction result;
+  result.a = value.getAbs();
+  result.b = 1;
+  result.sign = value.isNegative();
+  return result;
+}
 
 inline Result<Fraction> operator^(const Integer &base, const Integer &exp) { return base.pow(exp); }
 

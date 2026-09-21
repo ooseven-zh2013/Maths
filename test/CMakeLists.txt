@@ -27,6 +27,7 @@ set(TEST_SOURCES
   algebraic/polynomial_tests.cpp
   result/result_tests.cpp
   random/random_tests.cpp
+  scope/scope_tests.cpp
 )
 
 foreach(src IN LISTS TEST_SOURCES)
