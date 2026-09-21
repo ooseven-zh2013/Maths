@@ -125,9 +125,21 @@ int main() {
     const RationalFunction &result = substituted.unwrap();
     std::cout << "化简结果: " << result.latex() << '\n';
 
+    // 化简结果本身已是多项式形式（分母为 1）时不重复报告，
+    // 只有分母非 1 但能被长除法整除时（如 (a^2-1)/(a+1) → a-1）才单独给出。
+    // 这种归约会丢掉「原式在分母零点处无定义」这一信息 —— 归约后的式子在那里有定义，
+    // 原式没有 —— 所以必须把定义域条件一并报出。
+    const Result<Monomial> denominatorMonomial = result.getDenominator().toMonomial();
+    const bool denominatorIsConstant = denominatorMonomial.isOk() && denominatorMonomial.unwrap().isConstant();
+    const bool denominatorIsOne = denominatorIsConstant && denominatorMonomial.unwrap().getCoefficient() == 1LL;
+
     const Result<Polynomial> polynomial = result.toPolynomial();
-    if (polynomial.isOk()) {
-      std::cout << "可化为多项式: " << polynomial.unwrap().latex() << '\n';
+    if (polynomial.isOk() && !denominatorIsOne) {
+      std::cout << "可化为多项式: " << polynomial.unwrap().latex();
+      if (!denominatorIsConstant) { // 常数分母恒非零，无需附加条件
+        std::cout << "（原式要求 " << result.getDenominator().latex() << " \\neq 0）";
+      }
+      std::cout << '\n';
     }
 
     const Result<Fraction> evaluated = result.evaluate(scope);

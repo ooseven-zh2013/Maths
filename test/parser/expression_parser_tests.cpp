@@ -205,8 +205,8 @@ int main() {
     CHECK_EQ(LATEX_OF("6 \\div 3"), std::string("2"));
 
     // 指数花括号
-    CHECK_EQ(LATEX_OF("x^{3}"), std::string("x^{3}"));
-    CHECK_EQ(LATEX_OF("(x + 1)^{2}"), std::string("x^{2} + 2x + 1"));
+    CHECK_EQ(LATEX_OF("x^3"), std::string("x^3"));
+    CHECK_EQ(LATEX_OF("(x + 1)^2"), std::string("x^2 + 2x + 1"));
 
     // \left \right 被忽略
     CHECK_EQ(LATEX_OF("\\left( x + 1 \\right)"), std::string("x + 1"));
@@ -333,7 +333,7 @@ int main() {
     CHECK_OK(scope.assign(t, parseExpression("v").unwrap())); // t 不出现在 2x 的展开里
 
     // 2x → 2*s*v → 2*(2v)*v = 4v^2，不会被 t = v 绕回去
-    CHECK_EQ(parseExpression("2x").unwrap().substitute(scope).unwrap().latex(), std::string("4v^{2}"));
+    CHECK_EQ(parseExpression("2x").unwrap().substitute(scope).unwrap().latex(), std::string("4v^2"));
   }
 
   TEST_SUMMARY();

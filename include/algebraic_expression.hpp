@@ -368,9 +368,9 @@ public:
     for (const auto &factor : factors) {
       result += factor.first.str();
       if (factor.second != 1) {
-        result += "^{";
-        result += std::to_string(factor.second);
-        result += '}';
+        result += '^';
+        const std::string exponent = std::to_string(factor.second);
+        result += exponent.size() == 1 ? exponent : "{" + exponent + "}"; // 单字符指数不用花括号
       }
     }
     return result;

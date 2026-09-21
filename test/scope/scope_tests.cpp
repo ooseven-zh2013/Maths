@@ -278,7 +278,7 @@ int main() {
 
     const RationalFunction result = squared.substitute(scope);
     // 通分后统一成分式（1/4 被并入分子）
-    CHECK_EQ(result.latex(), std::string("\\frac{4y^{2} + 4y + 1}{4}"));
+    CHECK_EQ(result.latex(), std::string("\\frac{4y^2 + 4y + 1}{4}"));
   }
 
   // 19. 多项式：多项分别替换后相消
