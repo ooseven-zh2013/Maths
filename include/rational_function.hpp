@@ -20,6 +20,7 @@
 #include "maths_error.hpp"
 #include "numbers.hpp"
 #include "result.hpp"
+#include "scope.hpp"
 
 #include <algorithm>
 #include <map>
@@ -202,6 +203,54 @@ public:
   bool operator==(const RationalFunction &rhs) const {
     // 交叉相乘判等，无需化简成正规形式（也就不需要多项式 GCD）
     return (numerator * rhs.denominator).unwrap() == (rhs.numerator * denominator).unwrap();
+  }
+
+  // ==================== 代入与求值 ====================
+
+  // 代入：分子分母分别代入。
+  // 代入后分母可能退化成零多项式（例如 1/(x-1) 代入 x=1），此时返回 ZeroDenominator。
+  Result<RationalFunction> substitute(const Scope &scope) const {
+    const Polynomial substitutedNumerator = numerator.substitute(scope);
+    const Polynomial substitutedDenominator = denominator.substitute(scope);
+    if (substitutedDenominator.isZero()) {
+      return std::unexpected(MathsError::ZeroDenominator);
+    }
+    RationalFunction result = fromParts(substitutedNumerator, substitutedDenominator);
+    result.discarded = discarded;
+    return result;
+  }
+
+  // 完全求值：要求所有变量都已绑定，且分子分母都化为常数
+  Result<Fraction> evaluate(const Scope &scope) const {
+    const Result<RationalFunction> substituted = substitute(scope);
+    if (substituted.isErr()) {
+      return std::unexpected(substituted.unwrapErr());
+    }
+
+    const Result<Monomial> substitutedNumerator = substituted.unwrap().numerator.toMonomial();
+    const Result<Monomial> substitutedDenominator = substituted.unwrap().denominator.toMonomial();
+    if (substitutedNumerator.isErr() || !substitutedNumerator.unwrap().isConstant() || substitutedDenominator.isErr() ||
+        !substitutedDenominator.unwrap().isConstant()) {
+      return std::unexpected(MathsError::UndefinedVariable);
+    }
+
+    // 分母非零由 substitute 保证，除法不会失败
+    return substitutedNumerator.unwrap().getCoefficient() / substitutedDenominator.unwrap().getCoefficient();
+  }
+
+  // ==================== 化为多项式 ====================
+
+  // 用长除法尝试把分母化掉：当且仅当分母整除分子时成功，返回商；
+  // 否则返回 MathsError::NotAPolynomial（此时它确实不是一个多项式）。
+  Result<Polynomial> toPolynomial() const {
+    const Result<PolynomialDivision> division = divideWithRemainder(numerator, denominator);
+    if (division.isErr()) {
+      return std::unexpected(division.unwrapErr());
+    }
+    if (!division.unwrap().remainder.isZero()) {
+      return std::unexpected(MathsError::NotAPolynomial);
+    }
+    return division.unwrap().quotient;
   }
 
   // ==================== 输出 ====================

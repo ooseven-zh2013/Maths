@@ -20,6 +20,7 @@ enum class MathsError {
   // 代数
   ExponentOverflow,
   NotAMonomial,
+  NotAPolynomial,
   // 解析
   InvalidExpression,
   InvalidName,
@@ -43,6 +44,8 @@ inline std::string_view describe(MathsError error) {
     return "变量指数超出可表示范围";
   case MathsError::NotAMonomial:
     return "多项式无法化简为单项式";
+  case MathsError::NotAPolynomial:
+    return "分式无法化简为多项式";
   case MathsError::InvalidExpression:
     return "不支持的表达式";
   case MathsError::InvalidName:

@@ -154,5 +154,97 @@ int main() {
     CHECK_EQ(sum.discardedConstraints().size(), 1ULL);
   }
 
+  // ==================== 化为多项式（长除法） ====================
+
+  // 12. 分母整除分子时成功
+  {
+    // (x^2 - 1) / (x - 1) = x + 1
+    const Polynomial factor = Polynomial(x1) - Polynomial(one1);
+    const Polynomial numerator = ((Polynomial(x1) + Polynomial(one1)) * factor).unwrap();
+    const RationalFunction r = RationalFunction::make(numerator, factor).unwrap();
+
+    CHECK_OK(r.toPolynomial());
+    CHECK_EQ(r.toPolynomial().unwrap().str(), std::string("x + 1"));
+
+    // 常数分式
+    const RationalFunction constant =
+        RationalFunction::make(Polynomial(Monomial(Fraction(6, 1))), Polynomial(Monomial(Fraction(3, 1)))).unwrap();
+    CHECK_EQ(constant.toPolynomial().unwrap().str(), std::string("2"));
+
+    // 分母为 1 的分式本身就是多项式
+    CHECK_EQ(RationalFunction(x1).toPolynomial().unwrap().str(), std::string("x"));
+  }
+
+  // 13. 分母不整除分子时失败
+  {
+    const RationalFunction inverseX = RationalFunction::make(Polynomial(one1), Polynomial(x1)).unwrap();
+    CHECK_ERR(inverseX.toPolynomial(), MathsError::NotAPolynomial);
+
+    const RationalFunction proper =
+        RationalFunction::make(Polynomial(x1) + Polynomial(one1), Polynomial(x1) - Polynomial(one1)).unwrap();
+    CHECK_ERR(proper.toPolynomial(), MathsError::NotAPolynomial);
+
+    // 零分式可化为零多项式
+    CHECK_EQ(RationalFunction().toPolynomial().unwrap().str(), std::string("0"));
+  }
+
+  // 14. 代入与求值
+  {
+    Scope scope;
+    scope.assign(x, Integer(2LL));
+
+    const RationalFunction r =
+        RationalFunction::make(Polynomial(x1) + Polynomial(one1), Polynomial(x1) - Polynomial(one1)).unwrap();
+    CHECK_OK(r.substitute(scope));
+    CHECK_EQ(r.substitute(scope).unwrap().str(), std::string("3")); // (2+1)/(2-1)
+    CHECK_EQ(r.evaluate(scope).unwrap(), Fraction(3, 1));
+
+    // 代入后分母退化为零多项式
+    Scope pole;
+    pole.assign(x, Integer(1LL));
+    CHECK_ERR(r.substitute(pole), MathsError::ZeroDenominator);
+    CHECK_ERR(r.evaluate(pole), MathsError::ZeroDenominator);
+
+    // 变量未绑定
+    const Scope empty;
+    CHECK_ERR(r.evaluate(empty), MathsError::UndefinedVariable);
+  }
+
+  // 15. 代入后仍保留已记录的约束
+  {
+    Scope scope;
+    scope.assign(x, Integer(3LL));
+
+    const RationalFunction reduced =
+        RationalFunction::make(Polynomial(x1), Polynomial(Monomial(Fraction(1, 1), {{x, 2ULL}}))).unwrap();
+    CHECK_EQ(reduced.discardedConstraints().size(), 1ULL);
+
+    const Result<RationalFunction> substituted = reduced.substitute(scope);
+    CHECK_OK(substituted);
+    CHECK_EQ(substituted.unwrap().discardedConstraints().size(), 1ULL);
+  }
+
+  // 16. 字典序单项式序满足乘法相容性 —— 这是多项式长除法必然终止的前提
+  {
+    const VarPowers xv{{x, 1ULL}};
+    const VarPowers yv{{y, 1ULL}};
+    const VarPowers x2{{x, 2ULL}};
+    const VarPowers xy{{x, 1ULL}, {y, 1ULL}};
+    const VarPowers y2{{y, 2ULL}};
+
+    CHECK_TRUE(maths_detail::compareLex(xv, yv) == std::strong_ordering::greater);
+    // 两边同乘 x，顺序保持：x > y ⟹ x^2 > x*y
+    CHECK_TRUE(maths_detail::compareLex(x2, xy) == std::strong_ordering::greater);
+    // 两边同乘 y，顺序保持：x > y ⟹ x*y > y^2
+    CHECK_TRUE(maths_detail::compareLex(xy, y2) == std::strong_ordering::greater);
+
+    // 同变量比指数；缺失的变量按指数 0 处理
+    CHECK_TRUE(maths_detail::compareLex(x2, xv) == std::strong_ordering::greater);
+    CHECK_TRUE(maths_detail::compareLex(xv, x2) == std::strong_ordering::less);
+    CHECK_TRUE(maths_detail::compareLex(xv, xv) == std::strong_ordering::equal);
+    // 常数项最小
+    CHECK_TRUE(maths_detail::compareLex(xv, VarPowers{}) == std::strong_ordering::greater);
+  }
+
   TEST_SUMMARY();
 }

@@ -195,6 +195,38 @@ L1 和 L3 不产生任何约束（常数非零恒成立、符号不影响定义�
 即使两个分式写法不同、靠 L1/L2 约不到一起，判等依然正确。
 这也是不做多项式 GCD 的情况下语义仍然可靠的原因。
 
+### 化为多项式（长除法）
+
+```cpp
+Result<Polynomial> toPolynomial() const;
+```
+
+当且仅当**分母整除分子**时成功，返回商；否则返回 `MathsError::NotAPolynomial`。
+
+```cpp
+// (x^2 - 1) / (x - 1)  →  x + 1
+// 1 / x                →  Err(分式无法化简为多项式)
+```
+
+内部是多项式带余除法，按**字典序（lex）**确定首项。
+这里不能用 `VarPowers` 的默认比较——它不满足单项式序的乘法相容性
+（默认比较下 `x < y`，两边同乘 `x` 却得到 `x^2 > xy`，矛盾），项序不相容会让除法不终止。
+
+### 代入与求值
+
+分式同样接受 `Scope`：
+
+```cpp
+Scope scope;
+scope.assign(Variable("x"), Integer(2));
+
+Result<RationalFunction> reduced = r.substitute(scope);   // 代入后仍是分式
+Result<Fraction> value = r.evaluate(scope);               // 完全求值
+```
+
+代入后分母可能退化成零多项式（如 `1/(x-1)` 代入 `x = 1`），此时返回 `ZeroDenominator`。
+**那不是程序错误，而是原式的极点**——分式在这里本来就没有定义。
+
 ## 代码规范与静态检查
 
 | 工具 | 配置文件 | 用途 |

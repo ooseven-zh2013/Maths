@@ -4,8 +4,10 @@
 #include <algorithm>
 #include <cctype>
 #include <compare>
+#include <iterator>
 #include <limits>
 #include <map>
+#include <optional>
 #include <ostream>
 #include <sstream>
 #include <stdexcept>
@@ -208,6 +210,39 @@ inline bool displayOrderLess(const VarPowers &lhs, const VarPowers &rhs) {
     }
   }
   return lhs.size() > rhs.size();
+}
+
+// 字典序（lex）单项式序：按变量名升序逐个比较指数，某一侧缺失的变量视为指数 0。
+//
+// 必须用这个序，不能用 VarPowers 的默认比较 —— 后者不是合法的单项式序，
+// 因为它不满足乘法相容性：默认比较下 x < y，两边同乘 x 后
+// x^2 的首项 (x,2) 大于 xy 的首项 (x,1)，得到 x^2 > xy，与 x < y 矛盾。
+// 项序不相容会导致多项式除法不终止。
+inline std::strong_ordering compareLex(const VarPowers &lhs, const VarPowers &rhs) {
+  size_t i = 0;
+  size_t j = 0;
+  while (i < lhs.size() || j < rhs.size()) {
+    unsigned long long lhsExponent = 0;
+    unsigned long long rhsExponent = 0;
+
+    if (j >= rhs.size() || (i < lhs.size() && lhs[i].first < rhs[j].first)) {
+      lhsExponent = lhs[i].second; // 该变量只在左侧出现，右侧视为 0
+      ++i;
+    } else if (i >= lhs.size() || rhs[j].first < lhs[i].first) {
+      rhsExponent = rhs[j].second;
+      ++j;
+    } else {
+      lhsExponent = lhs[i].second;
+      rhsExponent = rhs[j].second;
+      ++i;
+      ++j;
+    }
+
+    if (lhsExponent != rhsExponent) {
+      return lhsExponent > rhsExponent ? std::strong_ordering::greater : std::strong_ordering::less;
+    }
+  }
+  return std::strong_ordering::equal;
 }
 
 } // namespace maths_detail
@@ -500,5 +535,86 @@ inline Result<Polynomial> operator*(const Monomial &lhs, const Polynomial &rhs) 
 inline std::ostream &operator<<(std::ostream &os, const Monomial &value) { return os << value.str(); }
 
 inline std::ostream &operator<<(std::ostream &os, const Polynomial &value) { return os << value.str(); }
+
+// ==================== 多项式带余除法 ====================
+
+// 按字典序取首项；零多项式返回 nullopt
+inline std::optional<Monomial> leadingMonomial(const Polynomial &polynomial) {
+  const auto &terms = polynomial.getTerms();
+  if (terms.empty()) {
+    return std::nullopt;
+  }
+  auto best = terms.begin();
+  for (auto it = std::next(terms.begin()); it != terms.end(); ++it) {
+    if (maths_detail::compareLex(it->first, best->first) == std::strong_ordering::greater) {
+      best = it;
+    }
+  }
+  return Monomial(best->second, best->first);
+}
+
+struct PolynomialDivision {
+  Polynomial quotient;
+  Polynomial remainder;
+};
+
+// 带余除法：dividend = quotient * divisor + remainder。
+// 多元情况下首项可能无法整除（变量指数不足），此时提前终止；余式非零即表示不能整除。
+inline Result<PolynomialDivision> divideWithRemainder(const Polynomial &dividend, const Polynomial &divisor) {
+  if (divisor.isZero()) {
+    return std::unexpected(MathsError::DivisionByZero);
+  }
+
+  Polynomial quotient;
+  Polynomial remainder = dividend;
+
+  while (true) {
+    const std::optional<Monomial> remainderLead = leadingMonomial(remainder);
+    if (!remainderLead) {
+      break; // 余式已为零，整除结束
+    }
+    const std::optional<Monomial> divisorLead = leadingMonomial(divisor);
+    if (!divisorLead) {
+      break; // divisor 非零由入口检查保证；显式判空是为了让静态分析也能看到
+    }
+
+    // 判断两首项能否整除：被除式必须含有除式首项的每一个变量，且指数足够
+    VarPowers reduced = remainderLead->getFactors();
+    bool divisible = true;
+    for (const auto &factor : divisorLead->getFactors()) {
+      bool found = false;
+      for (auto &candidate : reduced) {
+        if (candidate.first == factor.first) {
+          if (candidate.second < factor.second) {
+            divisible = false;
+          } else {
+            candidate.second -= factor.second;
+            found = true;
+          }
+          break;
+        }
+      }
+      if (!found) {
+        divisible = false;
+      }
+      if (!divisible) {
+        break;
+      }
+    }
+    if (!divisible) {
+      break; // 首项不可整除，当前余式即最终余式
+    }
+    Monomial::normalizeFactors(reduced);
+
+    // 首项系数必非零，除法不会失败
+    const Fraction coefficient = (remainderLead->getCoefficient() / divisorLead->getCoefficient()).unwrap();
+    const Monomial term(coefficient, std::move(reduced));
+
+    quotient.addTerm(term.getFactors(), term.getCoefficient());
+    remainder = remainder - (term * divisor).unwrap();
+  }
+
+  return PolynomialDivision{std::move(quotient), std::move(remainder)};
+}
 
 #endif // ALGEBRAIC_EXPRESSION_HPP
