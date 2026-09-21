@@ -23,6 +23,8 @@ set(TEST_SOURCES
   fraction/compare_more.cpp
   fraction/io_tests.cpp
   algebraic/variable_tests.cpp
+  algebraic/monomial_tests.cpp
+  algebraic/polynomial_tests.cpp
 )
 
 foreach(src IN LISTS TEST_SOURCES)

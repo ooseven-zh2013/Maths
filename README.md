@@ -6,7 +6,7 @@ C++23 header-only 数学库，提供精确的数值计算和代数表达式处�
 
 - **有理数（Fraction）** — 精确的分数运算，支持四则运算、比较、幂运算和流式 I/O。避免浮点精度损失。
 - **整数（Integer）** — 带符号整数运算，支持四则运算、取模、自增自减、以及返回分数的幂运算（含负指数）。
-- **代数表达式** — 支持 LaTeX 风格变量名（如 `a_1`、`x_{i,j}`）的解析与表示。单项式与多项式类待实现。
+- **代数表达式** — 支持 LaTeX 风格变量名（如 `a_1`、`x_{i,j}`）的解析与表示；单项式（`Monomial`）与多项式（`Polynomial`）支持加减乘、自动化简，并可从多项式判定/提取单项式。
 - **随机数生成** — 区间随机数工具，同时支持浮点类型和整数类型。
 
 ## 构建与测试
@@ -77,7 +77,7 @@ CI（GitHub Actions）在 Linux / macOS / Windows 三个平台构建并运行测
 ```
 include/                     头文件（header-only）
   numbers.hpp                  Integer、Fraction
-  algebraic_expression.hpp     Name、Variable（Monomial / Polynomial 待实现）
+  algebraic_expression.hpp     Name、Variable、Monomial、Polynomial
   random.hpp                   区间随机数
 test/                        测试
   check.hpp                    断言宏

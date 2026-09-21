@@ -38,6 +38,8 @@ inline void report(bool ok, const char *expr, const char *file, int line, const 
 } // namespace maths_test
 
 // 断言 actual == expected
+// 两个操作数刻意按值拷贝而非绑定引用：实际参数可能是"临时对象的引用成员"
+// （如 Monomial(...).getCoefficient()），绑定引用会悬垂，GCC 会报 -Wdangling-reference。
 #define CHECK_EQ(actual, expected)                                                                                     \
   do {                                                                                                                 \
     const auto _actual = (actual);                                                                                     \
