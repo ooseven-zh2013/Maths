@@ -279,6 +279,19 @@ public:
     return "(" + numerator.str() + ") / (" + denominator.str() + ")";
   }
 
+  // LaTeX 形式。
+  // 与 str() 的差别：一律输出 \frac{分子}{分母}，不再把常数分式写成 5/6。
+  // 因此 (a/b) + c 这类运算的结果稳定呈现为 \frac{a + b*c}{b} 的统一形式 ——
+  // 通分本身由 operator+ 完成，这里只负责不把它拆散。
+  std::string latex() const {
+    const Result<Monomial> denominatorMonomial = denominator.toMonomial();
+    if (denominatorMonomial.isOk() && denominatorMonomial.unwrap().isConstant() &&
+        denominatorMonomial.unwrap().getCoefficient() == 1LL) {
+      return numerator.latex(); // 分母恰为 1，退化成多项式
+    }
+    return "\\frac{" + numerator.latex() + "}{" + denominator.latex() + "}";
+  }
+
 private:
   // 由已确保非零的分母构造，并同步两侧约束
   static RationalFunction fromParts(Polynomial numerator_, Polynomial denominator_) {

@@ -150,5 +150,20 @@ int main() {
     CHECK_EQ(maxed.getFactors()[0].second, huge);
   }
 
+  // 10. LaTeX 输出
+  {
+    CHECK_EQ(Monomial(one, {{x, 1ULL}}).latex(), std::string("x"));
+    CHECK_EQ(Monomial(Fraction(-1, 1), {{x, 1ULL}}).latex(), std::string("-x"));
+    CHECK_EQ(Monomial(one, {{x, 5ULL}}).latex(), std::string("x^{5}"));
+    CHECK_EQ(Monomial(Fraction(3, 1), {{x, 1ULL}}).latex(), std::string("3x"));
+
+    // 分数系数写成 \frac{}{}，变量间直接相连
+    CHECK_EQ(Monomial(Fraction(1, 2), {{x, 2ULL}, {y, 1ULL}}).latex(), std::string("\\frac{1}{2}x^{2}y"));
+    CHECK_EQ(Monomial(Fraction(-1, 2), {{x, 1ULL}}).latex(), std::string("-\\frac{1}{2}x"));
+    CHECK_EQ(Monomial(Fraction(3, 4)).latex(), std::string("\\frac{3}{4}"));
+    CHECK_EQ(Monomial(Fraction(-7, 1)).latex(), std::string("-7"));
+    CHECK_EQ(Monomial().latex(), std::string("0"));
+  }
+
   TEST_SUMMARY();
 }

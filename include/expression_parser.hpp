@@ -33,6 +33,99 @@
 
 namespace expression_detail {
 
+// 读取一个花括号分组（允许前面有空白），position 停在 } 之后
+inline bool takeBracedGroup(std::string_view source, size_t &position, std::string &out) {
+  while (position < source.size() && std::isspace(static_cast<unsigned char>(source[position])) != 0) {
+    ++position;
+  }
+  if (position >= source.size() || source[position] != '{') {
+    return false;
+  }
+
+  int depth = 0;
+  const size_t start = position + 1;
+  while (position < source.size()) {
+    if (source[position] == '{') {
+      ++depth;
+    } else if (source[position] == '}') {
+      --depth;
+      if (depth == 0) {
+        out = std::string(source.substr(start, position - start));
+        ++position;
+        return true;
+      }
+    }
+    ++position;
+  }
+  return false;
+}
+
+// 把 LaTeX 写法规范化成解析器能直接处理的普通写法：
+//   \frac{a}{b} → (a)/(b)   （支持嵌套）
+//   \cdot、\times → *      \div → /
+//   x^{2} → x^2
+//   \left、\right → 忽略
+// 其余字符原样保留。这样解析器本身只需处理一种语法。
+inline std::string normalizeLatex(std::string_view source) {
+  std::string result;
+  result.reserve(source.size());
+  size_t position = 0;
+
+  while (position < source.size()) {
+    if (source.compare(position, 5, "\\frac") == 0) {
+      position += 5;
+      std::string numerator;
+      std::string denominator;
+      if (!takeBracedGroup(source, position, numerator) || !takeBracedGroup(source, position, denominator)) {
+        result += "\\frac"; // 结构不完整，原样保留，交给解析器报错
+        continue;
+      }
+      result += '(';
+      result += normalizeLatex(numerator);
+      result += ")/(";
+      result += normalizeLatex(denominator);
+      result += ')';
+      continue;
+    }
+    if (source.compare(position, 5, "\\cdot") == 0) {
+      result += '*';
+      position += 5;
+      continue;
+    }
+    if (source.compare(position, 6, "\\times") == 0) {
+      result += '*';
+      position += 6;
+      continue;
+    }
+    if (source.compare(position, 4, "\\div") == 0) {
+      result += '/';
+      position += 4;
+      continue;
+    }
+    if (source.compare(position, 5, "\\left") == 0) {
+      position += 5;
+      continue;
+    }
+    if (source.compare(position, 6, "\\right") == 0) {
+      position += 6;
+      continue;
+    }
+    if (source.compare(position, 2, "^{") == 0) { // "^{" 只有 2 个字符
+      // 指数只接受整数，因此直接把花括号展开
+      const size_t close = source.find('}', position + 2);
+      if (close != std::string_view::npos) {
+        result += '^';
+        result.append(source.substr(position + 2, close - position - 2));
+        position = close + 1;
+        continue;
+      }
+    }
+    result += source[position];
+    ++position;
+  }
+  return result;
+}
+
 class Parser {
 public:
   explicit Parser(std::string_view source) : text(source) {}
@@ -260,9 +353,12 @@ inline std::optional<Fraction> asConstant(const RationalFunction &value) {
 
 } // namespace expression_detail
 
-// 解析表达式，失败返回 MathsError::InvalidExpression
+// 解析表达式：先做 LaTeX 规范化，再交给解析器。
+// 失败返回 MathsError::InvalidExpression
 inline Result<RationalFunction> parseExpression(std::string_view text) {
-  return expression_detail::Parser(text).parse();
+  // normalized 的生命周期覆盖整个 Parser 调用，Parser 持有的 string_view 不会悬垂
+  const std::string normalized = expression_detail::normalizeLatex(text);
+  return expression_detail::Parser(normalized).parse();
 }
 
 struct Assignment {

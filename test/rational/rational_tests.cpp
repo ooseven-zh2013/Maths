@@ -246,5 +246,31 @@ int main() {
     CHECK_TRUE(maths_detail::compareLex(xv, VarPowers{}) == std::strong_ordering::greater);
   }
 
+  // 17. LaTeX 输出：分式一律呈现为统一的 \frac{}{} 形式
+  {
+    const RationalFunction divided = RationalFunction::make(Polynomial(x1), Polynomial(y1)).unwrap(); // x/y
+    CHECK_EQ(divided.latex(), std::string("\\frac{x}{y}"));
+
+    // 通分由 operator+ 完成，latex() 只负责不把它拆散：x/y + 1 → (x + y)/y
+    const RationalFunction sum = divided + RationalFunction(one1);
+    CHECK_EQ(sum.getNumerator().latex(), std::string("x + y"));
+    CHECK_EQ(sum.getDenominator().latex(), std::string("y"));
+    CHECK_EQ(sum.latex(), std::string("\\frac{x + y}{y}"));
+
+    // 分母恰为 1 时退化成多项式，不写成 \frac{x}{1}
+    CHECK_EQ(RationalFunction(x1).latex(), std::string("x"));
+
+    // 常数分式：latex 写 \frac{5}{6}，str 仍是 5/6
+    const RationalFunction half(Fraction(1, 2));
+    const RationalFunction third(Fraction(1, 3));
+    CHECK_EQ((half + third).str(), std::string("5/6"));
+    CHECK_EQ((half + third).latex(), std::string("\\frac{5}{6}"));
+
+    // \frac{}{} 自带分组，分子分母内部不需要额外括号
+    const RationalFunction proper =
+        RationalFunction::make(Polynomial(x1) + Polynomial(one1), Polynomial(x1) - Polynomial(one1)).unwrap();
+    CHECK_EQ(proper.latex(), std::string("\\frac{x + 1}{x - 1}"));
+  }
+
   TEST_SUMMARY();
 }

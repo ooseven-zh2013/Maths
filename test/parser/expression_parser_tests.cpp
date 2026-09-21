@@ -3,6 +3,24 @@
 #include <iostream>
 #include <string>
 
+namespace {
+
+// 解析并返回 LaTeX 形式。失败时记为断言失败，而不是让 unwrap 抛异常中断整个测试 ——
+// 崩溃只会给出一句 terminate，而断言失败会指出是哪一行、哪个表达式。
+std::string latexOf(std::string_view expression, const char *label, int line) {
+  const Result<RationalFunction> parsed = parseExpression(expression);
+  if (parsed.isErr()) {
+    maths_test::report(false, label, __FILE__, line, "解析失败: " + std::string(describe(parsed.unwrapErr())));
+    return "<解析失败>";
+  }
+  return parsed.unwrap().latex();
+}
+
+} // namespace
+
+// 借宏带上调用点行号
+#define LATEX_OF(expression) latexOf(expression, #expression, __LINE__)
+
 int main() {
   std::cout << "=== 表达式解析测试 ===" << '\n';
 
@@ -139,6 +157,43 @@ int main() {
     CHECK_ERR(parseAssignment("x = 2 = 3"), MathsError::InvalidExpression); // 多个等号
     CHECK_ERR(parseAssignment("x = "), MathsError::InvalidExpression);
     CHECK_ERR(parseAssignment("= 2"), MathsError::InvalidExpression);
+  }
+
+  // ==================== LaTeX 写法 ====================
+
+  // 12. \frac 与其它 LaTeX 记号
+  {
+    CHECK_EQ(LATEX_OF("\\frac{1}{2}"), std::string("\\frac{1}{2}"));
+    CHECK_EQ(LATEX_OF("\\frac{x + 1}{x - 1}"), std::string("\\frac{x + 1}{x - 1}"));
+    // 嵌套：\frac{\frac{1}{2}}{3} = 1/6
+    CHECK_EQ(LATEX_OF("\\frac{\\frac{1}{2}}{3}"), std::string("\\frac{1}{6}"));
+
+    CHECK_EQ(LATEX_OF("2 \\cdot x"), std::string("2x"));
+    CHECK_EQ(LATEX_OF("2 \\times x"), std::string("2x"));
+    CHECK_EQ(LATEX_OF("6 \\div 3"), std::string("2"));
+
+    // 指数花括号
+    CHECK_EQ(LATEX_OF("x^{3}"), std::string("x^{3}"));
+    CHECK_EQ(LATEX_OF("(x + 1)^{2}"), std::string("x^{2} + 2x + 1"));
+
+    // \left \right 被忽略
+    CHECK_EQ(LATEX_OF("\\left( x + 1 \\right)"), std::string("x + 1"));
+  }
+
+  // 13. \frac{a}{b} + c 合并为统一的分式 \frac{a + b*c}{b}
+  {
+    CHECK_EQ(LATEX_OF("\\frac{x}{y} + 1"), std::string("\\frac{x + y}{y}"));
+    // 通分得到 y + x，但多项式会按展示顺序重排成 x + y
+    CHECK_EQ(LATEX_OF("1 + \\frac{x}{y}"), std::string("\\frac{x + y}{y}"));
+    CHECK_EQ(LATEX_OF("\\frac{1}{2} + \\frac{1}{3}"), std::string("\\frac{5}{6}"));
+    CHECK_EQ(LATEX_OF("\\frac{x}{y} \\cdot 2"), std::string("\\frac{2x}{y}"));
+  }
+
+  // 14. 结构不完整的 LaTeX 仍然报错
+  {
+    CHECK_ERR(parseExpression("\\frac{1}{"), MathsError::InvalidExpression);
+    CHECK_ERR(parseExpression("\\frac{1}"), MathsError::InvalidExpression);
+    CHECK_ERR(parseExpression("\\unknown{x}"), MathsError::InvalidExpression);
   }
 
   TEST_SUMMARY();

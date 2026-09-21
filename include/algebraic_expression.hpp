@@ -185,6 +185,17 @@ inline std::string renderFraction(const Fraction &value) {
   return os.str();
 }
 
+// 分数的 LaTeX 形式：整数直接输出，真分数写成 \frac{分子}{分母}，负号提到最前
+inline std::string renderFractionLatex(const Fraction &value) {
+  if (value.getDenominator() == 1) {
+    return std::to_string(value.getNumerator());
+  }
+  const long long numerator = value.getNumerator();
+  const long long magnitude = numerator < 0 ? -numerator : numerator;
+  const std::string body = "\\frac{" + std::to_string(magnitude) + "}{" + std::to_string(value.getDenominator()) + "}";
+  return value.isNegative() ? "-" + body : body;
+}
+
 inline unsigned long long degreeOf(const VarPowers &factors) {
   unsigned long long total = 0;
   for (const auto &factor : factors) {
@@ -332,6 +343,33 @@ public:
       if (factors[i].second != 1) {
         result += '^';
         result += std::to_string(factors[i].second);
+      }
+    }
+    return result;
+  }
+
+  // LaTeX 形式：分数系数写成 \frac{}{}，变量之间直接相连（LaTeX 隐含乘法），
+  // 指数统一加花括号
+  std::string latex() const {
+    if (isZero()) {
+      return "0";
+    }
+    if (factors.empty()) {
+      return maths_detail::renderFractionLatex(coeff);
+    }
+
+    std::string result;
+    if (coeff == -1LL) {
+      result += '-';
+    } else if (!(coeff == 1LL)) {
+      result += maths_detail::renderFractionLatex(coeff);
+    }
+    for (const auto &factor : factors) {
+      result += factor.first.str();
+      if (factor.second != 1) {
+        result += "^{";
+        result += std::to_string(factor.second);
+        result += '}';
       }
     }
     return result;
@@ -498,6 +536,32 @@ public:
         result += negative ? " - " : " + ";
       }
       result += Monomial(negative ? -coeff : coeff, factors).str();
+    }
+    return result;
+  }
+
+  // LaTeX 形式：展示顺序与 str() 相同，但分数系数写成 \frac{}{}
+  std::string latex() const {
+    if (terms.empty()) {
+      return "0";
+    }
+    std::vector<std::pair<VarPowers, Fraction>> ordered(terms.begin(), terms.end());
+    std::sort(ordered.begin(), ordered.end(),
+              [](const auto &lhs, const auto &rhs) { return maths_detail::displayOrderLess(lhs.first, rhs.first); });
+
+    std::string result;
+    bool first = true;
+    for (const auto &[factors, coeff] : ordered) {
+      const bool negative = coeff.isNegative();
+      if (first) {
+        if (negative) {
+          result += '-';
+        }
+        first = false;
+      } else {
+        result += negative ? " - " : " + ";
+      }
+      result += Monomial(negative ? -coeff : coeff, factors).latex();
     }
     return result;
   }

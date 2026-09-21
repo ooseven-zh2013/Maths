@@ -153,5 +153,22 @@ int main() {
     CHECK_EQ(os.str(), std::string("x + 1"));
   }
 
+  // 9. LaTeX 输出
+  {
+    const Polynomial binom = Polynomial(x1) + Polynomial(y1);
+    CHECK_EQ(((binom * binom).unwrap()).latex(), std::string("x^{2} + 2xy + y^{2}"));
+    CHECK_EQ((Polynomial(x1) - Polynomial(one1)).latex(), std::string("x - 1"));
+    CHECK_EQ((Polynomial(x1) + Polynomial(one1)).latex(), std::string("x + 1"));
+    CHECK_EQ(Polynomial().latex(), std::string("0"));
+
+    // 分数系数
+    const Polynomial halves = Polynomial(Monomial(Fraction(1, 2), {{x, 1ULL}})) + Polynomial(Monomial(Fraction(1, 2)));
+    CHECK_EQ(halves.latex(), std::string("\\frac{1}{2}x + \\frac{1}{2}"));
+
+    // 负的分数系数
+    const Polynomial negative = Polynomial(Monomial(Fraction(-1, 3), {{x, 2ULL}}));
+    CHECK_EQ(negative.latex(), std::string("-\\frac{1}{3}x^{2}"));
+  }
+
   TEST_SUMMARY();
 }

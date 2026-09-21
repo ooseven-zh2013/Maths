@@ -1,12 +1,13 @@
 // 交互式表达式化简程序。
 //
-// 用法：输入一个式子，然后逐条输入代入条件（变量 = 常数），
-// 输入 0=0 结束，程序给出代入化简后的结果。
+// 用法：输入一个式子（普通写法或 LaTeX 写法均可），
+// 然后逐条输入代入条件（变量 = 常数），输入 0=0 结束。
 
 #include "expression_parser.hpp"
 
 #include <cctype>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -24,31 +25,53 @@ std::string stripSpaces(std::string_view text) {
   return result;
 }
 
+// 读取一行；输入流结束（EOF、或管道里的内容读完）时返回 false
+bool readLine(std::string &out) { return static_cast<bool>(std::getline(std::cin, out)); }
+
+// 反复索取式子，直到解析成功；输入流结束则返回 false
+bool readExpression(RationalFunction &out) {
+  while (true) {
+    std::cout << "式子: ";
+    std::string line;
+    if (!readLine(line)) {
+      std::cout << '\n';
+      return false;
+    }
+    if (stripSpaces(line).empty()) {
+      continue;
+    }
+
+    const Result<RationalFunction> parsed = parseExpression(line);
+    if (parsed.isOk()) {
+      out = parsed.unwrap();
+      std::cout << "解析为: " << out.latex() << '\n';
+      return true;
+    }
+
+    // 解析失败不退出，让用户有机会改
+    std::cout << "  解析失败: " << describe(parsed.unwrapErr()) << '\n';
+    std::cout << "  支持的写法示例: (x+1)/(x-1) 、 x^2 + 2*x + 1 、 \\frac{x+1}{x-1}\n";
+  }
+}
+
 } // namespace
 
 int main() {
   std::cout << "=== 表达式化简 ===\n";
-  std::cout << "支持的运算: + - * / ^ 与括号；变量名可含字母、数字、下划线\n\n";
+  std::cout << "运算: + - * / ^ 与括号；变量名可含字母、数字、下划线\n";
+  std::cout << "LaTeX 写法同样接受: \\frac{a}{b}、\\cdot、\\times、\\div、x^{2}\n\n";
 
-  std::cout << "式子: ";
-  std::string expression;
-  if (!std::getline(std::cin, expression)) {
+  RationalFunction expression(Fraction(0, 1));
+  if (!readExpression(expression)) {
     return 0;
   }
-
-  const Result<RationalFunction> parsed = parseExpression(expression);
-  if (parsed.isErr()) {
-    std::cout << "解析失败: " << describe(parsed.unwrapErr()) << '\n';
-    return 1;
-  }
-  std::cout << "解析为: " << parsed.unwrap().str() << '\n';
 
   Scope scope;
   std::cout << "\n条件（变量 = 常数，输入 0=0 结束）:\n";
   while (true) {
     std::cout << "> ";
     std::string line;
-    if (!std::getline(std::cin, line)) {
+    if (!readLine(line)) {
       std::cout << '\n';
       break;
     }
@@ -76,33 +99,40 @@ int main() {
   }
 
   std::cout << "\n--- 结果 ---\n";
+  std::cout << "原始式子: " << expression.latex() << '\n';
 
-  const Result<RationalFunction> substituted = parsed.unwrap().substitute(scope);
+  const Result<RationalFunction> substituted = expression.substitute(scope);
   if (substituted.isErr()) {
-    std::cout << "代入失败: " << describe(substituted.unwrapErr()) << '\n';
-    return 1;
-  }
+    // 代入后分母为零属于数学结论（原式在该点无定义），不是程序错误，
+    // 因此正常结束而不是返回非零退出码。
+    std::cout << "无法代入: " << describe(substituted.unwrapErr()) << "（原式在这些取值处无定义）\n";
+  } else {
+    const RationalFunction &result = substituted.unwrap();
+    std::cout << "化简结果: " << result.latex() << '\n';
 
-  const RationalFunction &result = substituted.unwrap();
-  std::cout << "化简结果: " << result.str() << '\n';
-
-  const Result<Polynomial> polynomial = result.toPolynomial();
-  if (polynomial.isOk()) {
-    std::cout << "可化为多项式: " << polynomial.unwrap().str() << '\n';
-  }
-
-  const Result<Fraction> evaluated = result.evaluate(scope);
-  if (evaluated.isOk()) {
-    std::cout << "常数结果: " << evaluated.unwrap() << '\n';
-  }
-
-  if (!result.discardedConstraints().empty()) {
-    std::cout << "注意: 化简中约去了";
-    for (const Variable &variable : result.discardedConstraints()) {
-      std::cout << ' ' << variable.str();
+    const Result<Polynomial> polynomial = result.toPolynomial();
+    if (polynomial.isOk()) {
+      std::cout << "可化为多项式: " << polynomial.unwrap().latex() << '\n';
     }
-    std::cout << "，上述等价关系仅在这些变量非零时成立\n";
+
+    const Result<Fraction> evaluated = result.evaluate(scope);
+    if (evaluated.isOk()) {
+      std::cout << "常数结果: " << evaluated.unwrap() << '\n';
+    }
+
+    if (!result.discardedConstraints().empty()) {
+      std::cout << "注意: 化简中约去了";
+      for (const Variable &variable : result.discardedConstraints()) {
+        std::cout << ' ' << variable.str();
+      }
+      std::cout << "，上述等价关系仅在这些变量非零时成立\n";
+    }
   }
+
+  // 双击运行时窗口不会立刻关闭
+  std::cout << "\n按回车键退出...";
+  std::string ignored;
+  std::getline(std::cin, ignored);
 
   return 0;
 }

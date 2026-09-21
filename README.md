@@ -227,6 +227,31 @@ Result<Fraction> value = r.evaluate(scope);               // 完全求值
 代入后分母可能退化成零多项式（如 `1/(x-1)` 代入 `x = 1`），此时返回 `ZeroDenominator`。
 **那不是程序错误，而是原式的极点**——分式在这里本来就没有定义。
 
+## LaTeX 输出
+
+`Monomial`、`Polynomial`、`RationalFunction` 都提供 `latex()`，与 `str()` 并存：
+
+| 类型 | `str()` | `latex()` |
+| --- | --- | --- |
+| `Monomial` | `1/2 x^2 y` | `\frac{1}{2}x^{2}y` |
+| `Polynomial` | `x^2 + 2 x y + y^2` | `x^{2} + 2xy + y^{2}` |
+| `RationalFunction` | `(x + 1) / (x - 1)` | `\frac{x + 1}{x - 1}` |
+
+`str()` 面向终端阅读，`latex()` 面向排版。
+
+分式的 `latex()` **一律输出 `\frac{分子}{分母}`**，所以 `\frac{a}{b} + c` 的通分结果
+稳定呈现为统一形式 —— 通分本身由 `operator+` 完成（`a/b + c/1 = (a·1 + c·b)/(b·1)`），
+`latex()` 只负责不把它拆散：
+
+```cpp
+parseExpression("\\frac{x}{y} + 1").unwrap().latex();   // "\frac{x + y}{y}"
+```
+
+| 情形 | `str()` | `latex()` |
+| --- | --- | --- |
+| 常数分式 | `5/6` | `\frac{5}{6}` |
+| 分母为 1 | `x` | `x`（不写成 `\frac{x}{1}`） |
+
 ## 示例程序
 
 `apps/` 下是可直接运行的程序。
@@ -254,12 +279,16 @@ cmake --build build
 ```
 
 支持的运算：`+ - * / ^` 与括号；变量名可含字母、数字、下划线。
+**LaTeX 写法同样接受**：`\frac{a}{b}`、`\cdot`、`\times`、`\div`、`x^{2}`、`\left( \right)`；
+输出一律采用 LaTeX。
 
 条件必须是「变量 = 常数」形式，但有两点放宽与一点克制：
 
 - `3 = x` 会被理解成 `x = 3`（两侧可交换）
 - `x = x`、`2 = 2` 这类恒等式被识别出来并忽略
 - `x + 1 = 2` 这类**需要解方程**的写法明确报错，不猜测
+
+式子解析失败时程序会提示并**重新索取输入**，不会直接退出。
 
 ## 打包发布
 
