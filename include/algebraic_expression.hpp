@@ -467,8 +467,8 @@ public:
     return result;
   }
 
-private:
-  // 加入一项：已存在则合并，系数归零则整项删除
+  // 加入一项：已存在则合并同类项，系数归零则整项删除。
+  // 公开是为了让 RationalFunction 这类需要逐项构建多项式的代码能复用同一套规范化逻辑。
   void addTerm(const VarPowers &key, const Fraction &value) {
     if (value == 0LL) {
       return;
@@ -482,6 +482,7 @@ private:
     }
   }
 
+private:
   std::map<VarPowers, Fraction> terms;
 };
 

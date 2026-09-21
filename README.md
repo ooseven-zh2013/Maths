@@ -152,6 +152,49 @@ scope.str();   // {"x": "1/2", "y": "-3"}
 值写成字符串而不是 JSON 数字，是为了不把精确分数浮点化（`0.5` 会丢掉 1/3 这类值），
 并且可直接交给 `Fraction::parse` 反向解析，保证输出可往返。
 
+## 分式
+
+`include/rational_function.hpp` 提供有理函数 `RationalFunction`（两个多项式之比），
+支持四则运算与**有限化简**。
+
+```cpp
+Result<RationalFunction> r = RationalFunction::make(numerator, denominator);
+
+r.unwrap().getNumerator();             // 分子
+r.unwrap().getDenominator();           // 分母
+r.unwrap().discardedConstraints();     // 化简中被丢掉的「变量非零」约束
+```
+
+### 化简做到什么程度
+
+| 层级 | 内容 |
+| --- | --- |
+| L1 | **数值内容约分** —— `6x^2y / 4xy^2 → 3x^2y / 2xy^2`。按有理数算 gcd，`x/2 + 1/3` 这类系数也能约 |
+| L2 | **单项式公因子约分** —— `→ 3x / 2y` |
+| L3 | **分母符号归一** —— `1/(-x-1)` 统一写成 `-1/(x+1)` |
+
+**不做多项式因式分解**，所以 `(x^2-1)/(x-1)` 不会化成 `x+1`。
+多元多项式 GCD 实现复杂、存在系数爆炸风险，收益不足以抵消成本。
+
+### 约分的代价：定义域
+
+L2 会改变定义域：约掉变量 `x` 等价于默认 `x ≠ 0`，即丢掉了「原式在 `x = 0` 处无定义」这一点。
+
+```cpp
+RationalFunction r = ...;      // (x^2 + x) / (x^2 - x)
+r.simplify();                  // (x + 1) / (x - 1)
+r.discardedConstraints();      // {x}  —— 结果仅在 x ≠ 0 时与原式等价
+```
+
+关心定义域就检查这些约束；忽略它则相当于接受「化简后定义域更宽」。
+L1 和 L3 不产生任何约束（常数非零恒成立、符号不影响定义域）。
+
+### 相等判断不依赖化简
+
+`operator==` 内部用**交叉相乘**：`a/b == c/d ⟺ a*d == c*b`。
+即使两个分式写法不同、靠 L1/L2 约不到一起，判等依然正确。
+这也是不做多项式 GCD 的情况下语义仍然可靠的原因。
+
 ## 代码规范与静态检查
 
 | 工具 | 配置文件 | 用途 |
@@ -180,6 +223,7 @@ include/                     头文件（header-only）
   numbers.hpp                  Integer、Fraction
   algebraic_expression.hpp     Name、Variable、Monomial、Polynomial
   scope.hpp                    变量绑定表 Scope、代入与求值
+  rational_function.hpp        分式（有理函数）与有限化简
   random.hpp                   区间随机数
 test/                        测试
   check.hpp                    断言宏

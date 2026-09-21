@@ -28,6 +28,7 @@ set(TEST_SOURCES
   result/result_tests.cpp
   random/random_tests.cpp
   scope/scope_tests.cpp
+  rational/rational_tests.cpp
 )
 
 foreach(src IN LISTS TEST_SOURCES)
