@@ -336,5 +336,43 @@ int main() {
     CHECK_EQ(parseExpression("2x").unwrap().substitute(scope).unwrap().latex(), std::string("4v^2"));
   }
 
+  // 23. 解除绑定：x = x 是删除指令，不是恒等式
+  {
+    const std::optional<Variable> erased = parseErase("x = x");
+    CHECK_TRUE(erased.has_value());
+    if (erased) {
+      CHECK_EQ(erased->str(), std::string("x"));
+    }
+
+    // 带下标的变量同理
+    const std::optional<Variable> subscripted = parseErase("a_1 = a_1");
+    CHECK_TRUE(subscripted.has_value());
+    if (subscripted) {
+      CHECK_EQ(subscripted->str(), std::string("a_1"));
+    }
+
+    // 常数恒等式不涉及变量，不是删除指令
+    CHECK_TRUE(!parseErase("2 = 2").has_value());
+    CHECK_TRUE(!parseErase("0 = 0").has_value());
+    CHECK_TRUE(!parseErase("1/2 = 2/4").has_value());
+
+    // 赋值也不是删除指令
+    CHECK_TRUE(!parseErase("x = 2").has_value());
+    CHECK_TRUE(!parseErase("x = y").has_value());
+
+    // 解析失败的输入交回 parseAssignment 报错，这里不抢先判定
+    CHECK_TRUE(!parseErase("x + 1 = 2").has_value());
+    CHECK_ERR(parseAssignment("x + 1 = 2"), MathsError::InvalidExpression);
+
+    // 实际效果：删掉之后变量恢复自由，重复删除返回 false
+    Scope scope;
+    CHECK_OK(scope.assign(x, parseExpression("3").unwrap()));
+    CHECK_EQ(parseExpression("2x").unwrap().substitute(scope).unwrap().latex(), std::string("6"));
+    CHECK_TRUE(scope.erase(x));
+    CHECK_TRUE(!scope.contains(x));
+    CHECK_EQ(parseExpression("2x").unwrap().substitute(scope).unwrap().latex(), std::string("2x"));
+    CHECK_TRUE(!scope.erase(x)); // 已经删过了
+  }
+
   TEST_SUMMARY();
 }

@@ -14,9 +14,13 @@
 // 结果统一用 RationalFunction 承载：除法必然引入分式，用统一类型可以省掉
 // 「多项式还是分式」的分支判断。
 //
-// 另外提供 parseAssignment：解析代入条件 "变量 = 常数"。
-// 支持两侧交换（C = x 等价于 x = C），恒等式（x = x、C = C）返回 nullopt 表示无需记录。
+// 另外提供 parseAssignment：解析代入条件 "变量 = 表达式"。
+// 支持两侧交换（C = x 等价于 x = C）；常数恒等式（C = C）返回 nullopt 表示无需记录。
 // 刻意不支持需要解方程的形式（如 x + 1 = 2），这类输入会明确报错而不是猜。
+//
+// 另有 parseErase：识别「解除绑定」的输入 x = x —— 意思是删掉该变量此前记录的约束。
+// 删除与赋值是两种不同的动作，所以单列一个函数而不是塞进 Assignment；
+// 调用方应先试 parseErase，落空再走 parseAssignment。
 
 #include "algebraic_expression.hpp"
 #include "maths_error.hpp"
@@ -440,10 +444,11 @@ struct Assignment {
   RationalFunction value; // 右边可以是含其它变量的表达式，如 s = v*t
 };
 
-// 解析代入条件 "变量 = 常数"。
-// 返回 nullopt 表示这是恒等式（x = x、C = C），没有信息可记录。
+// 解析代入条件 "变量 = 表达式"。
+// 返回 nullopt 表示这条输入没有可记录的信息（常数恒等式）。
 // 两侧可交换：C = x 会被解释为 x = C。
 // 需要解方程的形式（x + 1 = 2）不被支持，返回 InvalidExpression。
+// x = x 不是赋值而是「解除该变量的绑定」，见 parseErase。
 inline Result<std::optional<Assignment>> parseAssignment(std::string_view text) {
   const size_t equals = text.find('=');
   if (equals == std::string_view::npos) {
@@ -470,7 +475,7 @@ inline Result<std::optional<Assignment>> parseAssignment(std::string_view text) 
   const std::optional<Fraction> leftConstant = expression_detail::asConstant(left);
   const std::optional<Fraction> rightConstant = expression_detail::asConstant(right);
 
-  // x = x：同一个变量，恒等式
+  // x = x：同一个变量。解除绑定由 parseErase 负责，这里按「没有可记录的信息」处理
   if (leftVariable && rightVariable && *leftVariable == *rightVariable) {
     return std::optional<Assignment>{};
   }
@@ -497,6 +502,32 @@ inline Result<std::optional<Assignment>> parseAssignment(std::string_view text) 
   }
 
   return std::unexpected(MathsError::InvalidExpression);
+}
+
+// 解析「解除绑定」的输入：x = x 表示删掉变量 x 此前记录的约束（y = y、x_1 = x_1 同理）。
+// 返回 nullopt 表示这条输入不是删除指令，调用方应继续按赋值解析。
+//
+// 与常数恒等式（5 = 5）区分：后者两边是同一个常数，不涉及变量，不是删除指令。
+// 解析失败的输入（如 x + 1 = 2）也返回 nullopt —— 报错交给 parseAssignment，
+// 那里能给出准确的错误码，这里不该抢先判定。
+inline std::optional<Variable> parseErase(std::string_view text) {
+  const size_t equals = text.find('=');
+  if (equals == std::string_view::npos || text.find('=', equals + 1) != std::string_view::npos) {
+    return std::nullopt;
+  }
+
+  const Result<RationalFunction> leftHand = parseExpression(text.substr(0, equals));
+  const Result<RationalFunction> rightHand = parseExpression(text.substr(equals + 1));
+  if (leftHand.isErr() || rightHand.isErr()) {
+    return std::nullopt;
+  }
+
+  const std::optional<Variable> leftVariable = expression_detail::asSingleVariable(leftHand.unwrap());
+  const std::optional<Variable> rightVariable = expression_detail::asSingleVariable(rightHand.unwrap());
+  if (leftVariable && rightVariable && *leftVariable == *rightVariable) {
+    return *leftVariable;
+  }
+  return std::nullopt;
 }
 
 // 约束是否与式子相关：左边变量出现在式子里，或右边含式子里出现过的变量。

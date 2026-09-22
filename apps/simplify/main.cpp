@@ -12,8 +12,9 @@
 //   反馈行   动作 · 说明         回应一次输入，固定缩两格
 //   输入提示 式子>  /  条件>
 //
-//   反馈行的动作词只有四个，不要自造：
-//     已记录   输入被采纳
+//   反馈行的动作词只有五个，不要自造：
+//     已记录   输入被采纳，记下一条约束
+//     已删除   输入被采纳，删掉一条已有约束
 //     跳过     输入合法，但没有可记录的信息
 //     不接受   输入无法采纳，后面接原因
 //     提示     补充说明，跟在上面任意一条之后
@@ -110,6 +111,7 @@ void printSyntax() {
 void printConstraintHelp() {
   printSection("条件");
   printField("写法", "变量 = 表达式，如 x = 2、s = v*t（右边可含式子里没有的变量）", true);
+  printField("删除", "输入 x = x 删掉变量 x 的约束（重复输入同名变量即为覆盖）", true);
   printField("结束", "输入 0=0", true);
   printField("限制", "右边不能含被赋值的变量本身 —— x = 2x 是方程，不支持", true);
 }
@@ -129,6 +131,17 @@ void readConstraints(const RationalFunction &expression, Scope &scope) {
       return;
     }
     if (trimmed.empty()) {
+      continue;
+    }
+
+    // x = x 是删除指令，优先于赋值解析 —— 否则它会被当成恒等式丢掉
+    const std::optional<Variable> erased = parseErase(line);
+    if (erased) {
+      if (scope.erase(*erased)) {
+        printFeedback("已删除", erased->str() + " 的约束");
+      } else {
+        printFeedback("跳过", erased->str() + " 本来就没有约束");
+      }
       continue;
     }
 
