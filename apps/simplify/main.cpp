@@ -2,6 +2,7 @@
 //
 // 用法：输入一个式子（普通写法或 LaTeX 写法均可），
 // 然后逐条输入代入条件（变量 = 表达式），输入 0=0 结束。
+// 式子不含变量时（纯常数运算）跳过条件输入直接出结果，可以当计算器用。
 //
 // ===========================================================================
 // 输出格式约定 —— 新增提示一律沿用这几种行式，不要另起一套
@@ -197,21 +198,19 @@ void printResult(const RationalFunction &expression, const Scope &scope) {
   const RationalFunction &result = substituted.unwrap();
   printField("化简结果", result.latex());
 
-  // 化简结果本身已是多项式形式（分母为 1）时不重复报告，
-  // 只有分母非 1 但能被长除法整除时（如 (a^2-1)/(a+1) → a-1）才单独给出。
+  // 长除法能整除时单独给出多项式形式（如 (a^2-1)/(a+1) → a-1），并补上定义域条件：
   // 这种归约会丢掉「原式在分母零点处无定义」这一信息 —— 归约后的式子在那里有定义，
-  // 原式没有 —— 所以必须把定义域条件一并报出。
+  // 原式没有。
+  //
+  // 但**只有分母含变量时才值得报**。常数分母恒非零，没有零点可丢，报出来只是把
+  // 化简结果再抄一遍（5/6 会被报成「可化为多项式: \frac{5}{6}」，毫无信息量）。
   const Result<Monomial> denominatorMonomial = result.getDenominator().toMonomial();
   const bool denominatorIsConstant = denominatorMonomial.isOk() && denominatorMonomial.unwrap().isConstant();
-  const bool denominatorIsOne = denominatorIsConstant && denominatorMonomial.unwrap().getCoefficient() == 1LL;
 
   const Result<Polynomial> polynomial = result.toPolynomial();
-  if (polynomial.isOk() && !denominatorIsOne) {
-    std::string text = polynomial.unwrap().latex();
-    if (!denominatorIsConstant) { // 常数分母恒非零，无需附加条件
-      text += "（原式要求 " + result.getDenominator().latex() + " \\neq 0）";
-    }
-    printField("可化为多项式", text);
+  if (polynomial.isOk() && !denominatorIsConstant) {
+    const std::string note = "（原式要求 " + result.getDenominator().latex() + " \\neq 0）";
+    printField("可化为多项式", polynomial.unwrap().latex() + note);
   }
 
   const Result<Fraction> evaluated = result.evaluate(scope);
@@ -245,9 +244,16 @@ int main() {
   }
 
   Scope scope;
-  std::cout << '\n';
-  printConstraintHelp();
-  readConstraints(expression, scope);
+
+  // 式子不含变量时它就是纯常数运算，没有可代入的东西 —— 直接出结果，当计算器用。
+  // 这时连条件说明都不必打印，否则用户会对着一段用不上的提示发愣。
+  if (expression.variables().empty()) {
+    printFeedback("提示", "式子不含变量，跳过条件输入");
+  } else {
+    std::cout << '\n';
+    printConstraintHelp();
+    readConstraints(expression, scope);
+  }
 
   std::cout << "\n--- 结果 ---\n";
   printResult(expression, scope);

@@ -374,5 +374,16 @@ int main() {
     CHECK_TRUE(!scope.erase(x)); // 已经删过了
   }
 
+  // 24. 常数式子不含变量 —— app 据此跳过条件输入、直接出结果
+  {
+    CHECK_TRUE(parseExpression("2 + 3*4").unwrap().variables().empty());
+    CHECK_TRUE(parseExpression("1/2 + 1/3").unwrap().variables().empty());
+    CHECK_TRUE(parseExpression("\\frac{7}{2}").unwrap().variables().empty());
+
+    // 含变量的式子不能跳过
+    CHECK_TRUE(!parseExpression("2x").unwrap().variables().empty());
+    CHECK_TRUE(!parseExpression("2 + 3*4 + y").unwrap().variables().empty());
+  }
+
   TEST_SUMMARY();
 }
