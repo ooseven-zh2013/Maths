@@ -110,7 +110,11 @@ int main() {
       std::cout << "  不接受: " << describe(assigned.unwrapErr()) << '\n';
       continue;
     }
-    std::cout << "  当前条件: " << scope.str() << '\n';
+    // 每条约束单独一行，直接写成 变量 = 表达式 的形式（JSON 挤在一行里不好读）
+    std::cout << "  当前条件:\n";
+    for (const auto &[variable, value] : scope.bindings()) {
+      std::cout << "    " << variable.str() << " = " << value.latex() << '\n';
+    }
   }
 
   std::cout << "\n--- 结果 ---\n";
