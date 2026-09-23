@@ -75,22 +75,22 @@ jobs:
   static-analysis:
     name: clang-tidy
     runs-on: ubuntu-latest
-    # 发行版自带的 clang-tidy 版本随镜像变动，与本地开发环境不一定一致，
-    # 故先只输出报告、不阻塞合并；确认结论稳定后可去掉 continue-on-error。
-    continue-on-error: true
+    # clang-tidy 版本必须 >= 19：libstdc++ 的 <expected> 由 __cpp_concepts >= 202002L 把门，
+    # clang 18 及以下只给 201907L，std::unexpected 会被整段排除，Result<T> 全线编译错误
+    # 并连带刷出几十万条假警告。镜像 apt 源默认装 18，故固定为与本地一致的 22.1.8，
+    # 与 format job 固定 clang-format 版本的做法对齐。
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # cmake 与 ninja 由镜像自带，不需要 apt 安装
       - name: Install clang-tidy
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-tidy ninja-build cmake
+        run: pip install "clang-tidy==22.1.8"
 
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
       - name: Run clang-tidy
         run: |
-          files=$(find test -name '*.cpp')
+          files=$(find test apps -name '*.cpp')
           clang-tidy -p build $files
