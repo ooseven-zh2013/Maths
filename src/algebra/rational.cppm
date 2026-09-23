@@ -69,8 +69,8 @@ inline VarPowers commonVariables(const Polynomial &polynomial) {
     }
     const VarPowers &factors = entry.first;
     VarPowers intersection;
-    size_t i = 0;
-    size_t j = 0;
+    std::size_t i = 0;
+    std::size_t j = 0;
     while (i < result.size() && j < factors.size()) {
       if (result[i].first == factors[j].first) {
         intersection.emplace_back(result[i].first, std::min(result[i].second, factors[j].second));
@@ -90,8 +90,8 @@ inline VarPowers commonVariables(const Polynomial &polynomial) {
 // 两个有序因子表的交集，同变量取指数较小者
 inline VarPowers intersectVariables(const VarPowers &lhs, const VarPowers &rhs) {
   VarPowers result;
-  size_t i = 0;
-  size_t j = 0;
+  std::size_t i = 0;
+  std::size_t j = 0;
   while (i < lhs.size() && j < rhs.size()) {
     if (lhs[i].first == rhs[j].first) {
       result.emplace_back(lhs[i].first, std::min(lhs[i].second, rhs[j].second));

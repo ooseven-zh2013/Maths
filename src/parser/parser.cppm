@@ -31,7 +31,7 @@ export namespace maths {
 namespace expression_detail {
 
 // 读取一个花括号分组（允许前面有空白），position 停在 } 之后
-inline bool takeBracedGroup(std::string_view source, size_t &position, std::string &out) {
+inline bool takeBracedGroup(std::string_view source, std::size_t &position, std::string &out) {
   while (position < source.size() && std::isspace(static_cast<unsigned char>(source[position])) != 0) {
     ++position;
   }
@@ -40,7 +40,7 @@ inline bool takeBracedGroup(std::string_view source, size_t &position, std::stri
   }
 
   int depth = 0;
-  const size_t start = position + 1;
+  const std::size_t start = position + 1;
   while (position < source.size()) {
     if (source[position] == '{') {
       ++depth;
@@ -66,7 +66,7 @@ inline bool takeBracedGroup(std::string_view source, size_t &position, std::stri
 inline std::string normalizeLatex(std::string_view source) {
   std::string result;
   result.reserve(source.size());
-  size_t position = 0;
+  std::size_t position = 0;
 
   while (position < source.size()) {
     if (source.compare(position, 5, "\\frac") == 0) {
@@ -109,7 +109,7 @@ inline std::string normalizeLatex(std::string_view source) {
     }
     if (source.compare(position, 2, "^{") == 0) { // "^{" 只有 2 个字符
       // 指数只接受整数，因此直接把花括号展开
-      const size_t close = source.find('}', position + 2);
+      const std::size_t close = source.find('}', position + 2);
       if (close != std::string_view::npos) {
         result += '^';
         result.append(source.substr(position + 2, close - position - 2));
@@ -316,7 +316,7 @@ private:
   }
 
   Result<RationalFunction> parseNumber() {
-    const size_t start = position;
+    const std::size_t start = position;
     while (isDigit()) {
       ++position;
     }
@@ -332,7 +332,7 @@ private:
     // 变量名 = 单个字母 + 可选下标（x、a_1、x_{i,j}）。
     // 连续字母不合并成一个名字，而是留给 parseMultiplicative 做隐含乘法：xy 即 x*y。
     // 这样「输入 xy」与「输入 x*y」得到同一个式子，也与 latex() 的输出闭环。
-    const size_t start = position;
+    const std::size_t start = position;
     ++position; // 调用方已确认首字符是字母
 
     if (!atEnd() && peek() == '_') {
@@ -370,7 +370,7 @@ private:
     if (!isDigit()) {
       return std::unexpected(MathsError::InvalidExpression);
     }
-    const size_t start = position;
+    const std::size_t start = position;
     while (isDigit()) {
       ++position;
     }
@@ -391,7 +391,7 @@ private:
   }
 
   std::string_view text;
-  size_t position{0};
+  std::size_t position{0};
 };
 
 // 是否为「恰好等于某个变量」的表达式，要求系数为 1、指数为 1、且分母为 1
@@ -443,7 +443,7 @@ struct Assignment {
 // 需要解方程的形式（x + 1 = 2）不被支持，返回 InvalidExpression。
 // x = x 不是赋值而是「解除该变量的绑定」，见 parseErase。
 inline Result<std::optional<Assignment>> parseAssignment(std::string_view text) {
-  const size_t equals = text.find('=');
+  const std::size_t equals = text.find('=');
   if (equals == std::string_view::npos) {
     return std::unexpected(MathsError::InvalidExpression);
   }
@@ -504,7 +504,7 @@ inline Result<std::optional<Assignment>> parseAssignment(std::string_view text) 
 // 解析失败的输入（如 x + 1 = 2）也返回 nullopt —— 报错交给 parseAssignment，
 // 那里能给出准确的错误码，这里不该抢先判定。
 inline std::optional<Variable> parseErase(std::string_view text) {
-  const size_t equals = text.find('=');
+  const std::size_t equals = text.find('=');
   if (equals == std::string_view::npos || text.find('=', equals + 1) != std::string_view::npos) {
     return std::nullopt;
   }

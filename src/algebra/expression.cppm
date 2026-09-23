@@ -88,7 +88,7 @@ public:
   auto operator<=>(const Variable &oth) const {
     if (auto cmp = name <=> oth.name; cmp != 0)
       return cmp;
-    for (size_t i = 0, size_ = std::min(index.size(), oth.index.size()); i < size_; ++i) {
+    for (std::size_t i = 0, size_ = std::min(index.size(), oth.index.size()); i < size_; ++i) {
       if (auto cmp = index[i] <=> oth.index[i]; cmp != 0)
         return cmp;
     }
@@ -143,7 +143,7 @@ private:
           throw MathsException(MathsError::InvalidName);
         }
         name_ = name_.substr(1, name_.size() - 2);
-        size_t last = 0;
+        std::size_t last = 0;
         while (true) {
           pos = name_.find(',', last);
           if (pos == std::string_view::npos) {
@@ -200,7 +200,7 @@ inline bool displayOrderLess(const VarPowers &lhs, const VarPowers &rhs) {
   if (lhsDegree != rhsDegree) {
     return lhsDegree > rhsDegree;
   }
-  for (size_t i = 0; i < std::min(lhs.size(), rhs.size()); ++i) {
+  for (std::size_t i = 0; i < std::min(lhs.size(), rhs.size()); ++i) {
     if (lhs[i].first != rhs[i].first) {
       return lhs[i].first < rhs[i].first;
     }
@@ -218,8 +218,8 @@ inline bool displayOrderLess(const VarPowers &lhs, const VarPowers &rhs) {
 // x^2 的首项 (x,2) 大于 xy 的首项 (x,1)，得到 x^2 > xy，与 x < y 矛盾。
 // 项序不相容会导致多项式除法不终止。
 inline std::strong_ordering compareLex(const VarPowers &lhs, const VarPowers &rhs) {
-  size_t i = 0;
-  size_t j = 0;
+  std::size_t i = 0;
+  std::size_t j = 0;
   while (i < lhs.size() || j < rhs.size()) {
     unsigned long long lhsExponent = 0;
     unsigned long long rhsExponent = 0;
@@ -324,7 +324,7 @@ public:
       result += detail::renderFraction(coeff);
       result += ' ';
     }
-    for (size_t i = 0; i < factors.size(); ++i) {
+    for (std::size_t i = 0; i < factors.size(); ++i) {
       if (i != 0) {
         result += ' ';
       }

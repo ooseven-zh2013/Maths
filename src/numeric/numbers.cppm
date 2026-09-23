@@ -42,11 +42,11 @@ public:
   // 解析 "a/b"、整数或 LaTeX 风格的 \frac{}{}（支持嵌套与连续除法）
   static Result<Fraction> parse(std::string_view sv) {
     if (sv.size() >= 6 && sv.substr(0, 6) == "\\frac{") {
-      const size_t numEnd = findMatchingBrace(sv, 5);
+      const std::size_t numEnd = findMatchingBrace(sv, 5);
       if (numEnd == std::string_view::npos || numEnd + 1 >= sv.size() || sv[numEnd + 1] != '{') {
         return std::unexpected(MathsError::InvalidExpression);
       }
-      const size_t denEnd = findMatchingBrace(sv, numEnd + 1);
+      const std::size_t denEnd = findMatchingBrace(sv, numEnd + 1);
       if (denEnd == std::string_view::npos) {
         return std::unexpected(MathsError::InvalidExpression);
       }
@@ -73,7 +73,7 @@ public:
       return value.unwrap() / tail.unwrap();
     }
 
-    const size_t split = sv.rfind('/');
+    const std::size_t split = sv.rfind('/');
     if (split != std::string_view::npos) {
       Result<Fraction> numerator = parse(sv.substr(0, split));
       if (numerator.isErr()) {
@@ -353,9 +353,9 @@ private:
   }
 
   // 找匹配的右花括号（从 start 位置的 { 开始，按嵌套深度匹配）
-  static size_t findMatchingBrace(std::string_view sv, size_t start) {
+  static std::size_t findMatchingBrace(std::string_view sv, std::size_t start) {
     int depth = 0;
-    for (size_t i = start; i < sv.size(); ++i) {
+    for (std::size_t i = start; i < sv.size(); ++i) {
       if (sv[i] == '{')
         ++depth;
       else if (sv[i] == '}') {
@@ -640,9 +640,9 @@ private:
   // ==================== 私有辅助方法 ====================
 
   // 找匹配的右花括号（从 start 位置的 { 开始，按嵌套深度匹配）
-  static size_t findMatchingBrace(std::string_view sv, size_t start) {
+  static std::size_t findMatchingBrace(std::string_view sv, std::size_t start) {
     int depth = 0;
-    for (size_t i = start; i < sv.size(); ++i) {
+    for (std::size_t i = start; i < sv.size(); ++i) {
       if (sv[i] == '{')
         ++depth;
       else if (sv[i] == '}') {
