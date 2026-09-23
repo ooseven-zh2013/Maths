@@ -26,8 +26,12 @@ jobs:
       - name: Install mcpp
         run: pip install --upgrade mcpp-bin
 
+      - name: mcpp version
+        run: mcpp self version
+
+      # -v：模块扫描阶段的问题（哪个文件提供哪个模块）只有 verbose 才看得到
       - name: Build
-        run: mcpp build
+        run: mcpp build -v
 
       - name: Run tests
         run: mcpp test
