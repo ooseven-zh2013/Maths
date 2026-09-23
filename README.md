@@ -17,7 +17,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-把编译告警视为错误（CI 在 Linux / macOS 上使用该模式）：
+把编译告警视为错误：
 
 ```bash
 cmake -S . -B build -G Ninja -DMATHS_WARNINGS_AS_ERRORS=ON
@@ -50,8 +50,6 @@ TEST_SUMMARY();                      // 输出汇总并以失败数作为退出�
 ```
 
 自制断言而非 `assert`，是为了让检查在 Release 构建（`NDEBUG` 已定义）下依然生效。
-
-测试目标名由「子目录名_文件名」组成，例如 `test/integer/arithmetic.cpp` → `integer_arithmetic`。
 
 ## 错误处理
 
@@ -322,32 +320,13 @@ sh scripts/build-releases.sh
 脚本以 Release 模式**只构建 `apps/` 下的程序**（`-DMATHS_BUILD_TESTS=OFF` 加上聚合目标
 `maths_apps`，不会连带编译几十个测试），把可执行文件汇总到 `releases/`。
 
-`releases/` 已在 `.gitignore` 中忽略，需要发布时用 `git add -f releases/` 强制加入。
-
 生成器与编译器可通过参数透传给 CMake：
 
 ```bash
 sh scripts/build-releases.sh -G Ninja -DCMAKE_CXX_COMPILER=g++
 ```
 
-## 代码规范与静态检查
-
-| 工具 | 配置文件 | 用途 |
-| --- | --- | --- |
-| clang-format | `.clang-format` | 统一格式（LLVM 风格，2 空格缩进，列宽 120） |
-| clang-tidy | `.clang-tidy` | 静态检查（bugprone / performance / readability 子集） |
-| clangd | `.clangd` | 编辑器内诊断、补全与内联提示 |
-
-```bash
-# 格式检查
-clang-format --dry-run --Werror include/*.hpp test/check.hpp test/*/*.cpp
-
-# 静态检查（需先生成 compile_commands.json）
-cmake -S . -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-clang-tidy -p build test/integer/arithmetic.cpp
-```
-
-CI（GitHub Actions）在 Linux / macOS / Windows 三个平台构建并运行测试，另外单独执行格式检查与静态检查。
+正式版本在仓库的 GitHub Releases 页面发布。
 
 ## 目录结构
 
@@ -367,7 +346,7 @@ test/                        测试
 scripts/                     构建脚本
   build-releases.sh            一键打包可执行文件到 releases/
 cmake/                       CMake 包配置模板
-releases/                    打包产物（已 gitignore）
+releases/                    打包产物
 ```
 
 ## 许可
