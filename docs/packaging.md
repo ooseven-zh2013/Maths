@@ -1,31 +1,25 @@
 # 打包发布
 
-对应 `scripts/build-releases.sh`。
+对应 `mcpp pack`。原先的 `scripts/build-releases.sh` 已随 CMake 一起移除 ——
+打包这件事 mcpp 自己就做了，不需要额外的脚本。
 
 ```bash
-sh scripts/build-releases.sh
+mcpp pack                        # 库：模块接口 + 预编译二进制
+mcpp pack simplify               # 打包指定的目标（这里是示例程序）
+mcpp pack simplify --release     # Release 配置
+mcpp pack simplify -o releases/  # 指定产物落点
 ```
 
-脚本以 Release 模式**只构建 `apps/` 下的程序**（`-DMATHS_BUILD_TESTS=OFF` 加上聚合目标
-`maths_apps`，不会连带编译几十个测试），把可执行文件汇总到 `releases/`。
-
-生成器与编译器可通过参数透传给 CMake：
-
-```bash
-sh scripts/build-releases.sh -G Ninja -DCMAKE_CXX_COMPILER=g++
-```
-
-它构建独立的 `build-release/`，与日常的 `build/` 互不影响。
-
-`install(... COMPONENT apps)` + `cmake --install --component apps` 保证 `releases/` 里
-只有可执行文件，不混入头文件。
+`mcpp pack <target>` 打包指定目标；不带 target 时按包类型决定形态 ——
+库出「接口 + 预编译二进制」，程序出自包含 bundle。
+默认格式是 tar（Windows 目标自动换成 .zip），`--format dir` 可以出成一个目录。
 
 ## 发布
 
-正式版本在仓库的 **GitHub Releases** 页面发布，把 `releases/` 里的产物作为附件上传。
+正式版本在仓库的 **GitHub Releases** 页面发布，把打包产物作为附件上传。
 
-产物**不提交进仓库**（`releases/` 与 `build-release/` 都在 `.gitignore` 里）。
+产物**不提交进仓库**（`target/` 与 `releases/` 都在 `.gitignore` 里）。
 
-## 改完 apps/ 记得重跑
+## 改完 apps/ 记得重新打包
 
-改了 `apps/` 下的代码而没重跑脚本，`releases/` 里就还是旧产物。
+改了 `apps/` 下的代码而没重新打包，发布出去的就还是旧产物。

@@ -1,13 +1,11 @@
-# maths_simplify — 交互式表达式化简
+# simplify — 交互式表达式化简
 
 对应 `apps/simplify/main.cpp`。
 
 ## 运行
 
 ```bash
-cmake -S . -B build -G Ninja
-cmake --build build
-./build/apps/maths_simplify        # Windows: build\apps\maths_simplify.exe
+mcpp run simplify
 ```
 
 ## 流程
@@ -45,7 +43,7 @@ cmake --build build
 | 写法 | 普通写法与 LaTeX 写法都接受 —— `\frac{a}{b}`、`\cdot`、`\times`、`\div`、`x^{2}` |
 
 输出一律采用 LaTeX。解析规则详见
-[expression_parser.md](../include/parser/expression_parser.md)。
+[expression_parser.md](../src/parser/expression_parser.md)。
 
 ## 条件
 

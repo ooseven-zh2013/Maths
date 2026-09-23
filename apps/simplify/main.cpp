@@ -33,7 +33,9 @@
 #include <string>
 #include <string_view>
 
-#include <maths/parser/expression_parser.hpp>
+import maths;
+
+using namespace maths;
 
 namespace {
 

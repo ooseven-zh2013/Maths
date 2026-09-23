@@ -6,15 +6,15 @@ ColumnLimit: 120    # 代码行最大长度
 BreakBeforeBraces: Attach  # 大括号紧跟语句
 SpaceAfterControlStatementKeyword: true  # if/for等关键字后加空格
 
-# include 分组：本库头 <maths/...> 自成一组排在最后，
-# 这样「本文件依赖了本库哪几个模块」一眼可见，不会被标准库夹在中间。
-# 测试用的 "check.hpp" 属于本仓库的本地头，排在最前。
+# include 分组：测试用的 "check.hpp" 属于本仓库的本地头，排在最前；标准库次之。
+#
+# 库本身不再用 #include 引入——模块化之后一律 `import maths.xxx;`。
+# import 必须写在所有 #include 之后（反过来 clang 会在标准库头里报错），
+# clang-format 不会把 import 挪到 #include 之前，所以这个顺序是安全的。
 IncludeBlocks: Regroup
 IncludeCategories:
   - Regex: '^"check\.hpp"'
     Priority: 1
-  - Regex: '^<maths/'
-    Priority: 4
   - Regex: '^<'
     Priority: 3
   - Regex: '.*'

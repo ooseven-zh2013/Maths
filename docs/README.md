@@ -1,45 +1,45 @@
 # 文档索引
 
-`docs/` 的目录结构镜像源码：`include/maths/` 下的每个头文件对应一篇同名文档，
+`docs/` 的目录结构镜像源码：`src/` 下的每个模块接口单元对应一篇同名文档，
 分类子目录（`core` / `numeric` / `algebra` / `parser`）两边一一对应；`apps/` 下的每个程序对应一篇。
 
-## include（库）
+## src（库模块）
 
 ### core — 与数学无关的基础设施
 
-| 文档 | 对应头文件 | 内容 |
+| 文档 | 对应模块文件 | 内容 |
 | --- | --- | --- |
-| [maths_error.md](include/core/maths_error.md) | `include/maths/core/maths_error.hpp` | 统一错误码 `MathsError`、两条传递路径、`MathsException` |
-| [result.md](include/core/result.md) | `include/maths/core/result.hpp` | `Result<T>` 的取法、运算短路传播、`Result<void>` 特化 |
+| [maths_error.md](src/core/maths_error.md) | `src/core/maths_error.cppm` | 统一错误码 `MathsError`、两条传递路径、`MathsException` |
+| [result.md](src/core/result.md) | `src/core/result.cppm` | `Result<T>` 的取法、运算短路传播、`Result<void>` 特化 |
 
 ### numeric — 精确数值
 
-| 文档 | 对应头文件 | 内容 |
+| 文档 | 对应模块文件 | 内容 |
 | --- | --- | --- |
-| [numbers.md](include/numeric/numbers.md) | `include/maths/numeric/numbers.hpp` | `Integer`、`Fraction` 的精确数值运算 |
-| [random.md](include/numeric/random.md) | `include/maths/numeric/random.hpp` | 区间随机数 |
+| [numbers.md](src/numeric/numbers.md) | `src/numeric/numbers.cppm` | `Integer`、`Fraction` 的精确数值运算 |
+| [random.md](src/numeric/random.md) | `src/numeric/random.cppm` | 区间随机数 |
 
 ### algebra — 符号代数
 
-| 文档 | 对应头文件 | 内容 |
+| 文档 | 对应模块文件 | 内容 |
 | --- | --- | --- |
-| [algebraic_expression.md](include/algebra/algebraic_expression.md) | `include/maths/algebra/algebraic_expression.hpp` | `Variable`、`Monomial`、`Polynomial`、多项式带余除法 |
-| [rational_function.md](include/algebra/rational_function.md) | `include/maths/algebra/rational_function.hpp` | 分式、三层化简、定义域约束、长除法归约 |
-| [scope.md](include/algebra/scope.md) | `include/maths/algebra/scope.hpp` | 变量绑定表 `Scope`、代入与求值的实现 |
+| [algebraic_expression.md](src/algebra/algebraic_expression.md) | `src/algebra/expression.cppm` | `Variable`、`Monomial`、`Polynomial`、多项式带余除法 |
+| [rational_function.md](src/algebra/rational_function.md) | `src/algebra/rational.cppm` | 分式、三层化简、定义域约束、长除法归约 |
+| [scope.md](src/algebra/scope.md) | `src/algebra/scope.cppm` | 变量绑定表 `Scope`、代入与求值的实现 |
 
 ### parser — 文本 → 式子
 
-| 文档 | 对应头文件 | 内容 |
+| 文档 | 对应模块文件 | 内容 |
 | --- | --- | --- |
-| [expression_parser.md](include/parser/expression_parser.md) | `include/maths/parser/expression_parser.hpp` | 表达式与代入条件的解析、相关性判定 |
+| [expression_parser.md](src/parser/expression_parser.md) | `src/parser/parser.cppm` | 表达式与代入条件的解析、相关性判定 |
 
 ### 横切
 
-| 文档 | 对应头文件 | 内容 |
+| 文档 | 对应模块文件 | 内容 |
 | --- | --- | --- |
-| [latex.md](include/latex.md) | — | `str()` 与 `latex()` 两套输出的对照与排版规则 |
+| [latex.md](src/latex.md) | — | `str()` 与 `latex()` 两套输出的对照与排版规则 |
 
-伞头 `include/maths/maths.hpp` 一次引入全部模块，不单独对应一篇文档。
+伞模块 `src/maths.cppm` 一次引入全部模块，不单独对应一篇文档。
 
 ## apps（程序）
 
@@ -57,6 +57,6 @@
 ## 怎么读
 
 - 想「这个库能干什么」→ 仓库根目录的 `README.md`
-- 想「某个类型怎么用」→ 上表按头文件名找
-- 想「报错是什么意思」→ [maths_error.md](include/core/maths_error.md)
-- 想「化简能做到哪一步」→ [rational_function.md](include/algebra/rational_function.md) 的「化简做到什么程度」
+- 想「某个类型怎么用」→ 上表按模块名找
+- 想「报错是什么意思」→ [maths_error.md](src/core/maths_error.md)
+- 想「化简能做到哪一步」→ [rational_function.md](src/algebra/rational_function.md) 的「化简做到什么程度」

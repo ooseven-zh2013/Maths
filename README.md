@@ -1,6 +1,7 @@
 # Maths
 
-C++23 header-only 数学库，提供精确的数值计算和代数表达式处理能力。
+C++23 模块库（`export module` / `import`，不再是 header-only），提供精确的数值计算和代数表达式处理能力。
+构建用 [mcpp](https://github.com/mcpp-community/mcpp)——模块优先的 C++ 构建工具。
 
 **全程精确，无浮点。** 所有数值走 `Fraction`（内部是「无符号幅值 + 符号」），
 所有代数对象最终都能化到精确形式。
@@ -16,39 +17,36 @@ C++23 header-only 数学库，提供精确的数值计算和代数表达式处�
 - **随机数** — 区间随机数，支持浮点与整数
 - **LaTeX 输出** — 每个代数类型都有 `str()`（终端阅读）与 `latex()`（排版）
 
-## 构建与安装
+## 构建与运行
 
 ```bash
-cmake -S . -B build -G Ninja
-cmake --build build
-ctest --test-dir build --output-on-failure
+mcpp build           # 构建库与示例程序
+mcpp test            # 跑 tests/ 下的全部测试（自动发现，一文件一可执行文件）
+mcpp run simplify    # 构建并运行示例程序
 ```
 
-把编译告警视为错误：
+首次构建会自动准备工具链（当前固定 `llvm@20.1.7`，见 `mcpp.toml`）。
+编译告警写在 `[build].cxxflags`：`-Wall -Wextra -Wpedantic -Wshadow`。
 
-```bash
-cmake -S . -B build -G Ninja -DMATHS_WARNINGS_AS_ERRORS=ON
+作为依赖使用——在自己的 `mcpp.toml` 里加一行：
+
+```toml
+[dependencies]
+maths = "0.1.0"
 ```
 
-作为依赖使用：
-
-```bash
-cmake --install build --prefix <prefix>
-```
-
-```cmake
-find_package(Maths REQUIRED)
-target_link_libraries(your_target PRIVATE Maths::Maths)
-```
-
-`Maths::Maths` 是 INTERFACE 目标，会自动带上头文件目录与 C++23 要求。
-
-头文件按职责分成四类，`maths/` 前缀保证不会污染下游的 include 根目录：
+然后按需 `import`：
 
 ```cpp
-#include <maths/maths.hpp>                  // 伞头：一次引入全部模块
-#include <maths/core/result.hpp>            // 单独引入某一个模块
+import maths;            // 伞模块：一次引入全部模块
+import maths.numbers;    // 或只引入需要的那一个
 ```
+
+全部类型都在 `namespace maths` 里。注意：**`#include` 必须写在所有 `import` 之前**，
+顺序反了 clang 会在标准库头里报错。
+
+作为依赖分发走 `mcpp pack`（打包）与 `mcpp publish`（发布到包索引），
+不再提供 CMake 的 `find_package`。
 
 ## 错误处理
 
@@ -63,34 +61,34 @@ if (quotient.isErr()) {
 const Fraction value = (a / Fraction(1, 2)).unwrap();  // 失败则抛 MathsException
 ```
 
-详见 [docs/include/core/maths_error.md](docs/include/core/maths_error.md) 与
-[docs/include/core/result.md](docs/include/core/result.md)。
+详见 [docs/src/core/maths_error.md](docs/src/core/maths_error.md) 与
+[docs/src/core/result.md](docs/src/core/result.md)。
 
 ## 模块
 
 | 模块 | 头文件 | 说明 | 文档 |
 | --- | --- | --- | --- |
-| 精确数值 | `maths/numeric/numbers.hpp` | `Integer`、`Fraction` | [文档](docs/include/numeric/numbers.md) |
-| 代数表达式 | `maths/algebra/algebraic_expression.hpp` | `Variable`、`Monomial`、`Polynomial`、带余除法 | [文档](docs/include/algebra/algebraic_expression.md) |
-| 分式 | `maths/algebra/rational_function.hpp` | 有理函数、三层化简、长除法归约 | [文档](docs/include/algebra/rational_function.md) |
-| 变量绑定 | `maths/algebra/scope.hpp` | `Scope` 与 `substitute` / `evaluate` | [文档](docs/include/algebra/scope.md) |
-| 表达式解析 | `maths/parser/expression_parser.hpp` | 文本与 LaTeX → 式子、代入条件解析 | [文档](docs/include/parser/expression_parser.md) |
-| 错误码 | `maths/core/maths_error.hpp` | `MathsError`、`MathsException` | [文档](docs/include/core/maths_error.md) |
-| 结果类型 | `maths/core/result.hpp` | `Result<T>` | [文档](docs/include/core/result.md) |
-| 随机数 | `maths/numeric/random.hpp` | 区间随机数 | [文档](docs/include/numeric/random.md) |
-| LaTeX 输出 | — | `str()` 与 `latex()` 对照、排版规则 | [文档](docs/include/latex.md) |
+| 精确数值 | `maths.numbers` | `Integer`、`Fraction` | [文档](docs/src/numeric/numbers.md) |
+| 代数表达式 | `maths.algebra:expression` | `Variable`、`Monomial`、`Polynomial`、带余除法 | [文档](docs/src/algebra/algebraic_expression.md) |
+| 分式 | `maths.algebra:rational` | 有理函数、三层化简、长除法归约 | [文档](docs/src/algebra/rational_function.md) |
+| 变量绑定 | `maths.algebra:scope` | `Scope` 与 `substitute` / `evaluate` | [文档](docs/src/algebra/scope.md) |
+| 表达式解析 | `maths.parser` | 文本与 LaTeX → 式子、代入条件解析 | [文档](docs/src/parser/expression_parser.md) |
+| 错误码 | `maths.error` | `MathsError`、`MathsException` | [文档](docs/src/core/maths_error.md) |
+| 结果类型 | `maths.result` | `Result<T>` | [文档](docs/src/core/result.md) |
+| 随机数 | `maths.random` | 区间随机数 | [文档](docs/src/numeric/random.md) |
+| LaTeX 输出 | — | `str()` 与 `latex()` 对照、排版规则 | [文档](docs/src/latex.md) |
 
-依赖方向单向：`numbers → algebraic_expression → rational_function → scope → expression_parser`。
+依赖方向单向：`maths.error → maths.result → maths.numbers → maths.algebra → maths.parser`
+（`maths.random` 依赖 `maths.numbers`）。
 
 ## 示例程序
 
 | 程序 | 说明 | 文档 |
 | --- | --- | --- |
-| `maths_simplify` | 交互式表达式化简：输入式子与代入条件，输出化简结果 | [文档](docs/apps/simplify.md) |
+| `simplify` | 交互式表达式化简：输入式子与代入条件，输出化简结果 | [文档](docs/apps/simplify.md) |
 
 ```bash
-cmake --build build
-./build/apps/maths_simplify        # Windows: build\apps\maths_simplify.exe
+mcpp run simplify
 ```
 
 ## 文档
@@ -100,29 +98,25 @@ cmake --build build
 ## 目录结构
 
 ```
-include/                       头文件（header-only）
-  maths/
-    maths.hpp                    伞头：一次引入全部模块
-    core/                        与数学无关的基础设施
-      maths_error.hpp              统一错误码 MathsError 与 MathsException
-      result.hpp                   统一结果类型 Result<T>
-    numeric/                     精确数值
-      numbers.hpp                  Integer、Fraction
-      random.hpp                  区间随机数
-    algebra/                     符号代数
-      algebraic_expression.hpp     Name、Variable、Monomial、Polynomial
-      rational_function.hpp        分式（有理函数）与有限化简
-      scope.hpp                    变量绑定表 Scope、代入与求值
-    parser/                      文本 → 式子
-      expression_parser.hpp        表达式与代入条件的解析
-apps/                          示例程序
-test/                        测试
-  check.hpp                    断言宏
-docs/                        文档（模块、程序、测试、打包）
-scripts/                     构建脚本
-  build-releases.sh            一键打包可执行文件到 releases/
-cmake/                       CMake 包配置模板
-releases/                    打包产物
+src/                            模块接口单元（.cppm）
+  maths.cppm                      伞模块 maths：export import 全部子模块
+  core/                           与数学无关的基础设施
+    maths_error.cppm                maths.error —— 统一错误码与 MathsException
+    result.cppm                     maths.result —— 统一结果类型 Result<T>
+  numeric/                        精确数值
+    numbers.cppm                    maths.numbers —— Integer、Fraction
+    random.cppm                     maths.random —— 区间随机数
+  algebra/                        符号代数（三个分区合成 maths.algebra）
+    algebra.cppm                    maths.algebra —— 主接口，export import 三个分区
+    expression.cppm                 :expression —— Name、Variable、Monomial、Polynomial
+    rational.cppm                   :rational —— 分式与有限化简
+    scope.cppm                      :scope —— Scope、代入与求值
+  parser/parser.cppm               maths.parser —— 表达式与代入条件的解析
+tests/                          测试（mcpp test 自动发现）
+  check.hpp                       断言宏
+apps/                           示例程序
+mcpp.toml                       项目清单：包名、目标、编译标志、工具链
+docs/                           文档（模块、程序、测试、打包）
 ```
 
 ## 许可

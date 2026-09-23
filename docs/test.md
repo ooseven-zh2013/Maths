@@ -1,8 +1,8 @@
 # 测试
 
-对应 `test/` 目录。
+对应 `tests/` 目录。
 
-按模块分子目录，不依赖第三方框架。断言宏定义在 `test/check.hpp`：
+不依赖第三方框架。断言宏定义在 `tests/check.hpp`：
 
 | 宏 | 用途 |
 | --- | --- |
@@ -19,23 +19,41 @@
 ## 运行
 
 ```bash
-cmake -S . -B build -G Ninja
-cmake --build build
-ctest --test-dir build --output-on-failure
+mcpp test                     # 构建并跑 tests/ 下的全部测试
+mcpp test integer_arithmetic  # 只跑名字匹配的那个
+mcpp test --list              # 列出会被跑到的测试，不构建也不执行
+mcpp test --profile release   # Release 构建下再跑一遍，断言必须同样全绿
 ```
 
-Debug 与 Release 都跑一遍：
-
-```bash
-cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build/release
-ctest --test-dir build/release
-```
+`mcpp test` 自动发现 `tests/**/*.cpp`，一个文件一个可执行文件，测试名就是文件名。
 
 ## 新增测试
 
-新文件加进 `test/CMakeLists.txt` 的 `TEST_SOURCES` 即可被自动注册。
-测试目标名由「子目录名_文件名」组成，例如 `test/integer/arithmetic.cpp` → `integer_arithmetic`。
+往 `tests/` 下加一个 `.cpp` 即可，不需要在任何地方登记 —— `mcpp test` 自动发现。
+
+文件名沿用「类别_主题」的形式（如 `integer_arithmetic.cpp`）：测试名直接取自文件名，
+不同类别下的同名文件会撞车，所以类别前缀不能省。
+
+每个测试文件自己写 `int main()`，以 `TEST_SUMMARY()` 结尾 —— 用失败数作退出码，
+`mcpp test` 才能真正感知失败。
+
+## 测试文件怎么引库
+
+**`#include` 必须写在 `import` 之前**：
+
+```cpp
+#include "check.hpp"     // 先 include（相对 tests/ 目录解析，不需要 -I）
+#include <expected>
+
+import maths;            // 再 import
+
+using namespace maths;   // 类型都收进了 namespace maths
+```
+
+顺序反了 clang 会在标准库头里报一堆错（模块化的硬约束，不是风格问题）。
+
+另外：库不再靠 `#include <maths/...>` 顺带把 `<expected>`、`<optional>` 这类标准库头带进来，
+测试里用到的标准库头现在要自己写。
 
 ## 测试里不要用裸 unwrap()
 

@@ -1,11 +1,11 @@
 # 编译输出
 build/
-build-release/
+target/
+compile_commands.json
 output/
 out/
-cmake-build-*/
 
-# 打包产物：平时忽略，发布时用 git add -f releases/ 强制加入
+# 打包产物：平时忽略，发布时上传到 GitHub 自带的 Releases 页面
 releases/
 /test_*
 *.o
@@ -13,8 +13,6 @@ releases/
 core
 
 # 本地 / 用户专属配置（常含本机绝对路径，不宜公开）
-CMakeUserPresets.json
-CMakeSettings.json
 *.user
 *.suo
 *.code-workspace

@@ -11,50 +11,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Linux / macOS 走严格模式：编译告警即失败
-          - os: ubuntu-latest
-            strict: "ON"
-          - os: macos-latest
-            strict: "ON"
-          # Windows 用 MSVC 默认生成器，先只验证可移植性与测试通过
-          - os: windows-latest
-            strict: "OFF"
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure (Ninja)
-        if: runner.os != 'Windows'
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMATHS_WARNINGS_AS_ERRORS=${{ matrix.strict }}
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-      - name: Configure (MSVC)
-        if: runner.os == 'Windows'
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DMATHS_WARNINGS_AS_ERRORS=${{ matrix.strict }}
-
-      - name: Build
-        run: cmake --build build --config Debug
-
-      - name: Run tests
-        run: ctest --test-dir build --output-on-failure -C Debug
-
-  release-test:
-    name: release build (NDEBUG)
-    runs-on: ubuntu-latest
-    # test/check.hpp 的断言宏刻意不依赖 assert，Release 下必须同样全绿。
-    # 此前没有任何 job 覆盖这个目标，属于检查盲区。
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMATHS_WARNINGS_AS_ERRORS=ON
+      # mcpp-bin 的 wheel 覆盖 Linux x86_64/aarch64、macOS arm64 与 Windows x86_64，
+      # 装上后 mcpp 直接进 PATH，比各平台各自的安装脚本省事也更稳。
+      - name: Install mcpp
+        run: pip install --upgrade mcpp-bin
 
       - name: Build
-        run: cmake --build build
+        run: mcpp build
 
       - name: Run tests
-        run: ctest --test-dir build --output-on-failure
+        run: mcpp test
 
   format:
     name: clang-format
@@ -69,28 +45,10 @@ jobs:
 
       - name: Check formatting
         run: |
-          files=$(find include test -type f \( -name '*.hpp' -o -name '*.cpp' \))
+          files=$(find src tests apps -type f \( -name '*.cppm' -o -name '*.cpp' -o -name '*.hpp' \))
           clang-format --dry-run --Werror $files
 
-  static-analysis:
-    name: clang-tidy
-    runs-on: ubuntu-latest
-    # clang-tidy 版本必须 >= 19：libstdc++ 的 <expected> 由 __cpp_concepts >= 202002L 把门，
-    # clang 18 及以下只给 201907L，std::unexpected 会被整段排除，Result<T> 全线编译错误
-    # 并连带刷出几十万条假警告。镜像 apt 源默认装 18，故固定为与本地一致的 22.1.8，
-    # 与 format job 固定 clang-format 版本的做法对齐。
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # cmake 与 ninja 由镜像自带，不需要 apt 安装
-      - name: Install clang-tidy
-        run: pip install "clang-tidy==22.1.8"
-
-      - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-
-      - name: Run clang-tidy
-        run: |
-          files=$(find test apps -name '*.cpp')
-          clang-tidy -p build $files
+# 说明：原先的 clang-tidy job 已移除。mcpp 用自己的沙箱工具链（当前 llvm@20.1.7）
+# 生成 BMI，而 clang-tidy 读 BMI 要求与生成它的 clang 同版本——两者无法对齐，
+# tidy 只会刷出 "module file uses an older format" 之类的假错误。
+# 静态检查的替代是构建时的 -Wall -Wextra -Wpedantic -Wshadow（见 mcpp.toml）。

@@ -1,0 +1,21 @@
+[package]
+name        = "maths"
+version     = "0.1.0"
+description = "精确有理数运算 + 符号代数（C++23 模块）"
+license     = "MIT"
+standard    = "c++23"
+
+[targets.maths]
+kind = "lib"
+
+# 示例程序。sources 默认只收 src/，入口由 main 单独指定。
+[targets.simplify]
+kind = "bin"
+main  = "apps/simplify/main.cpp"
+
+[build]
+sources  = ["src/**/*.cppm"]
+cxxflags = ["-Wall", "-Wextra", "-Wpedantic", "-Wshadow"]
+
+[toolchain]
+default = "llvm@20.1.7"
