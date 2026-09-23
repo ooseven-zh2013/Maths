@@ -50,7 +50,7 @@ void printSection(std::string_view name) { std::cout << name << ":\n"; }
 // 列表行：字段行下面的一组同构项
 void printListItem(std::string_view value) { std::cout << "  " << value << '\n'; }
 
-// 反馈行：`  动作 · 说明`。动作词见文件头，只有四个。
+// 反馈行：`  动作 · 说明`。动作词见文件头，只有五个。
 void printFeedback(std::string_view action, std::string_view detail) {
   std::cout << "  " << action << " · " << detail << '\n';
 }
