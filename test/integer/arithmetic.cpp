@@ -1,8 +1,10 @@
 #include "check.hpp"
-#include "numbers.hpp"
+
 #include <iostream>
 #include <sstream>
 #include <string>
+
+#include <maths/numeric/numbers.hpp>
 
 int main() {
   std::cout << "=== Integer 功能测试 ===" << '\n';

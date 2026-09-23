@@ -1,6 +1,6 @@
-# numbers.hpp — Integer 与 Fraction
+# maths/numeric/numbers.hpp — Integer 与 Fraction
 
-对应 `include/numbers.hpp`。
+对应 `include/maths/numeric/numbers.hpp`。
 
 两者都是**精确**的：内部表示是「无符号幅值 + 符号位」，全程整数运算，不经过浮点。
 这是整个库的立身之本 —— 任何"为了输出好看而转浮点"的改动都是错的。
@@ -43,7 +43,7 @@ Integer(0).pow(Integer(-1));            // Err(ZeroToNegativePower)
 `Integer` 的幅值是 `unsigned long long`，能表示 |value| = 2^63，但 `long long` 只到 2^63−1。
 因此 `getVal()` 在幅值为 2^63 的负数上会触发有符号溢出。
 
-需要 `long long` 时用 `maths_detail::tryToLongLong()`（`random.hpp` 里就是这么做的），
+需要 `long long` 时用 `maths_detail::tryToLongLong()`（`maths/numeric/random.hpp` 里就是这么做的），
 它超出范围返回 `false` 而不是静默截断。同理，`Integer` → `Fraction` 要走
 `Fraction::fromInteger()`，它直接搬内部表示，不经 `getVal()`。
 

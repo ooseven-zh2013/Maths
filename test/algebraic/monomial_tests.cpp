@@ -1,10 +1,12 @@
-#include "algebraic_expression.hpp"
 #include "check.hpp"
+
 #include <iostream>
 #include <limits>
 #include <sstream>
 #include <string>
 #include <type_traits>
+
+#include <maths/algebra/algebraic_expression.hpp>
 
 int main() {
   std::cout << "=== Monomial 测试 ===" << '\n';

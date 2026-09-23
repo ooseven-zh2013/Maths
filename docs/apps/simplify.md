@@ -45,7 +45,7 @@ cmake --build build
 | 写法 | 普通写法与 LaTeX 写法都接受 —— `\frac{a}{b}`、`\cdot`、`\times`、`\div`、`x^{2}` |
 
 输出一律采用 LaTeX。解析规则详见
-[expression_parser.md](../include/expression_parser.md)。
+[expression_parser.md](../include/parser/expression_parser.md)。
 
 ## 条件
 

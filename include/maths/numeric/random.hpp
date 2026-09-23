@@ -4,8 +4,8 @@
 #include <limits>
 #include <random>
 
-#include "numbers.hpp"
-#include "result.hpp"
+#include <maths/core/result.hpp>
+#include <maths/numeric/numbers.hpp>
 
 /**
  * @brief 获取共享的随机数生成器（线程不安全）

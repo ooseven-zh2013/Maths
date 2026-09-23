@@ -1,9 +1,9 @@
-# scope.hpp — 变量绑定与代入
+# maths/algebra/scope.hpp — 变量绑定与代入
 
-对应 `include/scope.hpp`。
+对应 `include/maths/algebra/scope.hpp`。
 
 `Scope` 是变量到值的绑定表。除了绑定表本身，**所有** `substitute` / `evaluate` 的实现也都在这个文件里
-（因为 `rational_function.hpp` 对 `Scope` 只有前向声明，依赖必须单向）。
+（因为 `maths/algebra/rational_function.hpp` 对 `Scope` 只有前向声明，依赖必须单向）。
 
 ## 值统一存 RationalFunction
 

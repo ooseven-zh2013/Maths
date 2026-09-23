@@ -53,4 +53,4 @@ parseExpression("\\frac{x}{y} + 1").unwrap().latex();   // "\frac{x + y}{y}"
 而在 LaTeX 里 `tv` 与 `vt` 数学等价。不要为了「看着顺眼」去改成输入顺序。
 
 数学运算（取首项、长除法）用的是另一套序 —— 字典序 `compareLex`，
-两者不能混用，详见 [algebraic_expression.md](algebraic_expression.md#坑存储序--数学项序)。
+两者不能混用，详见 [algebraic_expression.md](algebra/algebraic_expression.md#坑存储序--数学项序)。

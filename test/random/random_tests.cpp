@@ -1,7 +1,9 @@
 #include "check.hpp"
-#include "random.hpp"
+
 #include <iostream>
 #include <limits>
+
+#include <maths/numeric/random.hpp>
 
 int main() {
   std::cout << "=== random 测试 ===" << '\n';

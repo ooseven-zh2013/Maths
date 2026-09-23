@@ -1,6 +1,6 @@
-# maths_error.hpp — 统一错误码
+# maths/core/maths_error.hpp — 统一错误码
 
-对应 `include/maths_error.hpp`。
+对应 `include/maths/core/maths_error.hpp`。
 
 全库只有**一套**错误码 `MathsError`。异常路径（`MathsException`）与返回值路径（`Result<T>`）
 共用它，因此调用方的错误处理逻辑只需写一次。

@@ -13,8 +13,6 @@
 // 刻意不提供 < > <= >=：比较需要"值"的语义，失败时无意义，请先 unwrap()。
 // operator<< 输出的是结果本身（Ok(...) / Err(...)），不涉及解包。
 
-#include "maths_error.hpp"
-
 #include <expected>
 #include <optional>
 #include <ostream>
@@ -23,6 +21,8 @@
 #include <string_view>
 #include <utility>
 #include <variant>
+
+#include <maths/core/maths_error.hpp>
 
 template <class T> class [[nodiscard]] Result {
 public:

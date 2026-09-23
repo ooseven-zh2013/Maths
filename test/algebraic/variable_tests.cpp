@@ -1,7 +1,9 @@
-#include "algebraic_expression.hpp"
 #include "check.hpp"
+
 #include <iostream>
 #include <string>
+
+#include <maths/algebra/algebraic_expression.hpp>
 
 int main() {
   std::cout << "=== Variable 名称解析测试 ===" << '\n';

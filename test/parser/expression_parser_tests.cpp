@@ -1,7 +1,9 @@
 #include "check.hpp"
-#include "expression_parser.hpp"
+
 #include <iostream>
 #include <string>
+
+#include <maths/parser/expression_parser.hpp>
 
 namespace {
 

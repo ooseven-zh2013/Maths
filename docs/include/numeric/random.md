@@ -1,6 +1,6 @@
-# random.hpp — 区间随机数
+# maths/numeric/random.hpp — 区间随机数
 
-对应 `include/random.hpp`。
+对应 `include/maths/numeric/random.hpp`。
 
 ## 接口
 

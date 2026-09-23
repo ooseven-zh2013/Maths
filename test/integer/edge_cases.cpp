@@ -1,7 +1,9 @@
 #include "check.hpp"
-#include "numbers.hpp"
+
 #include <iostream>
 #include <limits>
+
+#include <maths/numeric/numbers.hpp>
 
 int main() {
   std::cout << "=== Integer 边界测试 ===" << '\n';

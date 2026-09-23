@@ -16,10 +16,10 @@
 // 刻意不做多项式 GCD：多元 GCD 实现复杂，且辗转相除存在系数爆炸风险，
 // 收益不足以抵消成本。需要判断两个分式是否相等时，用交叉相乘即可绕开 GCD。
 
-#include "algebraic_expression.hpp"
-#include "maths_error.hpp"
-#include "numbers.hpp"
-#include "result.hpp"
+#include <maths/algebra/algebraic_expression.hpp>
+#include <maths/core/maths_error.hpp>
+#include <maths/core/result.hpp>
+#include <maths/numeric/numbers.hpp>
 
 // Substitute / evaluate 需要 Scope 的完整定义，因此实现放在 scope.hpp。
 // 这里只用前向声明，依赖保持单向：scope.hpp → rational_function.hpp

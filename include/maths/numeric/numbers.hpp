@@ -10,7 +10,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "result.hpp"
+#include <maths/core/result.hpp>
 
 class Integer; // 前向声明
 

@@ -43,6 +43,13 @@ target_link_libraries(your_target PRIVATE Maths::Maths)
 
 `Maths::Maths` 是 INTERFACE 目标，会自动带上头文件目录与 C++23 要求。
 
+头文件按职责分成四类，`maths/` 前缀保证不会污染下游的 include 根目录：
+
+```cpp
+#include <maths/maths.hpp>                  // 伞头：一次引入全部模块
+#include <maths/core/result.hpp>            // 单独引入某一个模块
+```
+
 ## 错误处理
 
 可能失败的操作返回 `Result<T>`；**构造函数与复合赋值没有返回值位置**，抛 `MathsException`。
@@ -56,21 +63,21 @@ if (quotient.isErr()) {
 const Fraction value = (a / Fraction(1, 2)).unwrap();  // 失败则抛 MathsException
 ```
 
-详见 [docs/include/maths_error.md](docs/include/maths_error.md) 与
-[docs/include/result.md](docs/include/result.md)。
+详见 [docs/include/core/maths_error.md](docs/include/core/maths_error.md) 与
+[docs/include/core/result.md](docs/include/core/result.md)。
 
 ## 模块
 
 | 模块 | 头文件 | 说明 | 文档 |
 | --- | --- | --- | --- |
-| 精确数值 | `numbers.hpp` | `Integer`、`Fraction` | [文档](docs/include/numbers.md) |
-| 代数表达式 | `algebraic_expression.hpp` | `Variable`、`Monomial`、`Polynomial`、带余除法 | [文档](docs/include/algebraic_expression.md) |
-| 分式 | `rational_function.hpp` | 有理函数、三层化简、长除法归约 | [文档](docs/include/rational_function.md) |
-| 变量绑定 | `scope.hpp` | `Scope` 与 `substitute` / `evaluate` | [文档](docs/include/scope.md) |
-| 表达式解析 | `expression_parser.hpp` | 文本与 LaTeX → 式子、代入条件解析 | [文档](docs/include/expression_parser.md) |
-| 错误码 | `maths_error.hpp` | `MathsError`、`MathsException` | [文档](docs/include/maths_error.md) |
-| 结果类型 | `result.hpp` | `Result<T>` | [文档](docs/include/result.md) |
-| 随机数 | `random.hpp` | 区间随机数 | [文档](docs/include/random.md) |
+| 精确数值 | `maths/numeric/numbers.hpp` | `Integer`、`Fraction` | [文档](docs/include/numeric/numbers.md) |
+| 代数表达式 | `maths/algebra/algebraic_expression.hpp` | `Variable`、`Monomial`、`Polynomial`、带余除法 | [文档](docs/include/algebra/algebraic_expression.md) |
+| 分式 | `maths/algebra/rational_function.hpp` | 有理函数、三层化简、长除法归约 | [文档](docs/include/algebra/rational_function.md) |
+| 变量绑定 | `maths/algebra/scope.hpp` | `Scope` 与 `substitute` / `evaluate` | [文档](docs/include/algebra/scope.md) |
+| 表达式解析 | `maths/parser/expression_parser.hpp` | 文本与 LaTeX → 式子、代入条件解析 | [文档](docs/include/parser/expression_parser.md) |
+| 错误码 | `maths/core/maths_error.hpp` | `MathsError`、`MathsException` | [文档](docs/include/core/maths_error.md) |
+| 结果类型 | `maths/core/result.hpp` | `Result<T>` | [文档](docs/include/core/result.md) |
+| 随机数 | `maths/numeric/random.hpp` | 区间随机数 | [文档](docs/include/numeric/random.md) |
 | LaTeX 输出 | — | `str()` 与 `latex()` 对照、排版规则 | [文档](docs/include/latex.md) |
 
 依赖方向单向：`numbers → algebraic_expression → rational_function → scope → expression_parser`。
@@ -93,16 +100,22 @@ cmake --build build
 ## 目录结构
 
 ```
-include/                     头文件（header-only）
-  maths_error.hpp              统一错误码 MathsError 与 MathsException
-  result.hpp                   统一结果类型 Result<T>
-  numbers.hpp                  Integer、Fraction
-  algebraic_expression.hpp     Name、Variable、Monomial、Polynomial
-  scope.hpp                    变量绑定表 Scope、代入与求值
-  rational_function.hpp        分式（有理函数）与有限化简
-  expression_parser.hpp        表达式与代入条件的解析
-  random.hpp                   区间随机数
-apps/                        示例程序
+include/                       头文件（header-only）
+  maths/
+    maths.hpp                    伞头：一次引入全部模块
+    core/                        与数学无关的基础设施
+      maths_error.hpp              统一错误码 MathsError 与 MathsException
+      result.hpp                   统一结果类型 Result<T>
+    numeric/                     精确数值
+      numbers.hpp                  Integer、Fraction
+      random.hpp                  区间随机数
+    algebra/                     符号代数
+      algebraic_expression.hpp     Name、Variable、Monomial、Polynomial
+      rational_function.hpp        分式（有理函数）与有限化简
+      scope.hpp                    变量绑定表 Scope、代入与求值
+    parser/                      文本 → 式子
+      expression_parser.hpp        表达式与代入条件的解析
+apps/                          示例程序
 test/                        测试
   check.hpp                    断言宏
 docs/                        文档（模块、程序、测试、打包）

@@ -27,13 +27,13 @@
 //
 // ===========================================================================
 
-#include "expression_parser.hpp"
-
 #include <cctype>
 #include <iostream>
 #include <optional>
 #include <string>
 #include <string_view>
+
+#include <maths/parser/expression_parser.hpp>
 
 namespace {
 

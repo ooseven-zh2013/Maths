@@ -1,6 +1,8 @@
 #include "check.hpp"
-#include "numbers.hpp"
+
 #include <iostream>
+
+#include <maths/numeric/numbers.hpp>
 
 int main() {
   std::cout << "=== Integer 比较测试 ===" << '\n';

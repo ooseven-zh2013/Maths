@@ -1,6 +1,6 @@
-# algebraic_expression.hpp — 变量、单项式、多项式
+# maths/algebra/algebraic_expression.hpp — 变量、单项式、多项式
 
-对应 `include/algebraic_expression.hpp`。
+对应 `include/maths/algebra/algebraic_expression.hpp`。
 
 | 类型 | 含义 |
 | --- | --- |

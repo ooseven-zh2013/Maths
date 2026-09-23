@@ -1,6 +1,6 @@
-# expression_parser.hpp — 表达式与条件的解析
+# maths/parser/expression_parser.hpp — 表达式与条件的解析
 
-对应 `include/expression_parser.hpp`。
+对应 `include/maths/parser/expression_parser.hpp`。
 
 递归下降解析器，把文本解析成 `RationalFunction`。
 放在 `include/` 而不是 `apps/` 是因为它是库级能力（字符串 → 式子），应该能被测试和复用。

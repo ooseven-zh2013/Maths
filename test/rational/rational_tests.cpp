@@ -1,8 +1,10 @@
 #include "check.hpp"
-#include "rational_function.hpp"
-#include "scope.hpp"
+
 #include <iostream>
 #include <string>
+
+#include <maths/algebra/rational_function.hpp>
+#include <maths/algebra/scope.hpp>
 
 int main() {
   std::cout << "=== RationalFunction 测试 ===" << '\n';

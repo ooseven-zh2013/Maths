@@ -1,10 +1,12 @@
 #include "check.hpp"
-#include "expression_parser.hpp"
-#include "rational_function.hpp"
-#include "scope.hpp"
+
 #include <iostream>
 #include <limits>
 #include <string>
+
+#include <maths/algebra/rational_function.hpp>
+#include <maths/algebra/scope.hpp>
+#include <maths/parser/expression_parser.hpp>
 
 namespace {
 

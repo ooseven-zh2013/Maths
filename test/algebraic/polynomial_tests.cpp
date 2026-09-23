@@ -1,8 +1,10 @@
-#include "algebraic_expression.hpp"
 #include "check.hpp"
+
 #include <iostream>
 #include <sstream>
 #include <string>
+
+#include <maths/algebra/algebraic_expression.hpp>
 
 int main() {
   std::cout << "=== Polynomial 测试 ===" << '\n';

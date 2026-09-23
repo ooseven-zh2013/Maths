@@ -12,18 +12,18 @@
 //
 // 赋值**不允许自引用**：x = 2x、x = x + 1 这类是方程而不是赋值，需要解方程，因此明确报错。
 
-#include "algebraic_expression.hpp"
-#include "maths_error.hpp"
-#include "numbers.hpp"
-#include "rational_function.hpp"
-#include "result.hpp"
-
 #include <cstddef>
 #include <map>
 #include <ostream>
 #include <set>
 #include <string>
 #include <string_view>
+
+#include <maths/algebra/algebraic_expression.hpp>
+#include <maths/algebra/rational_function.hpp>
+#include <maths/core/maths_error.hpp>
+#include <maths/core/result.hpp>
+#include <maths/numeric/numbers.hpp>
 
 namespace maths_detail {
 

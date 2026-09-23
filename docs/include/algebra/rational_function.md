@@ -1,6 +1,6 @@
-# rational_function.hpp — 分式
+# maths/algebra/rational_function.hpp — 分式
 
-对应 `include/rational_function.hpp`。
+对应 `include/maths/algebra/rational_function.hpp`。
 
 有理函数 `RationalFunction`：两个多项式之比 P/Q，Q 恒不为零多项式。
 
@@ -144,7 +144,7 @@ Result<Fraction> value = r.evaluate(scope);               // 完全求值
 | 常数分式 | `5/6` | `\frac{5}{6}` |
 | 分母为 1 | `x` | `x`（不写成 `\frac{x}{1}`） |
 
-格式细节见 [latex.md](latex.md)。
+格式细节见 [latex.md](../latex.md)。
 
 `str()` 判断「分母为 1」时**必须同时要求 `isConstant()`** ——
 只检查系数等于 1 的话，分母是 `x` 这种系数为 1 的单项式会被误判成 1，整个分式被输出成多项式。

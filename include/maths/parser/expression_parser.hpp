@@ -22,18 +22,18 @@
 // 删除与赋值是两种不同的动作，所以单列一个函数而不是塞进 Assignment；
 // 调用方应先试 parseErase，落空再走 parseAssignment。
 
-#include "algebraic_expression.hpp"
-#include "maths_error.hpp"
-#include "numbers.hpp"
-#include "rational_function.hpp"
-#include "result.hpp"
-#include "scope.hpp"
-
 #include <cctype>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
+
+#include <maths/algebra/algebraic_expression.hpp>
+#include <maths/algebra/rational_function.hpp>
+#include <maths/algebra/scope.hpp>
+#include <maths/core/maths_error.hpp>
+#include <maths/core/result.hpp>
+#include <maths/numeric/numbers.hpp>
 
 namespace expression_detail {
 

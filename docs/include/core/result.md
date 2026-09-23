@@ -1,6 +1,6 @@
-# result.hpp — Result&lt;T&gt;
+# maths/core/result.hpp — Result&lt;T&gt;
 
-对应 `include/result.hpp`。
+对应 `include/maths/core/result.hpp`。
 
 全库统一的结果类型：成功携带 `T`，**失败类型固定为 `MathsError`**（不再有第二个模板参数），
 因此所有类的运算结果在类型名称与语义上保持一致。

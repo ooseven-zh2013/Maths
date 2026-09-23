@@ -1,8 +1,10 @@
 #include "check.hpp"
-#include "numbers.hpp"
+
 #include <iostream>
 #include <sstream>
 #include <string>
+
+#include <maths/numeric/numbers.hpp>
 
 int main() {
   std::cout << "=== Fraction 流 I/O 测试 ===" << '\n';

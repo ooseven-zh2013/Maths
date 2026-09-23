@@ -1,9 +1,11 @@
 #include "check.hpp"
-#include "result.hpp"
+
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <type_traits>
+
+#include <maths/core/result.hpp>
 
 namespace {
 

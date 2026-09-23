@@ -16,8 +16,8 @@
 #include <utility>
 #include <vector>
 
-#include "numbers.hpp"
-#include "result.hpp"
+#include <maths/core/result.hpp>
+#include <maths/numeric/numbers.hpp>
 
 class Name {
 public:
