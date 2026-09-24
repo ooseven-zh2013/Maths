@@ -5,9 +5,18 @@
 
 ## 用脚本（推荐）
 
+bash / WSL：
+
 ```bash
 sh scripts/pack-releases.sh             # 打包全部程序
 sh scripts/pack-releases.sh simplify    # 只打包某一个
+```
+
+Windows PowerShell / pwsh（与上面做同一件事）：
+
+```powershell
+powershell -File scripts\pack-releases.ps1
+powershell -File scripts\pack-releases.ps1 simplify
 ```
 
 产物落在 `releases/<程序名>/`，里面是可以直接跑的 `exe` 加 `LICENSE`、`README.md`。

@@ -34,3 +34,6 @@ for target in "${TARGETS[@]}"; do
   echo "已打包: releases/${target}"
   ls -1 "releases/${target}"
 done
+
+# target/dist 只是 pack 的暂存区，产物已经复制到 releases/ 了，留着就是一份重复
+rm -rf target/dist
