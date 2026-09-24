@@ -1,4 +1,4 @@
-# pack-releases.ps1 —— 把程序打包到 releases/<程序名>/
+﻿# pack-releases.ps1 —— 把程序打包到 releases/<程序名>/
 #
 # 用法：
 #   powershell -File scripts\pack-releases.ps1             打包全部程序
