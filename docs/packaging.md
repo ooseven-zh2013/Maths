@@ -5,14 +5,17 @@
 
 ## 用脚本（推荐）
 
-bash / WSL：
+Linux / macOS / WSL / Git Bash：
 
 ```bash
 sh scripts/pack-releases.sh             # 打包全部程序
 sh scripts/pack-releases.sh simplify    # 只打包某一个
 ```
 
-Windows PowerShell / pwsh（与上面做同一件事）：
+纯 POSIX sh，没用 GNU 专有选项，所以 Linux 和 macOS 用同一个文件就够了 ——
+CI 的 `packaging` job 会在两个系统上各跑一遍验证。
+
+Windows（PowerShell / pwsh，与上面做同一件事）：
 
 ```powershell
 powershell -File scripts\pack-releases.ps1

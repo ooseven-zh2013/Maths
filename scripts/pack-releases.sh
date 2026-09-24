@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # 把程序打包到 releases/<程序名>/
 #
+# 适用平台：Linux / macOS / WSL / Git Bash —— 纯 POSIX sh，没用 GNU 专有选项。
+# Windows 另有 scripts/pack-releases.ps1，两边做的事一致（CI 会分别验证）。
+#
 # 用法：
 #   sh scripts/pack-releases.sh            打包全部程序
 #   sh scripts/pack-releases.sh simplify   只打包某一个

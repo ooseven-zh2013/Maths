@@ -36,6 +36,65 @@ jobs:
       - name: Run tests
         run: mcpp test
 
+  # Linux / macOS 跑 sh 版，Windows 跑 ps1 版，两边做完的事必须一致：
+  # 产物进 releases/<程序名>/，pack 的暂存区 target/dist 清掉，构建缓存留着。
+  packaging:
+    name: packaging (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install mcpp
+        run: pip install --upgrade mcpp-bin
+
+      - name: 打包（Linux / macOS）
+        if: runner.os != 'Windows'
+        run: sh scripts/pack-releases.sh
+
+      - name: 打包（Windows）
+        if: runner.os == 'Windows'
+        run: powershell -ExecutionPolicy Bypass -File scripts\pack-releases.ps1
+
+      - name: 校验产物
+        shell: bash
+        run: |
+          set -e
+          echo "--- releases/simplify ---"
+          ls -1 releases/simplify
+
+          if [ -f "releases/simplify/simplify.exe" ]; then
+            exe="releases/simplify/simplify.exe"
+          else
+            exe="releases/simplify/simplify"
+          fi
+          test -x "$exe" || { echo "产物不可执行: $exe"; exit 1; }
+
+          # pack 的暂存区必须被清掉（产物已经复制到 releases，留着就是重复）
+          if [ -e target/dist ]; then
+            echo "FAIL: target/dist 还在，脚本没清理"
+            exit 1
+          fi
+          echo "ok: target/dist 已清理"
+
+          # 构建缓存要留着，删了下次就是全量重编
+          test -d target || { echo "FAIL: target/ 构建缓存被误删"; exit 1; }
+          echo "ok: target/ 构建缓存保留"
+
+          echo "--- 跑一遍产物 ---"
+          printf '2x + 3x\nx = 5\n0=0\n' | "$exe" | tee /tmp/out.txt
+          grep -q '化简结果: 25' /tmp/out.txt || { echo "FAIL: 产物输出不对"; exit 1; }
+          echo "ok: 产物运行正常"
+
   format:
     name: clang-format
     runs-on: ubuntu-latest
