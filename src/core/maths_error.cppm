@@ -23,6 +23,10 @@ enum class MathsError {
   InvalidName,
   // 参数
   InvalidRange,
+  // 精确数值的表示上限：Fraction 对外以 long long 取值，
+  // 超过一定量级会翻成负数，迭代类算法（Sturm 序列、结式）容易顶穿，
+  // 因此主动报错而不是静默产出错误结果
+  NumericOverflow,
   // 作用域
   UndefinedVariable,
   NotAnAssignment,
@@ -51,6 +55,8 @@ inline std::string_view describe(MathsError error) {
     return "非法的名字";
   case MathsError::InvalidRange:
     return "区间参数非法";
+  case MathsError::NumericOverflow:
+    return "数值超出可精确表示的范围";
   case MathsError::UndefinedVariable:
     return "变量未定义";
   case MathsError::NotAnAssignment:
