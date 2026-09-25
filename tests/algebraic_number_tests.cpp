@@ -57,7 +57,7 @@ int runTests() {
     const RealAlgebraicNumber root = sqrtTwo();
     CHECK_TRUE(!root.isRational());
     CHECK_EQ(root.degree(), std::size_t(2));
-    CHECK_TRUE(root.asRational() == std::nullopt);
+    CHECK_ERR(root.toFraction(), MathsError::NotARational); // 尝试降一阶失败
 
     // 完全平方数直接落回有理数
     const RealAlgebraicNumber four = sqrtOf(4);
@@ -195,6 +195,89 @@ int runTests() {
     CHECK_EQ(RealAlgebraicNumber(Fraction(-3, 2)).latex(), std::string("-\\frac{3}{2}"));
     CHECK_TRUE(!root.str().empty());
     CHECK_TRUE(!root.latex().empty());
+  }
+
+  // ---------- 尝试降一阶：实代数数 → 分数 ----------
+  {
+    // √2 不是有理数
+    CHECK_ERR(sqrtTwo().toFraction(), MathsError::NotARational);
+
+    // √2 · √2 = 2，表示里还挂着 x^2 - 4，但值确实是有理数，要能降下来
+    // 自乘走平方专用路线：p 的偶部自乘后正好退化，构造上就收成有理数了
+    const RealAlgebraicNumber squared = sqrtTwo() * sqrtTwo();
+    CHECK_TRUE(squared.isRational());
+    CHECK_OK(squared.toFraction());
+    CHECK_TRUE(squared.toFraction().unwrap() == Fraction(2, 1));
+
+    // √4 = 2：完全平方数在构造时就已经退化成有理数
+    CHECK_TRUE(RealAlgebraicNumber::squareRootOf(Fraction(4, 1)).unwrap().toFraction().unwrap() == Fraction(2, 1));
+
+    // ∛2 的立方同样是 2
+    const RealAlgebraicNumber cubeRoot = RealAlgebraicNumber::nthRootOf(Fraction(2, 1), 3).unwrap();
+    CHECK_TRUE((cubeRoot * cubeRoot * cubeRoot).toFraction().unwrap() == Fraction(2, 1));
+  }
+
+  // ---------- 尝试降一阶：分数 → 整数 ----------
+  {
+    CHECK_TRUE(Fraction(6, 3).toInteger().unwrap() == Integer(2LL));
+    CHECK_TRUE(Fraction(-8, 4).toInteger().unwrap() == Integer(-2LL));
+    CHECK_TRUE(Fraction(0, 5).toInteger().unwrap() == Integer(0LL));
+    CHECK_ERR(Fraction(1, 2).toInteger(), MathsError::NotAnInteger);
+    CHECK_ERR(Fraction(-3, 2).toInteger(), MathsError::NotAnInteger);
+  }
+
+  // ---------- 字符串 → 实代数数 ----------
+  {
+    const RealAlgebraicNumber root = sqrtTwo();
+
+    // 基本根式
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt{2}").unwrap() == root);
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt {2}").unwrap() == root); // 空白不敏感
+    CHECK_TRUE(RealAlgebraicNumber::parse("(\\sqrt{2})^2").unwrap() == Fraction(2, 1));
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt{2}^{2}").unwrap() == Fraction(2, 1));
+
+    // 完全平方数落回有理数
+    const RealAlgebraicNumber four = RealAlgebraicNumber::parse("\\sqrt{4}").unwrap();
+    CHECK_TRUE(four.isRational());
+    CHECK_TRUE(four == Fraction(2, 1));
+
+    // n 次根
+    const RealAlgebraicNumber cubeRoot = RealAlgebraicNumber::parse("\\sqrt[3]{2}").unwrap();
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt[3]{2}^{3}").unwrap() == Fraction(2, 1));
+    CHECK_TRUE(cubeRoot > Fraction(1, 1));
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt[3]{-8}").unwrap() == Fraction(-2, 1));
+
+    // 隐含乘法与四则运算
+    CHECK_TRUE(RealAlgebraicNumber::parse("2\\sqrt{2}").unwrap() == root + root);
+    CHECK_TRUE(RealAlgebraicNumber::parse("1 + \\sqrt{2}").unwrap() == root + RealAlgebraicNumber(Fraction(1, 1)));
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt{8}").unwrap() == root + root); // √8 = 2√2
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\frac{1}{\\sqrt{2}}").unwrap() * root == Fraction(1, 1));
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt{2} \\cdot \\sqrt{2}").unwrap() == Fraction(2, 1));
+    CHECK_TRUE(RealAlgebraicNumber::parse("6 \\div \\sqrt{2}").unwrap() == root * RealAlgebraicNumber(Fraction(3, 1)));
+
+    // 嵌套根式：√(1 + √2) 的平方应等于 1 + √2
+    const RealAlgebraicNumber nested = RealAlgebraicNumber::parse("\\sqrt{1 + \\sqrt{2}}").unwrap();
+    const RealAlgebraicNumber nestedSquared = nested * nested;
+    CHECK_TRUE(nestedSquared == root + RealAlgebraicNumber(Fraction(1, 1)));
+    // 同一个 4 次数自乘（走平方专用路线）与减法算出来的 1 + √2 必须一致
+    CHECK_TRUE(nestedSquared == RealAlgebraicNumber::parse("1 + \\sqrt{2}").unwrap());
+
+    // 左括号修饰符
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\left(\\sqrt{2}\\right)").unwrap() == root);
+  }
+
+  // ---------- 解析的非法输入 ----------
+  {
+    CHECK_ERR(RealAlgebraicNumber::parse(""), MathsError::InvalidExpression);
+    CHECK_ERR(RealAlgebraicNumber::parse("x"), MathsError::InvalidExpression);        // 不接受变量
+    CHECK_ERR(RealAlgebraicNumber::parse("sqrt{2}"), MathsError::InvalidExpression);  // 只认 LaTeX 写法
+    CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt2"), MathsError::InvalidExpression);  // 根号下必须带花括号
+    CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt{2"), MathsError::InvalidExpression); // 括号没配平
+    CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt{}"), MathsError::InvalidExpression);
+    CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt[0]{2}"), MathsError::InvalidRange);
+    CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt{-4}"), MathsError::InvalidRange); // 偶次根下为负
+    CHECK_ERR(RealAlgebraicNumber::parse("\\frac{1}{0}"), MathsError::DivisionByZero);
+    CHECK_ERR(RealAlgebraicNumber::parse("1 +"), MathsError::InvalidExpression);
   }
 
   TEST_SUMMARY();

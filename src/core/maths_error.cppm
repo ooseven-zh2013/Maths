@@ -16,6 +16,9 @@ enum class MathsError {
   NonIntegralPowerResult,
   // 代数
   ExponentOverflow,
+  // 「降一阶」失败：值本身不是更低一层的类型
+  NotAnInteger,
+  NotARational,
   NotAMonomial,
   NotAPolynomial,
   // 解析
@@ -45,6 +48,10 @@ inline std::string_view describe(MathsError error) {
     return "指数运算结果不是整数";
   case MathsError::ExponentOverflow:
     return "变量指数超出可表示范围";
+  case MathsError::NotAnInteger:
+    return "分数不是整数";
+  case MathsError::NotARational:
+    return "实代数数不是有理数";
   case MathsError::NotAMonomial:
     return "多项式无法化简为单项式";
   case MathsError::NotAPolynomial:

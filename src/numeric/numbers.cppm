@@ -141,6 +141,11 @@ public:
   // 避免 |value| 接近 2^63 时的有符号溢出。
   static Fraction fromInteger(const Integer &value);
 
+  // 尝试降一阶：分母为 1 时返回等值整数，否则 MathsError::NotAnInteger。
+  // 和 Polynomial::toMonomial / RationalFunction::toPolynomial 是同一套命名。
+  // 定义放在 Integer 之后（此处 Integer 还不完整）。
+  Result<Integer> toInteger() const;
+
   // ==================== 值获取方法 ====================
 
   inline ll getNumerator() const { return sign ? -static_cast<ll>(a) : static_cast<ll>(a); }
@@ -728,6 +733,14 @@ inline Fraction Fraction::fromInteger(const Integer &value) {
   result.b = 1;
   result.sign = value.isNegative();
   return result;
+}
+
+// Fraction::toInteger 的实现（同样要等 Integer 完整）
+inline Result<Integer> Fraction::toInteger() const {
+  if (getDenominator() != 1) {
+    return std::unexpected(MathsError::NotAnInteger);
+  }
+  return Integer(getNumerator());
 }
 
 inline Result<Fraction> operator^(const Integer &base, const Integer &exp) { return base.pow(exp); }

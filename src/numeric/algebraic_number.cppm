@@ -483,6 +483,35 @@ public:
     return annihilatorOfCombination(lhs, rhs, true);
   }
 
+  // 一个以 lhs 的根的**平方**为根的多项式。单独开这条路是因为「同一个数自乘」太常见
+  // （平方、幂、开方验算），而通用乘积路线要到 dim = deg² 的环里做线性代数 ——
+  // 4 次的多项式就是 16 维，消元时中间量直接顶穿 Fraction 的表示范围。
+  //
+  // 这里把它压回 deg 维：p 拆成偶部与奇部 p(x) = e(x²) + x·o(x²)。
+  // 令 γ = α²，则 e(γ) + α·o(γ) = 0；两边乘 o(γ) 并用 γ = α² 消去 α，
+  // 得到 e(γ)² - γ·o(γ)² = 0 —— 正是以 α² 为根的多项式，次数不超过 deg p。
+  static UnivariatePolynomial annihilatorOfSquare(const UnivariatePolynomial &lhs) {
+    std::vector<Fraction> evenCoefficients;
+    std::vector<Fraction> oddCoefficients;
+    for (std::size_t power = 0; power < lhs.coefficients().size(); ++power) {
+      if (power % 2 == 0) {
+        evenCoefficients.push_back(lhs.coefficient(power));
+      } else {
+        oddCoefficients.push_back(lhs.coefficient(power));
+      }
+    }
+    const UnivariatePolynomial evenPart(std::move(evenCoefficients));
+    const UnivariatePolynomial oddPart(std::move(oddCoefficients));
+
+    const UnivariatePolynomial oddSquared = oddPart * oddPart;
+    // 乘 x 即整体升一次幂
+    std::vector<Fraction> shifted(oddSquared.coefficients().size() + 1, Fraction(0, 1));
+    for (std::size_t index = 0; index < oddSquared.coefficients().size(); ++index) {
+      shifted[index + 1] = oddSquared.coefficient(index);
+    }
+    return (evenPart * evenPart) - UnivariatePolynomial(std::move(shifted));
+  }
+
   // ==================== 输出 ====================
 
   std::string str() const {
@@ -678,23 +707,67 @@ private:
       addMonomial(addMonomial, 0, 1, Fraction(1, 1), element);
     }
 
-    // 环的维数是 dimension，所以幂序列 1, t, t², … 至多 dimension 步必然线性相关
+    // 环的维数是 dimension，所以幂序列 1, t, t², … 至多 dimension 步必然线性相关。
+    // 每算出一个新幂次就压回「整数且互素」（否则分母会随幂次累积到溢出），
+    // 因此存下来的 powers[i] 其实是 scale[i]·t^i —— 记账用的 scale 不能省。
     std::vector<std::vector<Fraction>> powers;
+    std::vector<Fraction> scales; // powers[i] = scales[i] · t^i
     std::vector<Fraction> current(dimension, Fraction(0, 1));
     current[0] = Fraction(1, 1); // t^0 = 1
+    Fraction scale(1, 1);
     for (std::size_t power = 0; power <= dimension; ++power) {
       if (const std::optional<std::vector<Fraction>> coefficients = expressAsCombination(powers, current)) {
         std::vector<Fraction> polynomial(power + 1, Fraction(0, 1));
         for (std::size_t index = 0; index < power; ++index) {
-          polynomial[index] = -(*coefficients)[index];
+          // v_k = Σ c_i·v_i 且 v_i = λ_i·t^i，于是 t^k = Σ (c_i·λ_i / λ_k)·t^i
+          const Result<Fraction> scaled = ((*coefficients)[index] * scales[index]) / scale;
+          if (scaled.isErr()) {
+            return UnivariatePolynomial();
+          }
+          polynomial[index] = -scaled.unwrap();
         }
         polynomial[power] = Fraction(1, 1);
         return UnivariatePolynomial(std::move(polynomial));
       }
       powers.push_back(current);
-      current = multiply(current, element);
+      scales.push_back(scale);
+      current = multiply(current, element); // 结果仍是 scale·t^(power+1)
+      scale = scale * scaleToPrimitive(current);
     }
     return UnivariatePolynomial(); // 理论上到不了这里
+  }
+  // 把一行缩放到「整数且互素」：先通分去掉分母，再除掉所有分子的 gcd。
+  // 高斯消元与幂序列里分母会不断相乘，不这样压一道，几十维的方程组很快就顶穿 Fraction 的表示范围。
+  //
+  // **返回实际乘上的倍数（恒为正数）**。缩放不改变线性相关关系，但会改变系数，
+  // 调用方若要还原成真实的多项式，必须把这个倍数记账下来。
+  static Fraction scaleToPrimitive(std::vector<Fraction> &row) {
+    long long common = 1;
+    for (const Fraction &value : row) {
+      common = std::lcm(common, value.getDenominator());
+    }
+    Fraction multiplier(common, 1LL);
+    if (common != 1) {
+      for (Fraction &value : row) {
+        value = value * Fraction(common, 1LL);
+        algebraic_detail::guard(value);
+      }
+    }
+    unsigned long long divisor = 0;
+    for (const Fraction &value : row) {
+      divisor = std::gcd(divisor, algebraic_detail::magnitudeOf(value.getNumerator()));
+    }
+    if (divisor > 1ULL) {
+      const Result<Fraction> inverse = Fraction(1, 1) / Fraction(algebraic_detail::toSigned(divisor), 1LL);
+      if (inverse.isErr()) {
+        return multiplier;
+      }
+      multiplier = multiplier * inverse.unwrap();
+      for (Fraction &value : row) {
+        value = value * inverse.unwrap();
+      }
+    }
+    return multiplier;
   }
 
   // 判断 target 能否由 columns 线性表出：能则给出一组系数，不能则返回 nullopt
@@ -739,7 +812,9 @@ private:
           matrix[row][index] = matrix[row][index] - factor * matrix[pivotRow][index];
           algebraic_detail::guard(matrix[row][index]);
         }
+        scaleToPrimitive(matrix[row]);
       }
+      scaleToPrimitive(matrix[pivotRow]);
       pivotColumn[pivotRow] = column;
       ++pivotRow;
     }
@@ -847,6 +922,12 @@ public:
 
   static Result<RealAlgebraicNumber> squareRootOf(const Fraction &value) { return nthRootOf(value, 2); }
 
+  // 从文本解析出实代数数。
+  // 根号**只认 LaTeX 写法**：\sqrt{…}（二次根）、\sqrt[n]{…}（n 次根）。
+  // 刻意不提供 sqrt(…) 这类 ASCII 写法 —— 同一件事两套记法迟早会分叉。
+  // 其它运算沿用库里既有的书写习惯：+ - * / ^ 与 \frac \cdot \times \div 都接受。
+  static Result<RealAlgebraicNumber> parse(std::string_view text);
+
   // ==================== 观察 ====================
 
   const UnivariatePolynomial &polynomial() const { return poly_; }
@@ -857,7 +938,22 @@ public:
   // 是否已退化为精确有理数（构造时端点重合）
   bool isRational() const { return low_ == high_; }
 
-  std::optional<Fraction> asRational() const { return low_ == high_ ? std::optional<Fraction>(low_) : std::nullopt; }
+  // 尝试降一阶：值是有理数时返回它，否则 MathsError::NotARational。
+  // 与 Polynomial::toMonomial / RationalFunction::toPolynomial / Fraction::toInteger
+  // 是同一套「toXxx 尝试降一阶」的命名。
+  //
+  // 注意：这里不做多项式因式分解。构造时就已经收成一点（low == high）的必然成功；
+  // 否则按有理根定理在隔离区间里找候选（p/q，p 整除常数项、q 整除首项）。
+  // 系数分解走试除且有上限，系数极大时可能漏判而返回 Err —— 只会漏，不会错。
+  Result<Fraction> toFraction() const {
+    if (low_ == high_) {
+      return low_;
+    }
+    if (const std::optional<Fraction> root = findRationalRoot()) {
+      return *root;
+    }
+    return std::unexpected(MathsError::NotARational);
+  }
 
   bool isZero() const { return compareToRational(Fraction(0, 1)) == std::strong_ordering::equal; }
 
@@ -980,8 +1076,11 @@ public:
     if (lhs.isRational() && rhs.isRational()) {
       return RealAlgebraicNumber(lhs.low_ * rhs.low_);
     }
-    const UnivariatePolynomial candidate =
-        UnivariatePolynomial::annihilatorOfProduct(lhs.poly_, rhs.poly_).squareFreePart();
+    // 同一个数自乘走平方专用路线：环的维数从 deg² 降到 deg，避免消元中途溢出
+    const bool squaring = (lhs == rhs);
+    const UnivariatePolynomial candidate = (squaring ? UnivariatePolynomial::annihilatorOfSquare(lhs.poly_)
+                                                     : UnivariatePolynomial::annihilatorOfProduct(lhs.poly_, rhs.poly_))
+                                               .squareFreePart();
     RealAlgebraicNumber left = lhs;
     RealAlgebraicNumber right = rhs;
     for (int iteration = 0; iteration < kRefinementLimit; ++iteration) {
@@ -1093,6 +1192,24 @@ public:
 
   Result<RealAlgebraicNumber> sqrt() const { return nthRoot(2); }
 
+  // 非负整数次幂（重复平方）。代数数对乘法封闭，所以幂不会失败；
+  // 返回 Result 只是为了和其它可能失败的入口保持一致的形状。
+  Result<RealAlgebraicNumber> pow(unsigned exponent) const {
+    RealAlgebraicNumber result(Fraction(1, 1));
+    RealAlgebraicNumber base = *this;
+    unsigned remaining = exponent;
+    while (remaining > 0) {
+      if (remaining % 2 == 1) {
+        result = result * base;
+      }
+      remaining /= 2;
+      if (remaining > 0) {
+        base = base * base;
+      }
+    }
+    return result;
+  }
+
   // ==================== 输出 ====================
 
   std::string str() const {
@@ -1113,6 +1230,52 @@ public:
 
 private:
   struct Validated {}; // 标记：参数已由调用方验证，不再重复检查
+
+  // 正因子枚举（试除）。超过上限就不分解，只留下 ±1 这类必然因子 ——
+  // 宁可漏判（返回 NotARational）也不做可能很慢的完整分解。
+  static std::vector<long long> divisorsOf(long long value) {
+    if (value == 0) {
+      return {0}; // 常数项为 0 时 0 本身就是候选根
+    }
+    constexpr unsigned long long kFactorLimit = 1ULL << 20;
+    const unsigned long long magnitude = algebraic_detail::magnitudeOf(value);
+    if (magnitude > kFactorLimit * kFactorLimit) {
+      return {1};
+    }
+    std::vector<long long> result;
+    for (unsigned long long candidate = 1; candidate * candidate <= magnitude; ++candidate) {
+      if (magnitude % candidate == 0) {
+        result.push_back(algebraic_detail::toSigned(candidate));
+        const unsigned long long partner = magnitude / candidate;
+        if (partner != candidate) {
+          result.push_back(algebraic_detail::toSigned(partner));
+        }
+      }
+    }
+    return result;
+  }
+
+  // 有理根定理：候选根是 ±p/q，其中 p 整除常数项、q 整除首项系数。
+  // 只检验落在隔离区间里的候选 —— 区间里只有一个根，命中即为所求。
+  std::optional<Fraction> findRationalRoot() const {
+    const UnivariatePolynomial primitive = poly_.primitivePart(); // 先整数化
+    const std::vector<long long> numerators = divisorsOf(primitive.constantTerm().getNumerator());
+    const std::vector<long long> denominators = divisorsOf(primitive.leadingCoefficient().getNumerator());
+    for (const long long numerator : numerators) {
+      for (const long long denominator : denominators) {
+        for (const int sign : {1, -1}) {
+          const Fraction candidate(sign * numerator, denominator);
+          if (candidate < low_ || candidate > high_) {
+            continue;
+          }
+          if (poly_.evaluate(candidate) == 0LL) {
+            return candidate;
+          }
+        }
+      }
+    }
+    return std::nullopt;
+  }
 
   static constexpr int kRefinementLimit = 512;
 
@@ -1201,5 +1364,347 @@ private:
 };
 
 inline std::ostream &operator<<(std::ostream &os, const RealAlgebraicNumber &value) { return os << value.str(); }
+
+namespace algebraic_detail {
+
+// 实代数数的文本解析器。
+//
+// 语法（有意做得和库里既有的表达式解析器一致，只是把「变量」换成了「根式」）：
+//   expr    := term (('+' | '-') term)*
+//   term    := power (('*' | '/' | \cdot | \times | \div)? power)*   // 省略乘号即隐含乘法
+//   power   := unary ('^' 非负整数)?                                  // 指数也接受 x^{2}
+//   unary   := ('-' | '+')? primary
+//   primary := 整数 | '(' expr ')' | '{' expr '}' | \frac{a}{b} | \sqrt{…} | \sqrt[n]{…}
+//
+// 只接受数字与根式，不接受变量 —— 解析出的是一个**数**，不是式子。
+class AlgebraicParser {
+public:
+  explicit AlgebraicParser(std::string_view source) : text_(source) {}
+
+  Result<RealAlgebraicNumber> parse() {
+    skipSpaces();
+    if (atEnd()) {
+      return std::unexpected(MathsError::InvalidExpression);
+    }
+    Result<RealAlgebraicNumber> value = parseAdditive();
+    if (value.isErr()) {
+      return value;
+    }
+    // 允许结尾残留 \left / \right 这类纯排版标记
+    while (takeToken("\\right") || takeToken("\\left")) {
+    }
+    skipSpaces();
+    if (!atEnd()) {
+      return std::unexpected(MathsError::InvalidExpression); // 有消费不掉的残留字符
+    }
+    return value;
+  }
+
+private:
+  bool atEnd() const { return position_ >= text_.size(); }
+  char peek() const { return atEnd() ? '\0' : text_[position_]; }
+
+  void skipSpaces() {
+    while (!atEnd() && std::isspace(static_cast<unsigned char>(peek())) != 0) {
+      ++position_;
+    }
+  }
+
+  // 尝试吃掉一个固定词（前面允许有空白）；失败时不消耗字符
+  bool takeToken(std::string_view token) {
+    skipSpaces();
+    if (text_.compare(position_, token.size(), token) != 0) {
+      return false;
+    }
+    position_ += token.size();
+    return true;
+  }
+
+  bool takeChar(char expected) {
+    skipSpaces();
+    if (peek() != expected) {
+      return false;
+    }
+    ++position_;
+    return true;
+  }
+
+  // 读取一个花括号分组（支持嵌套），position 停在 '}' 之后
+  bool takeBracedGroup(std::string &out) {
+    skipSpaces();
+    if (peek() != '{') {
+      return false;
+    }
+    int depth = 0;
+    const std::size_t start = position_ + 1;
+    while (!atEnd()) {
+      if (peek() == '{') {
+        ++depth;
+      } else if (peek() == '}') {
+        --depth;
+        if (depth == 0) {
+          out = std::string(text_.substr(start, position_ - start));
+          ++position_;
+          return true;
+        }
+      }
+      ++position_;
+    }
+    return false; // 括号没配平
+  }
+
+  // 下一个位置能否开始一个因子 —— 用于识别隐含乘法（2\sqrt{2} 即 2 * √2）
+  bool startsPrimary() const {
+    if (atEnd()) {
+      return false;
+    }
+    const char character = peek();
+    // 这些是结束标记，不能当作新因子的开头，否则 \left(…\right) 会被误判成隐含乘法
+    if (character == ')' || character == ']' || character == '}' || character == ',') {
+      return false;
+    }
+    if (character == '\\') {
+      // \left 会引出括号分组，算新因子；\right 只是收尾
+      return text_.compare(position_, 6, "\\right") != 0;
+    }
+    return std::isdigit(static_cast<unsigned char>(character)) != 0 || character == '(' || character == '{';
+  }
+
+  Result<RealAlgebraicNumber> parseAdditive() {
+    Result<RealAlgebraicNumber> left = parseMultiplicative();
+    if (left.isErr()) {
+      return left;
+    }
+    for (;;) {
+      skipSpaces();
+      const char operation = peek();
+      if (operation != '+' && operation != '-') {
+        return left;
+      }
+      ++position_;
+      Result<RealAlgebraicNumber> right = parseMultiplicative();
+      if (right.isErr()) {
+        return right;
+      }
+      left = (operation == '+') ? (left.unwrap() + right.unwrap()) : (left.unwrap() - right.unwrap());
+    }
+  }
+
+  Result<RealAlgebraicNumber> parseMultiplicative() {
+    Result<RealAlgebraicNumber> left = parsePower();
+    if (left.isErr()) {
+      return left;
+    }
+    for (;;) {
+      skipSpaces();
+      char operation = peek();
+      if (takeToken("\\cdot") || takeToken("\\times")) {
+        operation = '*';
+      } else if (takeToken("\\div")) {
+        operation = '/';
+      } else if (operation == '*' || operation == '/') {
+        ++position_;
+      } else if (startsPrimary()) {
+        operation = '*'; // 隐含乘法
+      } else {
+        return left;
+      }
+
+      Result<RealAlgebraicNumber> right = parsePower();
+      if (right.isErr()) {
+        return right;
+      }
+      if (operation == '/') {
+        Result<RealAlgebraicNumber> quotient = left.unwrap() / right.unwrap();
+        if (quotient.isErr()) {
+          return quotient;
+        }
+        left = quotient;
+      } else {
+        left = left.unwrap() * right.unwrap();
+      }
+    }
+  }
+
+  Result<RealAlgebraicNumber> parsePower() {
+    Result<RealAlgebraicNumber> base = parseUnary();
+    if (base.isErr()) {
+      return base;
+    }
+    if (!takeChar('^')) {
+      return base;
+    }
+    Result<unsigned long long> exponent = parseUnsignedInteger();
+    if (exponent.isErr()) {
+      return std::unexpected(exponent.unwrapErr());
+    }
+    return base.unwrap().pow(static_cast<unsigned>(exponent.unwrap()));
+  }
+
+  Result<RealAlgebraicNumber> parseUnary() {
+    skipSpaces();
+    if (peek() == '-') {
+      ++position_;
+      Result<RealAlgebraicNumber> operand = parseUnary();
+      if (operand.isErr()) {
+        return operand;
+      }
+      return -operand.unwrap();
+    }
+    if (peek() == '+') {
+      ++position_;
+      return parseUnary();
+    }
+    return parsePrimary();
+  }
+
+  Result<RealAlgebraicNumber> parsePrimary() {
+    skipSpaces();
+    if (atEnd()) {
+      return std::unexpected(MathsError::InvalidExpression);
+    }
+    // \left / \right 只是括号修饰符，跳过继续读里面的内容
+    if (takeToken("\\left") || takeToken("\\right")) {
+      return parsePrimary();
+    }
+    if (takeToken("\\frac")) {
+      std::string numeratorText;
+      std::string denominatorText;
+      if (!takeBracedGroup(numeratorText) || !takeBracedGroup(denominatorText)) {
+        return std::unexpected(MathsError::InvalidExpression);
+      }
+      Result<RealAlgebraicNumber> numerator = AlgebraicParser(numeratorText).parse();
+      if (numerator.isErr()) {
+        return numerator;
+      }
+      Result<RealAlgebraicNumber> denominator = AlgebraicParser(denominatorText).parse();
+      if (denominator.isErr()) {
+        return denominator;
+      }
+      Result<RealAlgebraicNumber> quotient = numerator.unwrap() / denominator.unwrap();
+      if (quotient.isErr()) {
+        return quotient;
+      }
+      return quotient;
+    }
+    if (takeToken("\\sqrt")) {
+      unsigned degree = 2;
+      skipSpaces();
+      if (peek() == '[') { // \sqrt[n]{…} 的可选次数
+        ++position_;
+        std::string digits;
+        while (!atEnd() && peek() != ']') {
+          digits.push_back(peek());
+          ++position_;
+        }
+        if (peek() != ']') {
+          return std::unexpected(MathsError::InvalidExpression);
+        }
+        ++position_;
+        std::string cleaned;
+        for (const char character : digits) {
+          if (std::isspace(static_cast<unsigned char>(character)) == 0) {
+            cleaned.push_back(character);
+          }
+        }
+        if (cleaned.empty()) {
+          return std::unexpected(MathsError::InvalidExpression);
+        }
+        try {
+          degree = static_cast<unsigned>(std::stoul(cleaned));
+        } catch (const std::exception &) {
+          return std::unexpected(MathsError::InvalidExpression);
+        }
+        if (degree == 0) {
+          return std::unexpected(MathsError::InvalidRange);
+        }
+      }
+
+      std::string radicandText;
+      if (!takeBracedGroup(radicandText)) {
+        return std::unexpected(MathsError::InvalidExpression); // 根号下必须是花括号分组
+      }
+      Result<RealAlgebraicNumber> radicand = AlgebraicParser(radicandText).parse();
+      if (radicand.isErr()) {
+        return radicand;
+      }
+      return radicand.unwrap().nthRoot(degree);
+    }
+    if (peek() == '(') {
+      ++position_;
+      Result<RealAlgebraicNumber> inner = parseAdditive();
+      if (inner.isErr()) {
+        return inner;
+      }
+      skipSpaces();
+      // \left(…\right) 里收尾标记在 ')' **之前**，必须先吃掉再找右括号
+      takeToken("\\right");
+      skipSpaces();
+      if (peek() != ')') {
+        return std::unexpected(MathsError::InvalidExpression);
+      }
+      ++position_;
+      return inner;
+    }
+    if (peek() == '{') {
+      std::string group;
+      if (!takeBracedGroup(group)) {
+        return std::unexpected(MathsError::InvalidExpression);
+      }
+      return AlgebraicParser(group).parse();
+    }
+    if (std::isdigit(static_cast<unsigned char>(peek())) != 0) {
+      return parseNumber();
+    }
+    return std::unexpected(MathsError::InvalidExpression);
+  }
+
+  Result<RealAlgebraicNumber> parseNumber() {
+    const std::size_t start = position_;
+    while (!atEnd() && std::isdigit(static_cast<unsigned char>(peek())) != 0) {
+      ++position_;
+    }
+    try {
+      const long long value = std::stoll(std::string(text_.substr(start, position_ - start)));
+      return RealAlgebraicNumber(Fraction(value, 1LL));
+    } catch (const std::exception &) {
+      return std::unexpected(MathsError::InvalidExpression);
+    }
+  }
+
+  Result<unsigned long long> parseUnsignedInteger() {
+    skipSpaces();
+    std::string digits;
+    if (peek() == '{') { // LaTeX 的 x^{2}
+      std::string group;
+      if (!takeBracedGroup(group)) {
+        return std::unexpected(MathsError::InvalidExpression);
+      }
+      digits = std::move(group);
+    } else {
+      while (!atEnd() && std::isdigit(static_cast<unsigned char>(peek())) != 0) {
+        digits.push_back(peek());
+        ++position_;
+      }
+    }
+    if (digits.empty()) {
+      return std::unexpected(MathsError::InvalidExpression);
+    }
+    try {
+      return static_cast<unsigned long long>(std::stoull(digits));
+    } catch (const std::exception &) {
+      return std::unexpected(MathsError::InvalidExpression);
+    }
+  }
+
+  std::string_view text_;
+  std::size_t position_{0};
+};
+
+} // namespace algebraic_detail
+
+inline Result<RealAlgebraicNumber> RealAlgebraicNumber::parse(std::string_view text) {
+  return algebraic_detail::AlgebraicParser(text).parse();
+}
 
 } // namespace maths
