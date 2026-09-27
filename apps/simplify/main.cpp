@@ -4,6 +4,10 @@
 // 然后逐条输入代入条件（变量 = 表达式），输入 0=0 结束。
 // 式子不含变量时（纯常数运算）跳过条件输入直接出结果，可以当计算器用。
 //
+// 式子里可以出现根号，但**只认 LaTeX 写法** `\sqrt{2}`、`\sqrt[3]{2}` ——
+// 根号下带变量的式子不支持（RationalFunction 的系数是有理数，装不下根式）。
+// 根号一律走代数数（RealAlgebraicNumber）做精确计算，不产生浮点近似。
+//
 // ===========================================================================
 // 输出格式约定 —— 新增提示一律沿用这几种行式，不要另起一套
 // ===========================================================================
@@ -32,6 +36,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <variant>
 
 import maths;
 
@@ -71,32 +76,142 @@ std::string stripSpaces(std::string_view text) {
   return result;
 }
 
+// 只去首尾空白，保留内部的写法（回显原始输入时用）
+std::string trim(std::string_view text) {
+  std::size_t begin = 0;
+  std::size_t end = text.size();
+  while (begin < end && std::isspace(static_cast<unsigned char>(text[begin])) != 0) {
+    ++begin;
+  }
+  while (end > begin && std::isspace(static_cast<unsigned char>(text[end - 1])) != 0) {
+    --end;
+  }
+  return std::string(text.substr(begin, end - begin));
+}
+
 // 读取一行；输入流结束（EOF、或管道里的内容读完）时返回 false
 bool readLine(std::string &out) { return static_cast<bool>(std::getline(std::cin, out)); }
 
-// 反复索取式子，直到解析成功；输入流结束则返回 false
-bool readExpression(RationalFunction &out) {
+// ---------------- 代数数 ----------------
+
+// 把代数数渲染成 LaTeX 根式：
+//   有理数                   → 分数
+//   最小多项式是 a·x^n + c   → ±\sqrt[n]{-c/a}
+//   其余（如 \sqrt{2}+\sqrt{3}）→ 退回 RealAlgebraicNumber 自带的 RootOf 记法
+//
+// 刻意不输出 √ 符号：√ 后面到哪里结束没有公认约定（√2x 是 √(2x) 还是 (√2)·x？），
+// 而 \sqrt{…} 的边界由花括号定死。解析侧也只认这一种写法。
+std::string radicalLatex(const RealAlgebraicNumber &value) {
+  if (value.isRational()) {
+    return value.latex();
+  }
+
+  const UnivariatePolynomial &polynomial = value.polynomial();
+  const std::size_t degree = polynomial.degree();
+  if (degree < 2) {
+    return value.latex();
+  }
+
+  // 只有「单个根式」还原得出来：中间项必须全为零，即最小多项式是 a·x^n + c。
+  // \sqrt{2}+\sqrt{3} 的最小多项式是 x^4 - 10x^2 + 1，中间项非零，没有单一的根式写法。
+  for (std::size_t power = 1; power < degree; ++power) {
+    if (polynomial.coefficient(power) != Fraction(0, 1)) {
+      return value.latex();
+    }
+  }
+
+  // a·x^n + c = 0  ⟹  x = ±\sqrt[n]{-c/a}
+  const Result<Fraction> radicand = (Fraction(0, 1) - polynomial.constantTerm()) / polynomial.leadingCoefficient();
+  if (radicand.isErr()) { // 首项系数非零，实际除不出零来；这里只是兜底
+    return value.latex();
+  }
+  const bool negative = value < Fraction(0, 1);
+
+  std::string root = "\\sqrt";
+  if (degree != 2) {
+    root += "[" + std::to_string(degree) + "]";
+  }
+  root += "{" + RealAlgebraicNumber(radicand.unwrap()).latex() + "}";
+  return negative ? "-" + root : root;
+}
+
+// 根号的常见误写。返回提示文本，没错写就返回 nullopt。
+//
+// 两类：直接敲 √ 符号；写了不带反斜杠的 sqrt(…) / sqrt{…}。
+// 后者会被隐含乘法拆成 s·q·r·t·(…)，解析居然是成功的 —— 不报错但显然不是本意，
+// 所以成功路径也要提示一句。根号的边界必须有花括号来界定（√2x 到底是 √(2x) 还是
+// (√2)·x 没有公认约定），这就是本程序只认 LaTeX 写法的原因。
+std::optional<std::string> radicalHint(std::string_view text) {
+  if (text.find("√") != std::string_view::npos) {
+    return std::string("根号请写 LaTeX 形式 —— \\sqrt{2}、\\sqrt[3]{2}");
+  }
+
+  for (std::size_t position = 0; position + 4 <= text.size(); ++position) {
+    if (text.compare(position, 4, "sqrt") != 0) {
+      continue;
+    }
+    if (position > 0 && text[position - 1] == '\\') {
+      continue; // \sqrt 是正确写法
+    }
+    const std::size_t next = position + 4;
+    if (next < text.size() && (text[next] == '(' || text[next] == '{')) {
+      return std::string("sqrt(...) 会被当成变量相乘；想写根号请用 \\sqrt{2}");
+    }
+  }
+  return std::nullopt;
+}
+
+// ---------------- 式子 ----------------
+
+// 式子的两种表示：
+//   RationalFunction      系数是有理数，可以含变量，走「代入条件再化简」那条路
+//   RealAlgebraicNumber   纯数值且含根号，直接给精确值
+using Expression = std::variant<RationalFunction, RealAlgebraicNumber>;
+
+struct InputExpression {
+  Expression value;
+  std::string text; // 用户的原始输入（去首尾空白），回显用
+};
+
+// 反复索取式子，直到解析成功；输入流结束则返回 nullopt
+std::optional<InputExpression> readExpression() {
   while (true) {
     std::cout << "式子> ";
     std::string line;
     if (!readLine(line)) {
       std::cout << '\n';
-      return false;
+      return std::nullopt;
     }
     if (stripSpaces(line).empty()) {
       continue;
     }
 
-    const Result<RationalFunction> parsed = parseExpression(line);
-    if (parsed.isOk()) {
-      out = parsed.unwrap();
-      printField("解析为", out.latex(), true);
-      return true;
+    const Result<RationalFunction> rational = parseExpression(line);
+    if (rational.isOk()) {
+      printField("解析为", rational.unwrap().latex(), true);
+      if (const std::optional<std::string> hint = radicalHint(line)) {
+        printFeedback("提示", *hint); // sqrt(2) 这类会被当成变量相乘，解析成功但不是本意
+      }
+      return InputExpression{rational.unwrap(), trim(line)};
     }
 
-    // 解析失败不退出，让用户有机会改
-    printFeedback("不接受", describe(parsed.unwrapErr()));
-    printFeedback("提示", "语法见开头；普通写法与 LaTeX 写法都接受");
+    // RationalFunction 表示不了根号（系数域是有理数），换代数数再试一次。
+    // 代数数只接受纯数值，含变量的式子在两条路上都会失败。
+    const Result<RealAlgebraicNumber> algebraic = RealAlgebraicNumber::parse(line);
+    if (algebraic.isOk()) {
+      printField("解析为", radicalLatex(algebraic.unwrap()), true);
+      return InputExpression{algebraic.unwrap(), trim(line)};
+    }
+
+    // 报有理式那条路的错误：含变量时它的诊断更准
+    printFeedback("不接受", describe(rational.unwrapErr()));
+    if (const std::optional<std::string> hint = radicalHint(line)) {
+      printFeedback("提示", *hint);
+    } else if (line.find("\\sqrt") != std::string::npos) {
+      printFeedback("提示", "根号只在不含变量的式子里支持；写法是 \\sqrt{2}、\\sqrt[3]{2}");
+    } else {
+      printFeedback("提示", "语法见开头；普通写法与 LaTeX 写法都接受");
+    }
   }
 }
 
@@ -107,6 +222,7 @@ void printSyntax() {
   printField("变量", "单个字母可带下标 —— x、a_1、x_{i,j}", true);
   printField("长名", "多字母变量加花括号 —— {node}、{node}_{car}", true);
   printField("乘法", "可省略 —— xy 即 x*y，2x 即 2*x（所以 {node} 不写花括号会变成 n*o*d*e）", true);
+  printField("根号", "只认 LaTeX 写法 —— \\sqrt{2}、\\sqrt[3]{2}（仅限不含变量的式子）", true);
   printField("写法", "普通写法与 LaTeX 写法都接受 —— \\frac{a}{b}、\\cdot、\\times、\\div、x^{2}", true);
 }
 
@@ -117,6 +233,7 @@ void printConstraintHelp() {
   printField("删除", "输入 x = x 删掉变量 x 的约束（重复输入同名变量即为覆盖）", true);
   printField("结束", "输入 0=0", true);
   printField("限制", "右边不能含被赋值的变量本身 —— x = 2x 是方程，不支持", true);
+  printField("根号", "条件里不支持根号，根号只能出现在不含变量的式子里", true);
 }
 
 // 逐条读取条件，成功则记入 scope
@@ -240,25 +357,34 @@ int main() {
   printSyntax();
   std::cout << '\n';
 
-  RationalFunction expression(Fraction(0, 1));
-  if (!readExpression(expression)) {
+  const std::optional<InputExpression> input = readExpression();
+  if (!input) {
     return 0;
   }
 
-  Scope scope;
-
-  // 式子不含变量时它就是纯常数运算，没有可代入的东西 —— 直接出结果，当计算器用。
-  // 这时连条件说明都不必打印，否则用户会对着一段用不上的提示发愣。
-  if (expression.variables().empty()) {
-    printFeedback("提示", "式子不含变量，跳过条件输入");
+  // 含根号的纯数值式子不是有理函数，没有「代入条件」可言，直接给精确值。
+  if (const RealAlgebraicNumber *algebraic = std::get_if<RealAlgebraicNumber>(&input->value)) {
+    printFeedback("提示", "根号按精确代数数计算，不需要代入条件");
+    std::cout << "\n--- 结果 ---\n";
+    printField("式子", input->text);
+    printField("精确值", radicalLatex(*algebraic));
   } else {
-    std::cout << '\n';
-    printConstraintHelp();
-    readConstraints(expression, scope);
-  }
+    const RationalFunction &expression = std::get<RationalFunction>(input->value);
+    Scope scope;
 
-  std::cout << "\n--- 结果 ---\n";
-  printResult(expression, scope);
+    // 式子不含变量时它就是纯常数运算，没有可代入的东西 —— 直接出结果，当计算器用。
+    // 这时连条件说明都不必打印，否则用户会对着一段用不上的提示发愣。
+    if (expression.variables().empty()) {
+      printFeedback("提示", "式子不含变量，跳过条件输入");
+    } else {
+      std::cout << '\n';
+      printConstraintHelp();
+      readConstraints(expression, scope);
+    }
+
+    std::cout << "\n--- 结果 ---\n";
+    printResult(expression, scope);
+  }
 
   // 双击运行时窗口不会立刻关闭
   std::cout << "\n按回车键退出...";
