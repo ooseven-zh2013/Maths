@@ -11,6 +11,8 @@
 //   - 条件右边同样可以写根号（x = \sqrt{2}）；此时整个代入过程提升到 ℚ(α) 上算，
 //     结果依然是精确的
 //   - 式子里**含变量又含根号**暂不支持（解析器还没有代数版）
+//   - 输出侧由库的 `RealAlgebraicNumber::latex()` 渲染：单根式给 `\sqrt{2}`，
+//     还原不成的（如 \sqrt{2}+\sqrt{3}）退回 RootOf 记法
 //
 // ===========================================================================
 // 输出格式约定 —— 新增提示一律沿用这几种行式，不要另起一套
@@ -98,49 +100,6 @@ std::string trim(std::string_view text) {
 // 读取一行；输入流结束（EOF、或管道里的内容读完）时返回 false
 bool readLine(std::string &out) { return static_cast<bool>(std::getline(std::cin, out)); }
 
-// ---------------- 代数数 ----------------
-
-// 把代数数渲染成 LaTeX 根式：
-//   有理数                   → 分数
-//   最小多项式是 a·x^n + c   → ±\sqrt[n]{-c/a}
-//   其余（如 \sqrt{2}+\sqrt{3}）→ 退回 RealAlgebraicNumber 自带的 RootOf 记法
-//
-// 刻意不输出 √ 符号：√ 后面到哪里结束没有公认约定（√2x 是 √(2x) 还是 (√2)·x？），
-// 而 \sqrt{…} 的边界由花括号定死。解析侧也只认这一种写法。
-std::string radicalLatex(const RealAlgebraicNumber &value) {
-  if (value.isRational()) {
-    return value.latex();
-  }
-
-  const UnivariatePolynomial &polynomial = value.polynomial();
-  const std::size_t degree = polynomial.degree();
-  if (degree < 2) {
-    return value.latex();
-  }
-
-  // 只有「单个根式」还原得出来：中间项必须全为零，即最小多项式是 a·x^n + c。
-  // \sqrt{2}+\sqrt{3} 的最小多项式是 x^4 - 10x^2 + 1，中间项非零，没有单一的根式写法。
-  for (std::size_t power = 1; power < degree; ++power) {
-    if (polynomial.coefficient(power) != Fraction(0, 1)) {
-      return value.latex();
-    }
-  }
-
-  // a·x^n + c = 0  ⟹  x = ±\sqrt[n]{-c/a}
-  const Result<Fraction> radicand = (Fraction(0, 1) - polynomial.constantTerm()) / polynomial.leadingCoefficient();
-  if (radicand.isErr()) { // 首项系数非零，实际除不出零来；这里只是兜底
-    return value.latex();
-  }
-  const bool negative = value < Fraction(0, 1);
-
-  std::string root = "\\sqrt";
-  if (degree != 2) {
-    root += "[" + std::to_string(degree) + "]";
-  }
-  root += "{" + RealAlgebraicNumber(radicand.unwrap()).latex() + "}";
-  return negative ? "-" + root : root;
-}
-
 // ---------------- 根号的常见误写 ----------------
 
 // 返回提示文本，没错写就返回 nullopt。
@@ -206,7 +165,9 @@ std::optional<InputExpression> readExpression() {
     // 代数数只接受纯数值，含变量的式子在两条路上都会失败。
     const Result<RealAlgebraicNumber> algebraic = RealAlgebraicNumber::parse(line);
     if (algebraic.isOk()) {
-      printField("解析为", radicalLatex(algebraic.unwrap()), true);
+      // 渲染全交给库：RealAlgebraicNumber::latex() 会把单根式还原成 \sqrt 写法，
+      // 还原不成的（如 \sqrt{2}+\sqrt{3}）退回 RootOf
+      printField("解析为", algebraic.unwrap().latex(), true);
       return InputExpression{algebraic.unwrap(), trim(line)};
     }
 
@@ -253,11 +214,9 @@ struct Constraint {
   ConstraintValue value;
 };
 
+// 两种取值都自带 latex()，直接取
 std::string constraintValueLatex(const ConstraintValue &value) {
-  if (const RealAlgebraicNumber *number = std::get_if<RealAlgebraicNumber>(&value)) {
-    return radicalLatex(*number);
-  }
-  return std::get<RationalFunction>(value).latex();
+  return std::visit([](const auto &entry) { return entry.latex(); }, value);
 }
 
 // 把条件的值提升到代数栈。有理值的提升走 toAlgebraic（单射，不丢信息），
@@ -496,7 +455,7 @@ void printAlgebraicResult(const RationalFunction &expression, const std::vector<
   // 分子分母都化成常数时给精确值（x^2+1 配 x=\sqrt{2} 得 3，这是最漂亮的情形）
   const Result<RealAlgebraicNumber> evaluated = substituted.unwrap().evaluate(scope);
   if (evaluated.isOk()) {
-    printField("精确值", radicalLatex(evaluated.unwrap()));
+    printField("精确值", evaluated.unwrap().latex());
   } else {
     printField("化简结果", substituted.unwrap().latex());
   }
@@ -522,7 +481,7 @@ int main() {
     printFeedback("提示", "根号按精确代数数计算，不需要代入条件");
     std::cout << "\n--- 结果 ---\n";
     printField("式子", input->text);
-    printField("精确值", radicalLatex(*algebraic));
+    printField("精确值", algebraic->latex());
   } else {
     const RationalFunction &expression = std::get<RationalFunction>(input->value);
     Scope scope;
