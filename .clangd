@@ -1,40 +1,68 @@
-# 全局 配置文件 - 所有配置文件的基础
-# 该配置定义了编译标志、索引设置、诊断、代码提示等功能
-# 编译标志部分 - 定义编译器标志
+# clangd 配置 —— 对 mcpp 生成的 compile_commands.json 做增量修正
+#
+# 编译命令的权威来源是仓库根的 compile_commands.json（`mcpp build` 生成，已列在
+# .gitignore 里）。clangd 优先用它，本文件只做修正与编辑器行为设置。
+#
+# 刻意**不**设 CompileFlags.Compiler：
+#   - 有 compile_commands.json 时它会把数据库里的真实编译器（mcpp 沙箱里的 clang++）
+#     顶掉，换成被指定的驱动模式（2026-09-27 实测：原来的 `Compiler: "g++"` 让 clangd
+#     改用 `--driver-mode=g++` 重新解析，而本项目实际按 MSVC 目标构建）
+#   - 写绝对路径不可移植（各人 LLVM 装在哪不一样），本文件是要提交的
+#
+# 已知局限（2026-09-27 实测，别再重复排查）：
+#   工具链是 clang 20.1.7，产出的 PCM（std.pcm / maths.pcm …）本机 clangd 22.1.8
+#   加载不了，报 `ast_file_version_too_old`；而 import 失败会连带把整个文件判成
+#   "标识符未定义"（实测一个 .cpp 衍生 20 条错）。这与当初删掉 CI 里 clang-tidy job
+#   是同一个根因；mcpp 的 llvm 包又是精简版、**不含 clangd**，所以没法让编辑器直接
+#   用工具链自带的那个 clangd。
+#   现状：剥掉模块缓存标志 + 屏蔽 module_not_found（见下），全项目 29 个源文件
+#   **零真实诊断**。代价是 `import maths;` / `import std;` 带来的类型没有补全与跳转。
+#   要真正拿回补全/跳转只有一条路：装一个与工具链同版本的 clangd（LLVM 20.1.7），
+#   让编辑器用它（VS Code 是 clangd.path，其他编辑器同理）。届时下面那三条 Remove
+#   和 Suppress 都可以撤掉，clangd 会直接读工具链产出的 .pcm。
+#   不建议开 `--experimental-modules-support`：它要现场编译整个 std 模块，
+#   实测 `--check` 跑 5 分钟仍未完成。
+
 CompileFlags:
   Add:
-    - "-Wall"            # 启用所有常用警告
-    - "-Wextra"          # 启用额外的警告
-    - "-std=c++23"       # 使用C++23标准进行编译
-    - "-lstdc++exp"      # 链接实验性C++标准库扩展
-    - "-Iinclude"        # 添加头文件目录（相对仓库根，跨平台）
+    - "-Wall"            # 与 mcpp.toml 的 [build].cxxflags 对齐
+    - "-Wextra"
+    - "-std=c++23"       # 有数据库时是重复的，给没有 compile_commands.json 的场景兜底
   Remove:
-    - "-Werror"   # 移除将所有警告作为错误的选项，避免编译中断
-  Compiler: "g++"     # 指定具体的编译器路径
+    - "-Werror"          # 不把警告当错误，避免编辑器里一行警告红一片
+    # 下面三条是模块缓存的路径标志。留着它们，clangd 就会去啃版本对不上的 .pcm：
+    # std.pcm 加载失败 → 整个 .cpp 的 std 名字全变未定义（实测一个文件衍生 20 条错）。
+    # 剥掉后 clangd 走自己的模块发现逻辑，只在 import 处报一条 module_not_found。
+    - "-fmodule-file=*"
+    - "-fprebuilt-module-path=*"
+    - "-fmodule-output=*"
 
 # 索引设置 - 控制代码索引行为
 Index:
   Background: "Build"    # 在后台构建过程中进行索引，提高代码导航性能
- 
-# 诊断设置部分 - 控制错误和警告报告
+
+# 诊断设置
 Diagnostics:
-  ClangTidy:             # Clang-Tidy 静态分析工具配置
-    # 添加一些基础的检查项
-    Add:
-    -  "bugprone-*"          # 检测潜在的逻辑错误（如死代码、可疑的拷贝操作）
-    -  "performance-*"       # 性能优化建议（如不必要的拷贝、移动语义使用）
-    -  "readability-container-size-empty-*" # 建议使用 empty() 代替 size() == 0
-    -  "readability-implicit-bool-conversion-*" # 警告隐式布尔转换可能导致的问题
-    Remove:
-    -  "bugprone-easily-swappable-parameters"  # 禁用参数容易交换的警告
- 
+  # 检查集**只由仓库根的 .clang-tidy 决定**，这里不再重复声明 —— 原先这里另有一套
+  # Add/Remove，与 .clang-tidy 互相打架：这里打开 readability-implicit-bool-conversion，
+  # .clang-tidy 那边明确关掉，同一份代码两处结论相反。删掉整块，只留一个权威来源。
+  #
+  # 下面 Suppress 的码写的是 clang 诊断名**本身**（下划线形式）。实测写成连字符
+  # （`module-not-found`）不生效。
+  Suppress:
+    # 工具链版本错配的产物，**不是代码缺陷** —— 同样的 import 在 `mcpp build`
+    # （clang 20.1.7）下完全正常，只在编辑器里成了 error。
+    # ⚠️ 代价：模块名**真写错**（比如 `import math;`）编辑器也不报了。这个洞由
+    # `mcpp build` / CI 兜着 —— 所以别把编辑器当唯一的门。
+    - module_not_found
+
 # 代码提示设置部分 - 在编辑器中显示辅助信息
 InlayHints:
   Enabled: true          # 启用内联提示功能
   ParameterNames: true   # 显示函数参数名称提示
   DeducedTypes: true     # 显示类型推导结果提示
   Designators: true      # 显示结构体/类初始化器的设计器提示
- 
+
 # 代码补全设置部分 - 控制自动补全行为
 Completion:
   AllScopes: true        # 启用所有作用域的代码补全，包括私有成员

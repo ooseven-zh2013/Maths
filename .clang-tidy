@@ -1,6 +1,7 @@
 ---
-# 静态检查规则，供 clang-tidy CLI 与 CI 使用。
-# .clangd 的 ClangTidy 段负责编辑器内的实时诊断，检查集与之基本一致，差异见下方注释。
+# 静态检查规则 —— **本文件是检查集的唯一权威来源**：clang-tidy CLI、CI 与 clangd
+# 的编辑器内诊断都读它。`.clangd` 里刻意不再重复声明一套 Add/Remove（两处曾经互相
+# 打架：一边打开 readability-implicit-bool-conversion，一边明确关掉）。
 Checks: >
   bugprone-*,
   performance-*,
@@ -21,6 +22,11 @@ Checks: >
 #     由代码作者决定，不交由 linter 强制
 WarningsAsErrors: ''
 
-HeaderFilterRegex: '.*[\\/](include|test)[\\/].*'
+# 头文件过滤：只对这几个目录下的头文件报诊断。原值是 `(include|test)` ——
+# 那两个目录随 CMake 时代一起没了（现在是 `src/` 与 `tests/`），等于把所有头文件的
+# 诊断都过滤掉了（`tests/check.hpp` 就是其中之一）。2026-09-27 按实际目录改正。
+# 注意：这个设置当前**没有活体验证者** —— CI 里的 clang-tidy job 已删（BMI 版本对不上，
+# mcpp 的 llvm 包也没带 clang-tidy），所以改它是按目录结构推断，不是实测结论。
+HeaderFilterRegex: '.*[\\/](src|tests|apps)[\\/].*'
 
 FormatStyle: file
