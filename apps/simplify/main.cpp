@@ -4,9 +4,13 @@
 // 然后逐条输入代入条件（变量 = 表达式），输入 0=0 结束。
 // 式子不含变量时（纯常数运算）跳过条件输入直接出结果，可以当计算器用。
 //
-// 式子里可以出现根号，但**只认 LaTeX 写法** `\sqrt{2}`、`\sqrt[3]{2}` ——
-// 根号下带变量的式子不支持（RationalFunction 的系数是有理数，装不下根式）。
-// 根号一律走代数数（RealAlgebraicNumber）做精确计算，不产生浮点近似。
+// 关于根号：
+//   - **只认 LaTeX 写法** `\sqrt{2}`、`\sqrt[3]{2}`，不认 √ 符号（√ 的结束位置
+//     没有公认约定，只有花括号能定死边界）
+//   - 纯数值式子里的根号走代数数，直接给精确值
+//   - 条件右边同样可以写根号（x = \sqrt{2}）；此时整个代入过程提升到 ℚ(α) 上算，
+//     结果依然是精确的
+//   - 式子里**含变量又含根号**暂不支持（解析器还没有代数版）
 //
 // ===========================================================================
 // 输出格式约定 —— 新增提示一律沿用这几种行式，不要另起一套
@@ -34,9 +38,11 @@
 #include <cctype>
 #include <iostream>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 import maths;
 
@@ -135,12 +141,13 @@ std::string radicalLatex(const RealAlgebraicNumber &value) {
   return negative ? "-" + root : root;
 }
 
-// 根号的常见误写。返回提示文本，没错写就返回 nullopt。
+// ---------------- 根号的常见误写 ----------------
+
+// 返回提示文本，没错写就返回 nullopt。
 //
 // 两类：直接敲 √ 符号；写了不带反斜杠的 sqrt(…) / sqrt{…}。
 // 后者会被隐含乘法拆成 s·q·r·t·(…)，解析居然是成功的 —— 不报错但显然不是本意，
-// 所以成功路径也要提示一句。根号的边界必须有花括号来界定（√2x 到底是 √(2x) 还是
-// (√2)·x 没有公认约定），这就是本程序只认 LaTeX 写法的原因。
+// 所以成功路径也要提示一句。
 std::optional<std::string> radicalHint(std::string_view text) {
   if (text.find("√") != std::string_view::npos) {
     return std::string("根号请写 LaTeX 形式 —— \\sqrt{2}、\\sqrt[3]{2}");
@@ -222,7 +229,7 @@ void printSyntax() {
   printField("变量", "单个字母可带下标 —— x、a_1、x_{i,j}", true);
   printField("长名", "多字母变量加花括号 —— {node}、{node}_{car}", true);
   printField("乘法", "可省略 —— xy 即 x*y，2x 即 2*x（所以 {node} 不写花括号会变成 n*o*d*e）", true);
-  printField("根号", "只认 LaTeX 写法 —— \\sqrt{2}、\\sqrt[3]{2}（仅限不含变量的式子）", true);
+  printField("根号", "只认 LaTeX 写法 —— \\sqrt{2}、\\sqrt[3]{2}", true);
   printField("写法", "普通写法与 LaTeX 写法都接受 —— \\frac{a}{b}、\\cdot、\\times、\\div、x^{2}", true);
 }
 
@@ -230,14 +237,109 @@ void printSyntax() {
 void printConstraintHelp() {
   printSection("条件");
   printField("写法", "变量 = 表达式，如 x = 2、s = v*t（右边可含式子里没有的变量）", true);
+  printField("根号", "右边可以直接写根号 —— x = \\sqrt{2}、y = \\sqrt[3]{5}", true);
   printField("删除", "输入 x = x 删掉变量 x 的约束（重复输入同名变量即为覆盖）", true);
   printField("结束", "输入 0=0", true);
   printField("限制", "右边不能含被赋值的变量本身 —— x = 2x 是方程，不支持", true);
-  printField("根号", "条件里不支持根号，根号只能出现在不含变量的式子里", true);
 }
 
-// 逐条读取条件，成功则记入 scope
-void readConstraints(const RationalFunction &expression, Scope &scope) {
+// ---------------- 条件 ----------------
+
+// 一条条件的值。含根号时 RationalFunction 装不下（它的系数域是有理数），只能用代数数。
+using ConstraintValue = std::variant<RationalFunction, RealAlgebraicNumber>;
+
+struct Constraint {
+  Variable variable;
+  ConstraintValue value;
+};
+
+std::string constraintValueLatex(const ConstraintValue &value) {
+  if (const RealAlgebraicNumber *number = std::get_if<RealAlgebraicNumber>(&value)) {
+    return radicalLatex(*number);
+  }
+  return std::get<RationalFunction>(value).latex();
+}
+
+// 把条件的值提升到代数栈。有理值的提升走 toAlgebraic（单射，不丢信息），
+// 根号值本身就是代数数，直接当常数包进去。
+AlgebraicRationalFunction toAlgebraicValue(const ConstraintValue &value) {
+  if (const RealAlgebraicNumber *number = std::get_if<RealAlgebraicNumber>(&value)) {
+    return AlgebraicRationalFunction(*number);
+  }
+  return toAlgebraic(std::get<RationalFunction>(value));
+}
+
+// 记录一条条件；同名变量只保留最新的一条（覆盖）
+void recordConstraint(std::vector<Constraint> &constraints, Constraint entry) {
+  for (Constraint &existing : constraints) {
+    if (existing.variable == entry.variable) {
+      existing = std::move(entry);
+      return;
+    }
+  }
+  constraints.push_back(std::move(entry));
+}
+
+// 从条件表里删掉某个变量，返回是否确实删掉了
+std::size_t eraseConstraint(std::vector<Constraint> &constraints, const Variable &variable) {
+  std::size_t removed = 0;
+  for (std::size_t index = 0; index < constraints.size();) {
+    if (constraints[index].variable == variable) {
+      constraints.erase(constraints.begin() + static_cast<std::ptrdiff_t>(index));
+      ++removed;
+      continue;
+    }
+    ++index;
+  }
+  return removed;
+}
+
+// 解析 "变量 = 含根号的常数"。左边必须是单个变量，右边交给 RealAlgebraicNumber。
+// 格式不符就返回 nullopt —— 报错交给有理式那条路，那里诊断更准。
+std::optional<Constraint> parseRadicalConstraint(std::string_view text) {
+  const std::size_t equals = text.find('=');
+  if (equals == std::string_view::npos || text.find('=', equals + 1) != std::string_view::npos) {
+    return std::nullopt;
+  }
+
+  const Result<RationalFunction> leftHand = parseExpression(text.substr(0, equals));
+  if (leftHand.isErr()) {
+    return std::nullopt;
+  }
+  const std::optional<Variable> variable = expression_detail::asSingleVariable(leftHand.unwrap());
+  if (!variable) {
+    return std::nullopt;
+  }
+
+  const Result<RealAlgebraicNumber> value = RealAlgebraicNumber::parse(text.substr(equals + 1));
+  if (value.isErr()) {
+    return std::nullopt;
+  }
+  return Constraint{*variable, value.unwrap()};
+}
+
+// 根号条件的相关性。它的值是常数、不含变量，所以 isRelevantTo 里「右边引入式子的变量」
+// 那几条判据一律不成立，只看左边变量是否与式子或已有条件有关就够了。
+bool isRadicalRelevant(const RationalFunction &expression, const std::vector<Constraint> &constraints,
+                       const Variable &variable) {
+  if (expression.containsVariable(variable)) {
+    return true;
+  }
+  for (const Constraint &entry : constraints) {
+    if (entry.variable == variable) {
+      return true; // 覆盖一条已有条件
+    }
+    if (const RationalFunction *value = std::get_if<RationalFunction>(&entry.value)) {
+      if (value->containsVariable(variable)) {
+        return true; // 已有的值里含这个变量
+      }
+    }
+  }
+  return false;
+}
+
+// 逐条读取条件：有理的记入 scope，全部（含根号）记入 constraints
+void readConstraints(const RationalFunction &expression, Scope &scope, std::vector<Constraint> &constraints) {
   while (true) {
     std::cout << "条件> ";
     std::string line;
@@ -257,7 +359,9 @@ void readConstraints(const RationalFunction &expression, Scope &scope) {
     // x = x 是删除指令，优先于赋值解析 —— 否则它会被当成恒等式丢掉
     const std::optional<Variable> erased = parseErase(line);
     if (erased) {
-      if (scope.erase(*erased)) {
+      const bool wasBound = scope.erase(*erased);
+      const std::size_t removed = eraseConstraint(constraints, *erased);
+      if (wasBound || removed > 0) {
         printFeedback("已删除", erased->str() + " 的约束");
       } else {
         printFeedback("跳过", erased->str() + " 本来就没有约束");
@@ -266,46 +370,77 @@ void readConstraints(const RationalFunction &expression, Scope &scope) {
     }
 
     const Result<std::optional<Assignment>> assignment = parseAssignment(line);
+
+    // 有理式那条路走通（且不是恒等式）时按原样处理，行为与加根号之前完全一致
+    if (assignment.isOk() && assignment.unwrap().has_value()) {
+      const Assignment &entry = *assignment.unwrap();
+      if (!isRelevantTo(expression, scope, entry)) {
+        printFeedback("跳过", "与式子和已有条件都无关");
+        continue;
+      }
+      const Result<void> assigned = scope.assign(entry.variable, entry.value);
+      if (assigned.isErr()) {
+        printFeedback("不接受", describe(assigned.unwrapErr()));
+        continue;
+      }
+      recordConstraint(constraints, Constraint{entry.variable, entry.value});
+      printFeedback("已记录", entry.variable.str() + " = " + entry.value.latex());
+      continue;
+    }
+
+    // 右边含根号：值是常数，RationalFunction 表示不了它
+    const std::optional<Constraint> radical = parseRadicalConstraint(line);
+    if (radical) {
+      if (!isRadicalRelevant(expression, constraints, radical->variable)) {
+        printFeedback("跳过", "与式子和已有条件都无关");
+        continue;
+      }
+      // 同名变量之前可能绑的是有理值，覆盖后要从有理作用域里撤掉 ——
+      // 否则两条路各记一份，结果取决于走哪条路
+      scope.erase(radical->variable);
+      recordConstraint(constraints, *radical);
+      printFeedback("已记录", radical->variable.str() + " = " + constraintValueLatex(radical->value));
+      continue;
+    }
+
+    // 两条路都不通。有理式那条的报错更具体，用它
     if (assignment.isErr()) {
       printFeedback("不接受", describe(assignment.unwrapErr()));
       continue;
     }
-    if (!assignment.unwrap().has_value()) {
-      printFeedback("跳过", "恒等式，没有可记录的信息");
-      continue;
-    }
-
-    const Assignment &entry = *assignment.unwrap();
-
-    // 左右两边都与「式子和已有绑定」无关时记录它没有意义
-    if (!isRelevantTo(expression, scope, entry)) {
-      printFeedback("跳过", "与式子和已有条件都无关");
-      continue;
-    }
-
-    // 赋值可能被拒（右边含变量自身时属于方程，不支持）
-    const Result<void> assigned = scope.assign(entry.variable, entry.value);
-    if (assigned.isErr()) {
-      printFeedback("不接受", describe(assigned.unwrapErr()));
-      continue;
-    }
-    printFeedback("已记录", entry.variable.str() + " = " + entry.value.latex());
+    printFeedback("跳过", "恒等式，没有可记录的信息");
   }
 }
 
-// 打印代入化简的结果
-void printResult(const RationalFunction &expression, const Scope &scope) {
-  printField("式子", expression.latex());
+// ---------------- 结果 ----------------
 
+void printConstraintList(const std::vector<Constraint> &constraints) {
   printSection("条件");
-  if (scope.empty()) {
+  if (constraints.empty()) {
     printListItem("（无）");
-  } else {
-    for (const auto &[variable, value] : scope.bindings()) {
-      printListItem(variable.str() + " = " + value.latex());
-    }
+    return;
   }
+  for (const Constraint &entry : constraints) {
+    printListItem(entry.variable.str() + " = " + constraintValueLatex(entry.value));
+  }
+}
 
+void printDiscardedNote(const std::set<Variable> &discarded) {
+  if (discarded.empty()) {
+    return;
+  }
+  std::string names;
+  for (const Variable &variable : discarded) {
+    if (!names.empty()) {
+      names += ' ';
+    }
+    names += variable.str();
+  }
+  printField("注意", "化简中约去了 " + names + "，上述等价关系仅在这些变量非零时成立");
+}
+
+// 有理路径：与加根号之前完全一致
+void printRationalResult(const RationalFunction &expression, const Scope &scope) {
   const Result<RationalFunction> substituted = expression.substitute(scope);
   if (substituted.isErr()) {
     // 代入后分母为零属于数学结论（原式在该点无定义），不是程序错误，
@@ -337,16 +472,36 @@ void printResult(const RationalFunction &expression, const Scope &scope) {
     printField("常数结果", evaluated.unwrap());
   }
 
-  if (!result.discardedConstraints().empty()) {
-    std::string names;
-    for (const Variable &variable : result.discardedConstraints()) {
-      if (!names.empty()) {
-        names += ' ';
-      }
-      names += variable.str();
+  printDiscardedNote(result.discardedConstraints());
+}
+
+// 代数路径：条件里出现根号时，ℚ 上的代入算不出精确值（√2 装不进 Fraction），
+// 整体提升到 ℚ(α) 上算。提升是单射，不丢信息；化简规则与定义域约束跟有理版共用同一套。
+void printAlgebraicResult(const RationalFunction &expression, const std::vector<Constraint> &constraints) {
+  AlgebraicScope scope;
+  for (const Constraint &entry : constraints) {
+    const Result<void> assigned = scope.assign(entry.variable, toAlgebraicValue(entry.value));
+    if (assigned.isErr()) {
+      printField("无法代入", entry.variable.str() + ": " + std::string(describe(assigned.unwrapErr())));
+      return;
     }
-    printField("注意", "化简中约去了 " + names + "，上述等价关系仅在这些变量非零时成立");
   }
+
+  const Result<AlgebraicRationalFunction> substituted = toAlgebraic(expression).substitute(scope);
+  if (substituted.isErr()) {
+    printField("无法代入", std::string(describe(substituted.unwrapErr())) + "（原式在这些取值处无定义）");
+    return;
+  }
+
+  // 分子分母都化成常数时给精确值（x^2+1 配 x=\sqrt{2} 得 3，这是最漂亮的情形）
+  const Result<RealAlgebraicNumber> evaluated = substituted.unwrap().evaluate(scope);
+  if (evaluated.isOk()) {
+    printField("精确值", radicalLatex(evaluated.unwrap()));
+  } else {
+    printField("化简结果", substituted.unwrap().latex());
+  }
+
+  printDiscardedNote(substituted.unwrap().discardedConstraints());
 }
 
 } // namespace
@@ -362,8 +517,8 @@ int main() {
     return 0;
   }
 
-  // 含根号的纯数值式子不是有理函数，没有「代入条件」可言，直接给精确值。
   if (const RealAlgebraicNumber *algebraic = std::get_if<RealAlgebraicNumber>(&input->value)) {
+    // 含根号的纯数值式子不是有理函数，没有「代入条件」可言，直接给精确值
     printFeedback("提示", "根号按精确代数数计算，不需要代入条件");
     std::cout << "\n--- 结果 ---\n";
     printField("式子", input->text);
@@ -371,6 +526,7 @@ int main() {
   } else {
     const RationalFunction &expression = std::get<RationalFunction>(input->value);
     Scope scope;
+    std::vector<Constraint> constraints;
 
     // 式子不含变量时它就是纯常数运算，没有可代入的东西 —— 直接出结果，当计算器用。
     // 这时连条件说明都不必打印，否则用户会对着一段用不上的提示发愣。
@@ -379,11 +535,27 @@ int main() {
     } else {
       std::cout << '\n';
       printConstraintHelp();
-      readConstraints(expression, scope);
+      readConstraints(expression, scope, constraints);
     }
 
     std::cout << "\n--- 结果 ---\n";
-    printResult(expression, scope);
+    printField("式子", expression.latex());
+    printConstraintList(constraints);
+
+    // 只要有一条条件的值是根号，ℚ 上的精确计算就做不下去了，整体改走代数栈
+    bool hasRadical = false;
+    for (const Constraint &entry : constraints) {
+      if (std::holds_alternative<RealAlgebraicNumber>(entry.value)) {
+        hasRadical = true;
+        break;
+      }
+    }
+
+    if (hasRadical) {
+      printAlgebraicResult(expression, constraints);
+    } else {
+      printRationalResult(expression, scope);
+    }
   }
 
   // 双击运行时窗口不会立刻关闭
