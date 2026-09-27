@@ -186,5 +186,64 @@ int main() {
     CHECK_TRUE(first == second);
   }
 
+  // ---------- 高次根式取值：代入不能失败 ----------
+  //
+  // 回归用：曾经 √[4]{2}、√[5]{2}、√2+√3 代入会失败（ZeroDenominator / NumericOverflow）。
+  // 根因是「与有理数相乘相加」也走了环上的线性代数；现已改走廉价特例。
+  {
+    struct Case {
+      const char *value;
+      const char *expectedLatex;
+    };
+    const Case cases[] = {
+        {"\\sqrt[4]{2}", "\\sqrt[4]{2}"},
+        {"\\sqrt[5]{2}", "\\sqrt[5]{2}"},
+        {"\\sqrt{2}+\\sqrt{3}", "\\operatorname{RootOf}(x^{4} - 10x^{2} + 1, [\\frac{3}{4}, \\frac{21}{4}])"},
+        {"\\frac{1+\\sqrt{5}}{2}", "\\operatorname{RootOf}(x^{2} - x - 1, [\\frac{11}{8}, \\frac{17}{8}])"},
+    };
+
+    AlgebraicPolynomial single; // 式子 x
+    single.addTerm({{Variable("x"), 1ULL}}, RealAlgebraicNumber(Fraction(1, 1)));
+    AlgebraicPolynomial withZ; // 式子 x*z
+    withZ.addTerm({{Variable("x"), 1ULL}, {Variable("z"), 1ULL}}, RealAlgebraicNumber(Fraction(1, 1)));
+
+    for (const Case &item : cases) {
+      const RealAlgebraicNumber value = number(item.value);
+      AlgebraicScope scope;
+      CHECK_OK(scope.assign(Variable("x"), value));
+
+      // x 单独代入：应当就是这个值本身
+      const Result<RealAlgebraicNumber> resolved = single.evaluate(scope);
+      CHECK_OK(resolved);
+      CHECK_TRUE(resolved.unwrap() == value);
+
+      // x·z 代入：保留变量 z，系数换成该值，且渲染成可读形式
+      const Result<AlgebraicRationalFunction> substituted = AlgebraicRationalFunction(withZ).substitute(scope);
+      CHECK_OK(substituted);
+      CHECK_EQ(substituted.unwrap().latex(), std::string(item.expectedLatex) + "z");
+    }
+  }
+
+  // ---------- 与有理数运算的廉价特例 ----------
+  {
+    const RealAlgebraicNumber root = number("\\sqrt[4]{2}"); // ⁴√2
+
+    // α + c 与 α·c 既不能失败，也要精确
+    CHECK_TRUE((root + RealAlgebraicNumber(Fraction(1, 1))) - RealAlgebraicNumber(Fraction(1, 1)) == root);
+    CHECK_TRUE(root * RealAlgebraicNumber(Fraction(2, 1)) == root + root);
+    CHECK_TRUE((root * RealAlgebraicNumber(Fraction(2, 1))) / RealAlgebraicNumber(Fraction(2, 1)) == root);
+    CHECK_TRUE(root * RealAlgebraicNumber(Fraction(0, 1)) == Fraction(0, 1));
+
+    // 乘以负数：区间方向要翻转，符号也跟着变
+    const RealAlgebraicNumber negated = root * RealAlgebraicNumber(Fraction(-1, 1));
+    CHECK_TRUE(negated < Fraction(0, 1));
+    CHECK_TRUE(negated == -root);
+
+    // (2·⁴√2)^4 = 16 · 2 = 32
+    const Result<RealAlgebraicNumber> powered = (root * RealAlgebraicNumber(Fraction(2, 1))).pow(4);
+    CHECK_OK(powered);
+    CHECK_TRUE(powered.unwrap() == Fraction(32, 1));
+  }
+
   TEST_SUMMARY();
 }

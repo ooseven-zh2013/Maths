@@ -225,51 +225,66 @@ inline Result<Coefficient> PolynomialOf<Coefficient>::evaluate(const ScopeOf<Coe
 template <class Coefficient>
 inline Result<RationalFunctionOf<Coefficient>>
 RationalFunctionOf<Coefficient>::substitute(const ScopeOf<Coefficient> &scope) const {
-  RationalFunctionOf current = *this;
-  const std::size_t limit = scope.size() + 1;
+  // 代入过程中内部的多项式运算在极端情况下仍会抛 MathsException（内部有 unwrap）。
+  // 但 substitute 有返回值位置，就该把失败以 Result 交出去 ——
+  // 让异常跑出去，宿主程序只会得到一个没有错误信息的硬崩溃。
+  try {
+    const auto compute = [this, &scope]() -> Result<RationalFunctionOf> {
+      RationalFunctionOf current = *this;
+      const std::size_t limit = scope.size() + 1;
 
-  for (std::size_t iteration = 0; iteration < limit; ++iteration) {
-    // 必须用 current 的分子分母。若用 *this 的，每一轮都在替换原始式子，
-    // 链式绑定（s = v*t 且 v = a*b）就只能展开一层。
-    const RationalFunctionOf replacedNumerator = current.getNumerator().substitute(scope);
-    const RationalFunctionOf replacedDenominator = current.getDenominator().substitute(scope);
+      for (std::size_t iteration = 0; iteration < limit; ++iteration) {
+        // 必须用 current 的分子分母。若用 *this 的，每一轮都在替换原始式子，
+        // 链式绑定（s = v*t 且 v = a*b）就只能展开一层。
+        const RationalFunctionOf replacedNumerator = current.getNumerator().substitute(scope);
+        const RationalFunctionOf replacedDenominator = current.getDenominator().substitute(scope);
 
-    if (replacedDenominator.isZero()) {
-      return std::unexpected(MathsError::ZeroDenominator);
-    }
+        if (replacedDenominator.isZero()) {
+          return std::unexpected(MathsError::ZeroDenominator);
+        }
 
-    const Result<RationalFunctionOf> quotient = replacedNumerator / replacedDenominator;
-    if (quotient.isErr()) {
-      return quotient;
-    }
-    if (quotient.unwrap() == current) {
-      break; // 到达不动点
-    }
-    current = quotient.unwrap();
+        const Result<RationalFunctionOf> quotient = replacedNumerator / replacedDenominator;
+        if (quotient.isErr()) {
+          return quotient;
+        }
+        if (quotient.unwrap() == current) {
+          break; // 到达不动点
+        }
+        current = quotient.unwrap();
+      }
+
+      // 代入不改变此前化简已经丢掉的定义域约束，照旧保留
+      current.discarded = discarded;
+      return current;
+    };
+    return compute();
+  } catch (const MathsException &error) {
+    return std::unexpected(error.code());
   }
-
-  // 代入不改变此前化简已经丢掉的定义域约束，照旧保留
-  current.discarded = discarded;
-  return current;
 }
 
 // 完全求值：要求代入后分子分母都化为常数
 template <class Coefficient>
 inline Result<Coefficient> RationalFunctionOf<Coefficient>::evaluate(const ScopeOf<Coefficient> &scope) const {
-  const Result<RationalFunctionOf> expanded = substitute(scope);
-  if (expanded.isErr()) {
-    return std::unexpected(expanded.unwrapErr());
-  }
+  // 同 substitute：有返回值位置就交 Result，不让内部异常跑出去
+  try {
+    const Result<RationalFunctionOf> expanded = substitute(scope);
+    if (expanded.isErr()) {
+      return std::unexpected(expanded.unwrapErr());
+    }
 
-  const Result<MonomialOf<Coefficient>> numeratorValue = expanded.unwrap().getNumerator().toMonomial();
-  const Result<MonomialOf<Coefficient>> denominatorValue = expanded.unwrap().getDenominator().toMonomial();
-  if (numeratorValue.isErr() || !numeratorValue.unwrap().isConstant() || denominatorValue.isErr() ||
-      !denominatorValue.unwrap().isConstant()) {
-    return std::unexpected(MathsError::UndefinedVariable);
-  }
+    const Result<MonomialOf<Coefficient>> numeratorValue = expanded.unwrap().getNumerator().toMonomial();
+    const Result<MonomialOf<Coefficient>> denominatorValue = expanded.unwrap().getDenominator().toMonomial();
+    if (numeratorValue.isErr() || !numeratorValue.unwrap().isConstant() || denominatorValue.isErr() ||
+        !denominatorValue.unwrap().isConstant()) {
+      return std::unexpected(MathsError::UndefinedVariable);
+    }
 
-  // 分母非零由 substitute 保证，除法不会失败
-  return numeratorValue.unwrap().getCoefficient() / denominatorValue.unwrap().getCoefficient();
+    // 分母非零由 substitute 保证，除法不会失败
+    return numeratorValue.unwrap().getCoefficient() / denominatorValue.unwrap().getCoefficient();
+  } catch (const MathsException &error) {
+    return std::unexpected(error.code());
+  }
 }
 
 template <class Coefficient> inline std::ostream &operator<<(std::ostream &os, const ScopeOf<Coefficient> &scope) {

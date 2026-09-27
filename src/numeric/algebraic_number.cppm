@@ -291,9 +291,10 @@ public:
     return UnivariatePolynomial(std::move(result));
   }
 
-  // poly(value - x)，按 x 展开。
-  // x^term 的系数 = Σ_power a_power · C(power, term) · (-1)^term · value^(power-term)
-  static UnivariatePolynomial reversedShift(const UnivariatePolynomial &poly, const Fraction &value) {
+  // poly(x - offset)，按 x 展开：x^k 的系数 = Σ_j a_j · C(j, k) · (-offset)^(j-k)。
+  // 用途：α 的零化多项式是 p 时，α + offset 的零化多项式就是 p(x - offset) ——
+  // 平移显然保持「无平方因子」与根的隔离性，所以可以直接拿来用。
+  static UnivariatePolynomial shifted(const UnivariatePolynomial &poly, const Fraction &offset) {
     if (poly.isZero()) {
       return UnivariatePolynomial();
     }
@@ -304,15 +305,32 @@ public:
         Fraction contribution = original * Fraction(algebraic_detail::toSigned(algebraic_detail::binomial(
                                                         static_cast<unsigned>(power), static_cast<unsigned>(term))),
                                                     1LL);
-        contribution = contribution * algebraic_detail::powInt(value, static_cast<unsigned>(power - term));
-        if (term % 2 == 1) {
-          contribution = -contribution;
-        }
+        contribution = contribution * algebraic_detail::powInt(-offset, static_cast<unsigned>(power - term));
         result[term] = result[term] + contribution;
         algebraic_detail::guard(result[term]);
       }
     }
-    return UnivariatePolynomial(std::move(result));
+    // 展开会带出公共整数因子，约掉它免得系数越滚越大（只影响外观与规模，不改根）
+    return UnivariatePolynomial(std::move(result)).primitivePart();
+  }
+
+  // poly(x / factor)：α 是 p 的根时，factor·α 就是它的根（factor ≠ 0）。
+  static UnivariatePolynomial scaledVariable(const UnivariatePolynomial &poly, const Fraction &factor) {
+    if (poly.isZero() || factor == 0LL) {
+      return UnivariatePolynomial();
+    }
+    std::vector<Fraction> result(poly.coeffs_.size(), Fraction(0, 1));
+    Fraction power(1, 1);
+    for (std::size_t index = 0; index < poly.coeffs_.size(); ++index) {
+      const Result<Fraction> scaled = poly.coeffs_[index] / power;
+      if (scaled.isErr()) {
+        return UnivariatePolynomial();
+      }
+      result[index] = scaled.unwrap();
+      power = power * factor;
+      algebraic_detail::guard(power);
+    }
+    return UnivariatePolynomial(std::move(result)).primitivePart();
   }
 
   // ==================== 规范化 ====================
@@ -1050,6 +1068,17 @@ public:
     if (lhs.isRational() && rhs.isRational()) {
       return RealAlgebraicNumber(lhs.low_ + rhs.low_);
     }
+    // 与有理数相加是廉价且不会失败的特例：α + c 是 p(x − c) 的根，区间整体平移。
+    // 走专用路线既省掉环上的线性代数，也避开高次多项式在那里顶穿表示范围 ——
+    // 而「加一个有理数」在代入、通分里出现得极其频繁。
+    if (rhs.isRational()) {
+      return RealAlgebraicNumber(UnivariatePolynomial::shifted(lhs.poly_, rhs.low_), lhs.low_ + rhs.low_,
+                                 lhs.high_ + rhs.low_, Validated{});
+    }
+    if (lhs.isRational()) {
+      return RealAlgebraicNumber(UnivariatePolynomial::shifted(rhs.poly_, lhs.low_), rhs.low_ + lhs.low_,
+                                 rhs.high_ + lhs.low_, Validated{});
+    }
     // 候选多项式的根取遍所有「α_i + β_j」，再用区间加法定位到目标那一个
     const UnivariatePolynomial candidate =
         UnivariatePolynomial::annihilatorOfSum(lhs.poly_, rhs.poly_).squareFreePart();
@@ -1075,6 +1104,13 @@ public:
   friend RealAlgebraicNumber operator*(const RealAlgebraicNumber &lhs, const RealAlgebraicNumber &rhs) {
     if (lhs.isRational() && rhs.isRational()) {
       return RealAlgebraicNumber(lhs.low_ * rhs.low_);
+    }
+    // 与有理数相乘同理：α·c 是 p(x / c) 的根，区间按 c 缩放（c < 0 时方向翻转）
+    if (rhs.isRational()) {
+      return lhs.scaledByRational(rhs.low_);
+    }
+    if (lhs.isRational()) {
+      return rhs.scaledByRational(lhs.low_);
     }
     // 同一个数自乘走平方专用路线：环的维数从 deg² 降到 deg，避免消元中途溢出
     const bool squaring = (lhs == rhs);
@@ -1142,6 +1178,14 @@ public:
         return std::unexpected(quotient.unwrapErr());
       }
       return RealAlgebraicNumber(quotient.unwrap());
+    }
+    // 除以有理数：α / c = α · (1/c)，同样不必进环上的线性代数
+    if (rhs.isRational()) {
+      const Result<Fraction> factor = Fraction(1, 1) / rhs.low_;
+      if (factor.isErr()) {
+        return std::unexpected(MathsError::DivisionByZero);
+      }
+      return lhs.scaledByRational(factor.unwrap());
     }
     const Result<RealAlgebraicNumber> reciprocal = rhs.inverse();
     if (reciprocal.isErr()) {
@@ -1354,6 +1398,22 @@ private:
       return std::strong_ordering::less;
     }
     return std::strong_ordering::equal;
+  }
+
+  // α·c（c 为有理数）：多项式换成 p(x / c)，区间按 c 缩放。
+  // c < 0 时区间的两个端点会交换大小，必须重新排序。
+  RealAlgebraicNumber scaledByRational(const Fraction &factor) const {
+    if (factor == 0LL || isZero()) {
+      return RealAlgebraicNumber(Fraction(0, 1));
+    }
+    const UnivariatePolynomial scaled = UnivariatePolynomial::scaledVariable(poly_, factor);
+    if (scaled.isZero() || scaled.isConstant()) {
+      return RealAlgebraicNumber(Fraction(0, 1)); // 不该发生，兜底
+    }
+    if (factor.isNegative()) {
+      return RealAlgebraicNumber(scaled, high_ * factor, low_ * factor, Validated{});
+    }
+    return RealAlgebraicNumber(scaled, low_ * factor, high_ * factor, Validated{});
   }
 
   static std::pair<Fraction, Fraction> productBounds(const RealAlgebraicNumber &lhs, const RealAlgebraicNumber &rhs) {
