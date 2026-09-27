@@ -371,6 +371,25 @@ void readConstraints(const RationalFunction &expression, Scope &scope, std::vect
   }
 }
 
+// ---------------- 精确值的渲染 ----------------
+
+// 精确值优先给「有理数」写法。
+//
+// 起因：`x^3` 配条件 `x=\sqrt[3]{2}` 的结果其实是 2，但它的表示仍是 3 次多项式
+// `x^3 - 8`、隔离区间没有退化成一点，于是 `latex()` 走单根式分支渲染成 `\sqrt[3]{8}`。
+// 数值精确、但人不这么写。
+//
+// 这里先拿 `toFraction()`（有理根定理）问一句「你其实是有理数吧」，答是就按分数渲染。
+// **别用 `isRational()` 代替它** —— 那个是「表示」属性（端点是否重合），不是数学判断。
+std::string exactValueLatex(const RealAlgebraicNumber &value) {
+  const Result<Fraction> rational = value.toFraction();
+  if (rational.isErr()) {
+    return value.latex();
+  }
+  // 再包回 RealAlgebraicNumber 只为复用库里的分数 LaTeX（app 侧拿不到 fractionLatex）
+  return RealAlgebraicNumber(rational.unwrap()).latex();
+}
+
 // ---------------- 结果 ----------------
 
 void printConstraintList(const std::vector<Constraint> &constraints) {
@@ -455,7 +474,7 @@ void printAlgebraicResult(const RationalFunction &expression, const std::vector<
   // 分子分母都化成常数时给精确值（x^2+1 配 x=\sqrt{2} 得 3，这是最漂亮的情形）
   const Result<RealAlgebraicNumber> evaluated = substituted.unwrap().evaluate(scope);
   if (evaluated.isOk()) {
-    printField("精确值", evaluated.unwrap().latex());
+    printField("精确值", exactValueLatex(evaluated.unwrap()));
   } else {
     printField("化简结果", substituted.unwrap().latex());
   }
@@ -481,7 +500,7 @@ int main() {
     printFeedback("提示", "根号按精确代数数计算，不需要代入条件");
     std::cout << "\n--- 结果 ---\n";
     printField("式子", input->text);
-    printField("精确值", algebraic->latex());
+    printField("精确值", exactValueLatex(*algebraic));
   } else {
     const RationalFunction &expression = std::get<RationalFunction>(input->value);
     Scope scope;
