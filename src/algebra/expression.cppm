@@ -184,6 +184,46 @@ inline std::string renderFractionLatex(const Fraction &value) {
   return value.isNegative() ? "-" + body : body;
 }
 
+// ==================== 系数的通用操作 ====================
+//
+// 下面这组函数让「系数」可以从 Fraction 换成别的精确数类型（例如实代数数）。
+// 都用 if constexpr 分流：有对应成员就走成员，否则退回到从 Fraction 构造的等价写法。
+// 这样写的好处是既有的 Fraction 路径一行行为都不变，新类型也不必特化整条代数栈。
+
+template <class Coefficient> inline Coefficient coefficientZero() { return Coefficient(Fraction(0, 1)); }
+template <class Coefficient> inline Coefficient coefficientOne() { return Coefficient(Fraction(1, 1)); }
+template <class Coefficient> inline Coefficient coefficientMinusOne() { return Coefficient(Fraction(-1, 1)); }
+
+template <class Coefficient> inline bool isZeroCoefficient(const Coefficient &value) {
+  if constexpr (requires { value.isZero(); }) {
+    return value.isZero();
+  } else {
+    return value == coefficientZero<Coefficient>();
+  }
+}
+
+template <class Coefficient> inline bool isNegativeCoefficient(const Coefficient &value) {
+  if constexpr (requires { value.isNegative(); }) {
+    return value.isNegative();
+  } else {
+    return value < coefficientZero<Coefficient>();
+  }
+}
+
+template <class Coefficient> inline std::string coefficientText(const Coefficient &value) {
+  std::ostringstream os;
+  os << value;
+  return os.str();
+}
+
+template <class Coefficient> inline std::string coefficientLatex(const Coefficient &value) {
+  if constexpr (requires { value.latex(); }) {
+    return value.latex();
+  } else {
+    return renderFractionLatex(value); // 目前只有 Fraction 会走这条
+  }
+}
+
 inline unsigned long long degreeOf(const VarPowers &factors) {
   unsigned long long total = 0;
   for (const auto &factor : factors) {
@@ -246,82 +286,83 @@ inline std::strong_ordering compareLex(const VarPowers &lhs, const VarPowers &rh
 
 } // namespace detail
 
-class Polynomial;
-class RationalFunction;
-class Scope;
+template <class Coefficient> class MonomialOf;
+template <class Coefficient> class PolynomialOf;
+template <class Coefficient> class RationalFunctionOf;
+template <class Coefficient> class ScopeOf;
 
-class Monomial {
+template <class Coefficient> class MonomialOf {
 public:
   using ull = unsigned long long;
 
-  Monomial() = default; // 零单项式
+  MonomialOf() = default; // 零单项式
 
-  // Fraction 是 trivially copyable，按值传参即可，std::move 不会带来收益
-  Monomial(Fraction _coeff) : coeff(_coeff) { normalize(); }
+  // 系数按值传参即可（Fraction 与实代数数都是廉价可拷贝的），std::move 不会带来收益
+  MonomialOf(Coefficient _coeff) : coeff(_coeff) { normalize(); }
 
-  Monomial(Fraction _coeff, VarPowers _factors) : coeff(_coeff), factors(std::move(_factors)) { normalize(); }
+  MonomialOf(Coefficient _coeff, VarPowers _factors) : coeff(_coeff), factors(std::move(_factors)) { normalize(); }
 
-  const Fraction &getCoefficient() const { return coeff; }
+  const Coefficient &getCoefficient() const { return coeff; }
   const VarPowers &getFactors() const { return factors; }
 
-  bool isZero() const { return coeff == 0LL; }
+  bool isZero() const { return detail::isZeroCoefficient(coeff); }
   bool isConstant() const { return factors.empty(); }
   ull degree() const { return detail::degreeOf(factors); }
 
   // 乘法结果仍是单项式，但同底数幂合并可能溢出，故返回 Result
-  Result<Monomial> operator*(const Monomial &rhs) const {
+  Result<MonomialOf> operator*(const MonomialOf &rhs) const {
     if (isZero() || rhs.isZero()) {
-      return Monomial();
+      return MonomialOf();
     }
     VarPowers merged = factors;
     merged.insert(merged.end(), rhs.factors.begin(), rhs.factors.end());
     try {
-      return Monomial(coeff * rhs.coeff, std::move(merged));
+      return MonomialOf(coeff * rhs.coeff, std::move(merged));
     } catch (const MathsException &error) {
       return std::unexpected(error.code());
     }
   }
 
-  Monomial &operator*=(const Monomial &rhs) {
+  MonomialOf &operator*=(const MonomialOf &rhs) {
     *this = (*this * rhs).unwrap();
     return *this;
   }
 
-  Monomial operator-() const { return Monomial(-coeff, factors); }
+  MonomialOf operator-() const { return MonomialOf(-coeff, factors); }
 
   // 把 Scope 中已绑定的变量替换为其值，未绑定的变量原样保留。
-  // 绑定值本身可以是分式（如 s = v*t、x = a/b），所以结果用 RationalFunction 承载（定义见 scope.hpp）
-  RationalFunction substitute(const Scope &scope) const;
+  // 绑定值本身可以是分式（如 s = v*t、x = a/b），所以结果用 RationalFunctionOf 承载（定义见 scope.cppm）
+  RationalFunctionOf<Coefficient> substitute(const ScopeOf<Coefficient> &scope) const;
 
   // 完全求值：所有变量都必须已绑定且结果化为常数，否则返回 MathsError::UndefinedVariable
-  Result<Fraction> evaluate(const Scope &scope) const;
+  Result<Coefficient> evaluate(const ScopeOf<Coefficient> &scope) const;
 
-  // 加减的结果不保证仍是单项式，因此返回 Polynomial（定义见 Polynomial 之后）
-  Polynomial operator+(const Monomial &rhs) const;
-  Polynomial operator-(const Monomial &rhs) const;
+  // 加减的结果不保证仍是单项式，因此返回 PolynomialOf（定义见 PolynomialOf 之后）
+  PolynomialOf<Coefficient> operator+(const MonomialOf &rhs) const;
+  PolynomialOf<Coefficient> operator-(const MonomialOf &rhs) const;
 
   // 先比变量部分（字典序）再比系数；变量部分的顺序由 normalizeFactors 保证
-  std::strong_ordering operator<=>(const Monomial &rhs) const {
+  std::strong_ordering operator<=>(const MonomialOf &rhs) const {
     if (auto cmp = factors <=> rhs.factors; cmp != 0) {
       return cmp;
     }
     return coeff <=> rhs.coeff;
   }
 
-  bool operator==(const Monomial &rhs) const { return factors == rhs.factors && coeff == rhs.coeff; }
+  bool operator==(const MonomialOf &rhs) const { return factors == rhs.factors && coeff == rhs.coeff; }
 
   std::string str() const {
     if (isZero()) {
       return "0";
     }
     if (factors.empty()) {
-      return detail::renderFraction(coeff);
+      return detail::coefficientText(coeff);
     }
     std::string result;
-    if (coeff == -1LL) {
+    if (coeff == detail::coefficientMinusOne<Coefficient>()) {
       result += '-';
-    } else if (!(coeff == 1LL)) {
-      result += detail::renderFraction(coeff);
+    } else if (!(coeff == detail::coefficientOne<Coefficient>())) {
+      result += detail::coefficientText(coeff);
       result += ' ';
     }
     for (std::size_t i = 0; i < factors.size(); ++i) {
@@ -344,14 +385,14 @@ public:
       return "0";
     }
     if (factors.empty()) {
-      return detail::renderFractionLatex(coeff);
+      return detail::coefficientLatex(coeff);
     }
 
     std::string result;
-    if (coeff == -1LL) {
+    if (coeff == detail::coefficientMinusOne<Coefficient>()) {
       result += '-';
-    } else if (!(coeff == 1LL)) {
-      result += detail::renderFractionLatex(coeff);
+    } else if (!(coeff == detail::coefficientOne<Coefficient>())) {
+      result += detail::coefficientLatex(coeff);
     }
     for (const auto &factor : factors) {
       result += factor.first.str();
@@ -398,20 +439,20 @@ private:
     normalizeFactors(factors);
   }
 
-  Fraction coeff;
+  Coefficient coeff;
   VarPowers factors;
 };
 
-class Polynomial {
+template <class Coefficient> class PolynomialOf {
 public:
   using ull = unsigned long long;
 
-  Polynomial() = default; // 零多项式
+  PolynomialOf() = default; // 零多项式
 
-  // 由单项式隐式提升，使 Monomial 能直接参与多项式的加减乘
-  Polynomial(const Monomial &_mono) { addTerm(_mono.getFactors(), _mono.getCoefficient()); }
+  // 由单项式隐式提升，使 MonomialOf 能直接参与多项式的加减乘
+  PolynomialOf(const MonomialOf<Coefficient> &_mono) { addTerm(_mono.getFactors(), _mono.getCoefficient()); }
 
-  const std::map<VarPowers, Fraction> &getTerms() const { return terms; }
+  const std::map<VarPowers, Coefficient> &getTerms() const { return terms; }
 
   // 是否含某个变量（任一项的变量因子里出现即算）
   bool containsVariable(const Variable &variable) const {
@@ -430,23 +471,23 @@ public:
   // 化简后只剩不超过一项即为单项式（零多项式视为零单项式）
   bool isMonomial() const { return terms.size() <= 1; }
 
-  // 对每一项调用 Monomial::substitute，再统一合并同类项（定义见 scope.hpp）。
-  // 结果可能不再是多项式，故返回 RationalFunction
-  RationalFunction substitute(const Scope &scope) const;
+  // 对每一项调用 MonomialOf::substitute，再统一合并同类项（定义见 scope.cppm）。
+  // 结果可能不再是多项式，故返回 RationalFunctionOf
+  RationalFunctionOf<Coefficient> substitute(const ScopeOf<Coefficient> &scope) const;
 
   // 完全求值：所有变量都必须已绑定且结果化为常数，否则返回 MathsError::UndefinedVariable
-  Result<Fraction> evaluate(const Scope &scope) const;
+  Result<Coefficient> evaluate(const ScopeOf<Coefficient> &scope) const;
 
   // 成功化简为单项式，否则返回 MathsError::NotAMonomial
-  Result<Monomial> toMonomial() const {
+  Result<MonomialOf<Coefficient>> toMonomial() const {
     if (terms.size() > 1) {
       return std::unexpected(MathsError::NotAMonomial);
     }
     if (terms.empty()) {
-      return Monomial();
+      return MonomialOf<Coefficient>();
     }
     const auto &[factors, coeff] = *terms.begin();
-    return Monomial(coeff, factors);
+    return MonomialOf<Coefficient>(coeff, factors);
   }
 
   ull degree() const {
@@ -457,16 +498,16 @@ public:
     return highest;
   }
 
-  Polynomial operator+(const Polynomial &rhs) const {
-    Polynomial result(*this);
+  PolynomialOf operator+(const PolynomialOf &rhs) const {
+    PolynomialOf result(*this);
     for (const auto &[factors, coeff] : rhs.terms) {
       result.addTerm(factors, coeff);
     }
     return result;
   }
 
-  Polynomial operator-(const Polynomial &rhs) const {
-    Polynomial result(*this);
+  PolynomialOf operator-(const PolynomialOf &rhs) const {
+    PolynomialOf result(*this);
     for (const auto &[factors, coeff] : rhs.terms) {
       result.addTerm(factors, -coeff);
     }
@@ -474,14 +515,14 @@ public:
   }
 
   // 展开时可能因指数合并溢出而失败
-  Result<Polynomial> operator*(const Polynomial &rhs) const {
-    Polynomial result;
+  Result<PolynomialOf> operator*(const PolynomialOf &rhs) const {
+    PolynomialOf result;
     try {
       for (const auto &[lhsFactors, lhsCoeff] : terms) {
         for (const auto &[rhsFactors, rhsCoeff] : rhs.terms) {
           VarPowers merged = lhsFactors;
           merged.insert(merged.end(), rhsFactors.begin(), rhsFactors.end());
-          Monomial::normalizeFactors(merged);
+          MonomialOf<Coefficient>::normalizeFactors(merged);
           result.addTerm(merged, lhsCoeff * rhsCoeff);
         }
       }
@@ -491,44 +532,44 @@ public:
     return result;
   }
 
-  Polynomial operator-() const {
-    Polynomial result;
+  PolynomialOf operator-() const {
+    PolynomialOf result;
     for (const auto &[factors, coeff] : terms) {
       result.addTerm(factors, -coeff);
     }
     return result;
   }
 
-  Polynomial &operator+=(const Polynomial &rhs) {
+  PolynomialOf &operator+=(const PolynomialOf &rhs) {
     *this = *this + rhs;
     return *this;
   }
 
-  Polynomial &operator-=(const Polynomial &rhs) {
+  PolynomialOf &operator-=(const PolynomialOf &rhs) {
     *this = *this - rhs;
     return *this;
   }
 
-  Polynomial &operator*=(const Polynomial &rhs) {
+  PolynomialOf &operator*=(const PolynomialOf &rhs) {
     *this = (*this * rhs).unwrap();
     return *this;
   }
 
-  bool operator==(const Polynomial &rhs) const = default;
+  bool operator==(const PolynomialOf &rhs) const = default;
 
   // 展示顺序见 detail::displayOrderLess
   std::string str() const {
     if (terms.empty()) {
       return "0";
     }
-    std::vector<std::pair<VarPowers, Fraction>> ordered(terms.begin(), terms.end());
+    std::vector<std::pair<VarPowers, Coefficient>> ordered(terms.begin(), terms.end());
     std::sort(ordered.begin(), ordered.end(),
               [](const auto &lhs, const auto &rhs) { return detail::displayOrderLess(lhs.first, rhs.first); });
 
     std::string result;
     bool first = true;
     for (const auto &[factors, coeff] : ordered) {
-      const bool negative = coeff.isNegative();
+      const bool negative = detail::isNegativeCoefficient(coeff);
       if (first) {
         if (negative) {
           result += '-';
@@ -537,7 +578,7 @@ public:
       } else {
         result += negative ? " - " : " + ";
       }
-      result += Monomial(negative ? -coeff : coeff, factors).str();
+      result += MonomialOf<Coefficient>(negative ? -coeff : coeff, factors).str();
     }
     return result;
   }
@@ -547,14 +588,14 @@ public:
     if (terms.empty()) {
       return "0";
     }
-    std::vector<std::pair<VarPowers, Fraction>> ordered(terms.begin(), terms.end());
+    std::vector<std::pair<VarPowers, Coefficient>> ordered(terms.begin(), terms.end());
     std::sort(ordered.begin(), ordered.end(),
               [](const auto &lhs, const auto &rhs) { return detail::displayOrderLess(lhs.first, rhs.first); });
 
     std::string result;
     bool first = true;
     for (const auto &[factors, coeff] : ordered) {
-      const bool negative = coeff.isNegative();
+      const bool negative = detail::isNegativeCoefficient(coeff);
       if (first) {
         if (negative) {
           result += '-';
@@ -563,49 +604,70 @@ public:
       } else {
         result += negative ? " - " : " + ";
       }
-      result += Monomial(negative ? -coeff : coeff, factors).latex();
+      result += MonomialOf<Coefficient>(negative ? -coeff : coeff, factors).latex();
     }
     return result;
   }
 
   // 加入一项：已存在则合并同类项，系数归零则整项删除。
-  // 公开是为了让 RationalFunction 这类需要逐项构建多项式的代码能复用同一套规范化逻辑。
-  void addTerm(const VarPowers &key, const Fraction &value) {
-    if (value == 0LL) {
+  // 公开是为了让 RationalFunctionOf 这类需要逐项构建多项式的代码能复用同一套规范化逻辑。
+  void addTerm(const VarPowers &key, const Coefficient &value) {
+    if (detail::isZeroCoefficient(value)) {
       return;
     }
     auto [iter, inserted] = terms.try_emplace(key, value);
     if (!inserted) {
-      iter->second += value;
-      if (iter->second == 0LL) {
+      iter->second = iter->second + value; // 不依赖 operator+=，换系数类型也能用
+      if (detail::isZeroCoefficient(iter->second)) {
         terms.erase(iter);
       }
     }
   }
 
 private:
-  std::map<VarPowers, Fraction> terms;
+  std::map<VarPowers, Coefficient> terms;
 };
 
-inline Polynomial Monomial::operator+(const Monomial &rhs) const { return Polynomial(*this) + Polynomial(rhs); }
+template <class Coefficient>
+inline PolynomialOf<Coefficient> MonomialOf<Coefficient>::operator+(const MonomialOf<Coefficient> &rhs) const {
+  return PolynomialOf<Coefficient>(*this) + PolynomialOf<Coefficient>(rhs);
+}
 
-inline Polynomial Monomial::operator-(const Monomial &rhs) const { return Polynomial(*this) - Polynomial(rhs); }
+template <class Coefficient>
+inline PolynomialOf<Coefficient> MonomialOf<Coefficient>::operator-(const MonomialOf<Coefficient> &rhs) const {
+  return PolynomialOf<Coefficient>(*this) - PolynomialOf<Coefficient>(rhs);
+}
 
-// 左操作数为 Monomial 时成员运算符不适用，补自由函数保证对称性
-inline Polynomial operator+(const Monomial &lhs, const Polynomial &rhs) { return Polynomial(lhs) + rhs; }
+// 左操作数为 MonomialOf 时成员运算符不适用，补自由函数保证对称性
+template <class Coefficient>
+inline PolynomialOf<Coefficient> operator+(const MonomialOf<Coefficient> &lhs, const PolynomialOf<Coefficient> &rhs) {
+  return PolynomialOf<Coefficient>(lhs) + rhs;
+}
 
-inline Polynomial operator-(const Monomial &lhs, const Polynomial &rhs) { return Polynomial(lhs) - rhs; }
+template <class Coefficient>
+inline PolynomialOf<Coefficient> operator-(const MonomialOf<Coefficient> &lhs, const PolynomialOf<Coefficient> &rhs) {
+  return PolynomialOf<Coefficient>(lhs) - rhs;
+}
 
-inline Result<Polynomial> operator*(const Monomial &lhs, const Polynomial &rhs) { return Polynomial(lhs) * rhs; }
+template <class Coefficient>
+inline Result<PolynomialOf<Coefficient>> operator*(const MonomialOf<Coefficient> &lhs,
+                                                   const PolynomialOf<Coefficient> &rhs) {
+  return PolynomialOf<Coefficient>(lhs) * rhs;
+}
 
-inline std::ostream &operator<<(std::ostream &os, const Monomial &value) { return os << value.str(); }
+template <class Coefficient> inline std::ostream &operator<<(std::ostream &os, const MonomialOf<Coefficient> &value) {
+  return os << value.str();
+}
 
-inline std::ostream &operator<<(std::ostream &os, const Polynomial &value) { return os << value.str(); }
+template <class Coefficient> inline std::ostream &operator<<(std::ostream &os, const PolynomialOf<Coefficient> &value) {
+  return os << value.str();
+}
 
 // ==================== 多项式带余除法 ====================
 
 // 按字典序取首项；零多项式返回 nullopt
-inline std::optional<Monomial> leadingMonomial(const Polynomial &polynomial) {
+template <class Coefficient>
+inline std::optional<MonomialOf<Coefficient>> leadingMonomial(const PolynomialOf<Coefficient> &polynomial) {
   const auto &terms = polynomial.getTerms();
   if (terms.empty()) {
     return std::nullopt;
@@ -616,30 +678,32 @@ inline std::optional<Monomial> leadingMonomial(const Polynomial &polynomial) {
       best = it;
     }
   }
-  return Monomial(best->second, best->first);
+  return MonomialOf<Coefficient>(best->second, best->first);
 }
 
-struct PolynomialDivision {
-  Polynomial quotient;
-  Polynomial remainder;
+template <class Coefficient> struct PolynomialDivisionOf {
+  PolynomialOf<Coefficient> quotient;
+  PolynomialOf<Coefficient> remainder;
 };
 
 // 带余除法：dividend = quotient * divisor + remainder。
 // 多元情况下首项可能无法整除（变量指数不足），此时提前终止；余式非零即表示不能整除。
-inline Result<PolynomialDivision> divideWithRemainder(const Polynomial &dividend, const Polynomial &divisor) {
+template <class Coefficient>
+inline Result<PolynomialDivisionOf<Coefficient>> divideWithRemainder(const PolynomialOf<Coefficient> &dividend,
+                                                                     const PolynomialOf<Coefficient> &divisor) {
   if (divisor.isZero()) {
     return std::unexpected(MathsError::DivisionByZero);
   }
 
-  Polynomial quotient;
-  Polynomial remainder = dividend;
+  PolynomialOf<Coefficient> quotient;
+  PolynomialOf<Coefficient> remainder = dividend;
 
   while (true) {
-    const std::optional<Monomial> remainderLead = leadingMonomial(remainder);
+    const std::optional<MonomialOf<Coefficient>> remainderLead = leadingMonomial(remainder);
     if (!remainderLead) {
       break; // 余式已为零，整除结束
     }
-    const std::optional<Monomial> divisorLead = leadingMonomial(divisor);
+    const std::optional<MonomialOf<Coefficient>> divisorLead = leadingMonomial(divisor);
     if (!divisorLead) {
       break; // divisor 非零由入口检查保证；显式判空是为了让静态分析也能看到
     }
@@ -670,17 +734,30 @@ inline Result<PolynomialDivision> divideWithRemainder(const Polynomial &dividend
     if (!divisible) {
       break; // 首项不可整除，当前余式即最终余式
     }
-    Monomial::normalizeFactors(reduced);
+    MonomialOf<Coefficient>::normalizeFactors(reduced);
 
     // 首项系数必非零，除法不会失败
-    const Fraction coefficient = (remainderLead->getCoefficient() / divisorLead->getCoefficient()).unwrap();
-    const Monomial term(coefficient, std::move(reduced));
+    const Result<Coefficient> quotientCoefficient = remainderLead->getCoefficient() / divisorLead->getCoefficient();
+    if (quotientCoefficient.isErr()) {
+      break;
+    }
+    const MonomialOf<Coefficient> term(quotientCoefficient.unwrap(), std::move(reduced));
 
     quotient.addTerm(term.getFactors(), term.getCoefficient());
-    remainder = remainder - (term * divisor).unwrap();
+    const Result<PolynomialOf<Coefficient>> product = term * divisor;
+    if (product.isErr()) {
+      break;
+    }
+    remainder = remainder - product.unwrap();
   }
 
-  return PolynomialDivision{std::move(quotient), std::move(remainder)};
+  return PolynomialDivisionOf<Coefficient>{std::move(quotient), std::move(remainder)};
 }
+
+// ==================== 既有名字（系数为有理数） ====================
+
+using Monomial = MonomialOf<Fraction>;
+using Polynomial = PolynomialOf<Fraction>;
+using PolynomialDivision = PolynomialDivisionOf<Fraction>;
 
 } // namespace maths
