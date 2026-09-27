@@ -280,6 +280,35 @@ int runTests() {
     CHECK_ERR(RealAlgebraicNumber::parse("1 +"), MathsError::InvalidExpression);
   }
 
+  // ---------- latex 的根式渲染 ----------
+  {
+    // 单个根式还原成 \sqrt 写法
+    CHECK_EQ(RealAlgebraicNumber::parse("\\sqrt{2}").unwrap().latex(), std::string("\\sqrt{2}"));
+    CHECK_EQ(RealAlgebraicNumber::parse("\\sqrt[3]{2}").unwrap().latex(), std::string("\\sqrt[3]{2}"));
+
+    // 负号：偶次要实测符号，奇次由被开方数承载
+    CHECK_EQ((-RealAlgebraicNumber::parse("\\sqrt{2}").unwrap()).latex(), std::string("-\\sqrt{2}"));
+    CHECK_EQ(RealAlgebraicNumber::parse("\\sqrt[3]{-2}").unwrap().latex(), std::string("-\\sqrt[3]{2}"));
+
+    // 2√2 与 √8 是同一个数（多项式 x^2 − 8），渲染一致；不做最简根式化
+    CHECK_EQ(RealAlgebraicNumber::parse("2\\sqrt{2}").unwrap().latex(), std::string("\\sqrt{8}"));
+    CHECK_EQ(RealAlgebraicNumber::parse("2\\sqrt{2}").unwrap().latex(),
+             RealAlgebraicNumber::parse("\\sqrt{8}").unwrap().latex());
+
+    // 被开方数是分数
+    CHECK_EQ(RealAlgebraicNumber::parse("\\sqrt{1/2}").unwrap().latex(), std::string("\\sqrt{\\frac{1}{2}}"));
+
+    // 中间项不为零的还原不成单个根式，仍走 RootOf
+    CHECK_TRUE(
+        RealAlgebraicNumber::parse("\\sqrt{2} + \\sqrt{3}").unwrap().latex().starts_with("\\operatorname{RootOf}"));
+
+    // 有理数照旧
+    CHECK_EQ(RealAlgebraicNumber(Fraction(-3, 2)).latex(), std::string("-\\frac{3}{2}"));
+
+    // str() 保持 RootOf —— 终端诊断时多项式信息比 \sqrt{2} 有用
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt{2}").unwrap().str().starts_with("RootOf"));
+  }
+
   TEST_SUMMARY();
 }
 

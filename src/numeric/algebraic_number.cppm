@@ -1224,12 +1224,59 @@ public:
     if (isRational()) {
       return algebraic_detail::fractionLatex(low_);
     }
+    // 能还原成单个根式就写根式：\sqrt{2} 比 RootOf(x^2-2, [...]) 好读太多
+    if (const std::optional<std::pair<unsigned, Fraction>> radical = asSingleRadical()) {
+      const unsigned degree = radical->first;
+      Fraction radicand = radical->second;
+      bool negativePrefix = false;
+      if (degree % 2 == 1) {
+        // 奇次实根唯一，符号已经由被开方数承载；提到根号外只是更好读。
+        // 这里**不能**再看值的符号 —— 否则 -∛2 会被写成 -\sqrt[3]{-2}（那是正数）。
+        if (radicand < 0LL) {
+          radicand = -radicand;
+          negativePrefix = true;
+        }
+      } else {
+        // 偶次：被开方数恒正，± 分不出来，必须靠隔离区间实测值本身的符号
+        negativePrefix = compareToRational(Fraction(0, 1)) == std::strong_ordering::less;
+      }
+
+      std::string body = "\\sqrt";
+      if (degree != 2) {
+        body += "[" + std::to_string(degree) + "]";
+      }
+      body += "{" + algebraic_detail::fractionLatex(radicand) + "}";
+      return negativePrefix ? "-" + body : body;
+    }
     return "\\operatorname{RootOf}(" + poly_.latex() + ", [" + algebraic_detail::fractionLatex(low_) + ", " +
            algebraic_detail::fractionLatex(high_) + "])";
   }
 
 private:
   struct Validated {}; // 标记：参数已由调用方验证，不再重复检查
+
+  // 最小多项式只有首项与常数项非零时（a·x^n + c），这个数就是 ±ⁿ√(-c/a)。
+  // 返回 (阶数, 被开方数)；nullopt 表示还原不成单个根式
+  // （例如 √2+√3，它的多项式 x^4-10x^2+1 有中间项）。
+  std::optional<std::pair<unsigned, Fraction>> asSingleRadical() const {
+    if (isRational()) {
+      return std::nullopt;
+    }
+    const std::size_t degree = poly_.degree();
+    if (degree < 2) {
+      return std::nullopt;
+    }
+    for (std::size_t power = 1; power < degree; ++power) {
+      if (poly_.coefficient(power) != Fraction(0, 1)) {
+        return std::nullopt;
+      }
+    }
+    const Result<Fraction> radicand = (Fraction(0, 1) - poly_.constantTerm()) / poly_.leadingCoefficient();
+    if (radicand.isErr()) {
+      return std::nullopt; // 首项系数非零，实际到不了这里，兜底
+    }
+    return std::make_pair(static_cast<unsigned>(degree), radicand.unwrap());
+  }
 
   // 正因子枚举（试除）。超过上限就不分解，只留下 ±1 这类必然因子 ——
   // 宁可漏判（返回 NotARational）也不做可能很慢的完整分解。
