@@ -31,10 +31,16 @@ fi
 mkdir -p releases
 
 for target in $TARGETS; do
+  # 删不干净就得失败：目标目录残留会让下面的复制产出坏结构（set -e 会拦下来）
   rm -rf "releases/${target}" "target/dist/${target}"
 
   mcpp pack "${target}" --release --format dir -o "${target}"
-  cp -r "target/dist/${target}" "releases/${target}"
+
+  # 复制「目录的内容」而不是目录本身：目标已存在时 `cp -r 源 目标` 会把源目录
+  # 整个塞进目标**里面**，变成 releases/${target}/${target}/ —— 静默产出坏目录。
+  # 写成 源/. 展开的就是内容，不依赖"上一步一定清干净了"。
+  mkdir -p "releases/${target}"
+  cp -R "target/dist/${target}/." "releases/${target}/"
 
   echo "已打包: releases/${target}"
   ls -1 "releases/${target}"

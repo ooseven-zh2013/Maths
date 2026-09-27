@@ -16,23 +16,53 @@
 
 $ErrorActionPreference = 'Stop'
 
-Set-Location -LiteralPath (Join-Path $PSScriptRoot '..')
+# 工作目录必须**两个都设**：Set-Location 只改 PowerShell provider 的当前目录，
+# [Environment]::CurrentDirectory（.NET 的当前目录）不跟着走，而
+# [System.IO.Directory]::Delete() 这类 .NET API 只认后者。
+# 只设一个的后果：Test-Path 说路径存在、.NET 说找不到 → 清理被静默跳过 →
+# 复制时目标目录已存在 → 产物被多套一层。2026-09-27 在 scripts\ 下实跑复现，
+# 报错路径是 scripts\releases\simplify（连进程启动目录都没出）。
+$Root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+Set-Location -LiteralPath $Root
+[Environment]::CurrentDirectory = $Root
+
+$ReleasesDir = Join-Path $Root 'releases'
+$StagingDir = Join-Path $Root 'target/dist'
 
 # 删目录统一走 .NET 而不是 Remove-Item：
 #   1. Remove-Item 会把原生命令的 stderr 当错误，Stop 模式下直接终止脚本
 #   2. 某些沙箱/安全软件会钩住 Remove-Item 并抛 SAFE_DELETE_FAIL_CLOSED
-# 清理失败不该让打包白做，所以这里只警告。
+# 但删不掉**不能只警告了事**：目标目录残留会让后面那步复制产出坏结构
+# （见 Copy-DirContents），所以删完必须确认目录真的没了，确认不了就直接失败。
+# 失败会留下错误信息，总比静默产出一个坏目录、还照样"打包成功"要好。
 function Remove-Dir {
     param([string]$Path)
 
     if (-not (Test-Path -LiteralPath $Path)) {
         return
     }
-    try {
-        [System.IO.Directory]::Delete($Path, $true)
-    } catch {
-        Write-Warning "清理 $Path 失败：$($_.Exception.Message)"
+
+    [System.IO.Directory]::Delete($Path, $true)
+
+    if (Test-Path -LiteralPath $Path) {
+        throw "清理 $Path 失败：目录仍然存在"
     }
+}
+
+# 复制「目录的内容」而不是目录本身。目标目录若已存在，Copy-Item -Recurse 会把
+# 整个源目录塞进目标**里面**，变成 releases\<名字>\<名字>\ —— 静默产出坏目录。
+# 这里先建好目标、再逐个子项复制，结构上不可能多套一层，也不依赖"上一步清干净了"；
+# 比写 -Path "…\*" 好在源目录为空时不会报"找不到路径"。
+function Copy-DirContents {
+    param([string]$From, [string]$To)
+
+    if (-not (Test-Path -LiteralPath $From)) {
+        throw "找不到待复制的源目录 $From"
+    }
+
+    New-Item -ItemType Directory -Path $To -Force | Out-Null
+    # -Force 让隐藏项也一起复制
+    Get-ChildItem -LiteralPath $From -Force | Copy-Item -Destination $To -Recurse -Force
 }
 
 # PowerShell 会把原生命令写进 stderr 的内容当成 ErrorRecord，在 Stop 模式下
@@ -58,21 +88,22 @@ if ($args.Count -gt 0) {
 }
 
 # 目录要事先存在：pack 不会自己建，目录不存在会直接报 cannot write
-if (-not (Test-Path -LiteralPath 'releases')) {
-    New-Item -ItemType Directory -Path 'releases' | Out-Null
-}
+New-Item -ItemType Directory -Path $ReleasesDir -Force | Out-Null
 
 foreach ($target in $Targets) {
-    Remove-Dir "releases/$target"
-    Remove-Dir "target/dist/$target"
+    $outDir = Join-Path $ReleasesDir $target
+    $stageDir = Join-Path $StagingDir $target
+
+    Remove-Dir $outDir
+    Remove-Dir $stageDir
 
     Invoke-Mcpp 'pack' $target '--release' '--format' 'dir' '-o' $target
 
-    Copy-Item -Recurse -LiteralPath "target/dist/$target" -Destination "releases/$target"
+    Copy-DirContents $stageDir $outDir
 
     Write-Host "已打包: releases/$target"
-    Get-ChildItem -LiteralPath "releases/$target" | ForEach-Object { Write-Host ('  ' + $_.Name) }
+    Get-ChildItem -LiteralPath $outDir | ForEach-Object { Write-Host ('  ' + $_.Name) }
 }
 
 # target\dist 只是 pack 的暂存区，产物已经复制到 releases\ 了，留着就是一份重复
-Remove-Dir 'target/dist'
+Remove-Dir $StagingDir

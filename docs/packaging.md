@@ -31,6 +31,12 @@ mcpp pack simplify --release --format dir -o simplify
 cp -r target/dist/simplify releases/simplify
 ```
 
+不过脚本里的复制写的是 `cp -R "target/dist/simplify/." "releases/simplify/"`（PowerShell 版
+对应 `Copy-Item -Path "…\*"`）—— 复制的是**目录的内容**，不是目录本身。差了那个后缀，
+目标目录已存在时 `cp -r 源 目标` / `Copy-Item -Recurse` 会把整个源目录塞进目标**里面**，
+产出 `releases/simplify/simplify/`，而且不报错。清理那一步同理：删不掉就必须失败，
+不能只警告了事，否则残留的旧目录会污染下一次打包的结果。
+
 **为什么要多一步复制**：`--format dir` 时 `-o` 只取路径的最后一段当名字，
 产物**始终**落在 `target/dist/` 下，不会跳到 `-o` 写的目录里。
 归档格式（tar / zip）的 `-o` 倒是能直接指到任意路径，例如
