@@ -965,7 +965,8 @@ public:
       return RealAlgebraicNumber(value);
     }
     if (exponent % 2 == 0 && value < 0LL) {
-      return std::unexpected(MathsError::InvalidRange); // 偶数次根下为负，实根不存在
+      // 负数开偶次根在实数域上无定义 —— 单列错误码，别跟「区间参数非法」混为一谈
+      return std::unexpected(MathsError::NegativeEvenRoot);
     }
 
     // 完全 n 次方直接落回有理数，省掉后面一整套构造
@@ -1263,7 +1264,7 @@ public:
       return RealAlgebraicNumber();
     }
     if (exponent % 2 == 0 && compareToRational(Fraction(0, 1)) == std::strong_ordering::less) {
-      return std::unexpected(MathsError::InvalidRange);
+      return std::unexpected(MathsError::NegativeEvenRoot);
     }
     if (isRational()) {
       return nthRootOf(low_, exponent);

@@ -135,8 +135,8 @@ int runTests() {
     CHECK_TRUE(negativeCubeRoot == Fraction(-2, 1));
 
     // 偶数次根下为负没有实根
-    CHECK_ERR(RealAlgebraicNumber::squareRootOf(Fraction(-1, 1)), MathsError::InvalidRange);
-    CHECK_ERR(RealAlgebraicNumber::nthRootOf(Fraction(-2, 1), 4), MathsError::InvalidRange);
+    CHECK_ERR(RealAlgebraicNumber::squareRootOf(Fraction(-1, 1)), MathsError::NegativeEvenRoot);
+    CHECK_ERR(RealAlgebraicNumber::nthRootOf(Fraction(-2, 1), 4), MathsError::NegativeEvenRoot);
 
     // 嵌套：√(√2) 的平方应等于 √2
     const RealAlgebraicNumber root = sqrtTwo();
@@ -275,7 +275,7 @@ int runTests() {
     CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt{2"), MathsError::InvalidExpression); // 括号没配平
     CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt{}"), MathsError::InvalidExpression);
     CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt[0]{2}"), MathsError::InvalidRange);
-    CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt{-4}"), MathsError::InvalidRange); // 偶次根下为负
+    CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt{-4}"), MathsError::NegativeEvenRoot); // 偶次根下为负
     CHECK_ERR(RealAlgebraicNumber::parse("\\frac{1}{0}"), MathsError::DivisionByZero);
     CHECK_ERR(RealAlgebraicNumber::parse("1 +"), MathsError::InvalidExpression);
   }
@@ -365,9 +365,9 @@ int runTests() {
     CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt[4/2]{16}"), MathsError::InvalidExpression);
 
     // 定义域
-    CHECK_ERR(RealAlgebraicNumber::parse("2^{1/0}"), MathsError::ZeroDenominator); // 分母为 0
-    CHECK_ERR(RealAlgebraicNumber::parse("0^{-1}"), MathsError::DivisionByZero);   // 0 的负次幂
-    CHECK_ERR(RealAlgebraicNumber::parse("(-4)^{1/2}"), MathsError::InvalidRange); // 偶次根下为负
+    CHECK_ERR(RealAlgebraicNumber::parse("2^{1/0}"), MathsError::ZeroDenominator);     // 分母为 0
+    CHECK_ERR(RealAlgebraicNumber::parse("0^{-1}"), MathsError::DivisionByZero);       // 0 的负次幂
+    CHECK_ERR(RealAlgebraicNumber::parse("(-4)^{1/2}"), MathsError::NegativeEvenRoot); // 偶次根下为负
   }
 
   TEST_SUMMARY();

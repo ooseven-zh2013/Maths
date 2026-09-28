@@ -19,6 +19,9 @@ enum class MathsError {
   // 「降一阶」失败：值本身不是更低一层的类型
   NotAnInteger,
   NotARational,
+  // 负数开偶次根：实数域上无定义，和「区间参数非法」不是一回事，单列一个码，
+  // 免得用户看到「区间参数非法」以为是语法问题
+  NegativeEvenRoot,
   NotAMonomial,
   NotAPolynomial,
   // 解析
@@ -52,6 +55,8 @@ inline std::string_view describe(MathsError error) {
     return "分数不是整数";
   case MathsError::NotARational:
     return "实代数数不是有理数";
+  case MathsError::NegativeEvenRoot:
+    return "负数不能开偶次根";
   case MathsError::NotAMonomial:
     return "多项式无法化简为单项式";
   case MathsError::NotAPolynomial:
