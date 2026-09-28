@@ -167,7 +167,7 @@ namespace detail {
 // O(deg) 特例；其余情形用二进制取幂。
 //
 // **别改回线性乘**：`α^k` 会被退化成 k−1 次通用乘积（环维数 deg²），
-// x^3 配 α = ⁶√2 在 α²·α 那一步就 NumericOverflow —— app 侧实测过的坑。
+// x^3 配 α = ⁶√2 在 α²·α 那一步就 NumericOverflow（实测过）。
 template <class Coefficient>
 inline Result<RationalFunctionOf<Coefficient>> valuePower(const RationalFunctionOf<Coefficient> &base,
                                                           unsigned long long exponent) {

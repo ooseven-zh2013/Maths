@@ -448,7 +448,7 @@ int main() {
     CHECK_ERR(parseAlgebraicExpression("\\sqrt{x^2}"), MathsError::InvalidExpression);
     CHECK_ERR(parseAlgebraicExpression("\\sqrt{2x}"), MathsError::InvalidExpression);
 
-    // 有理路径不受影响：ℚ 里没有根式，`\sqrt{2}*x` 仍应拒收（app 侧两条路的判据）
+    // 有理路径不受影响：ℚ 里没有根式，`\sqrt{2}*x` 仍应拒收
     CHECK_ERR(parseExpression("\\sqrt{2}*x"), MathsError::InvalidExpression);
     CHECK_EQ(parseExpression("2x + 1").unwrap().str(), std::string("2 x + 1"));
   }

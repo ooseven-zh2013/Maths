@@ -362,8 +362,8 @@ int runTests() {
   // ---------- 常量底数的有理指数，以及严格整数解析 ----------
   //
   // 回归用两件事：
-  //   ⑥ 第一层：a^{p/q}（含负指数、\frac 写法）
-  //   ⑤ 严格解析：解析器里裸调 std::stoull 会**只解析前缀**（"1/2" → 1），
+  //   常量底数的有理指数：a^{p/q}（含负指数、\frac 写法）
+  //   严格解析：解析器里裸调 std::stoull 会**只解析前缀**（"1/2" → 1），
   //      于是 2^{1/2} 静默算成 2；`\sqrt[1/2]{2}` 同理静默算成 2。
   {
     const RealAlgebraicNumber rootTwo = RealAlgebraicNumber::parse("\\sqrt{2}").unwrap();

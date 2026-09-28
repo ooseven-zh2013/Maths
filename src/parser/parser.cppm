@@ -34,7 +34,7 @@ namespace expression_detail {
 // 非负整数的严格解析：整串必须都是数字。
 //
 // std::stoull 遇到非法字符**只解析前缀且不抛异常**（"1/2" 直接返回 1），
-// 所以 try/catch 拦不住 —— 2026-09-28 的 ⑤ 就是它：`2^{1/2}` 静默算成 2。
+// 所以 try/catch 拦不住 —— `2^{1/2}` 会被读成指数 1，静默得到 2。
 // 凡是把文本交给 stoull 的地方都先过这里。
 inline std::optional<unsigned long long> parseWholeUnsigned(std::string_view text) {
   std::string digits;
@@ -59,7 +59,7 @@ inline std::optional<unsigned long long> parseWholeUnsigned(std::string_view tex
 
 // 系数开 n 次根。只有能表示无理数的系数类型（如实代数数）才可用；
 // 有理系数域 ℚ 里没有根式，于是 \sqrt{…} 在有理解析这条路上会明确报错 ——
-// 这正是 app 侧「两条解析路」的前提：有理解析器拒收的根式交给代数数解析器。
+// 因此含根号的式子在有理解析这条路上必然失败，要靠按代数系数实例化的那条路接手。
 template <class Coefficient> inline Result<Coefficient> coefficientNthRoot(const Coefficient &value, unsigned degree) {
   if constexpr (requires(const Coefficient &base, unsigned power) { base.nthRoot(power); }) {
     return value.nthRoot(degree);
