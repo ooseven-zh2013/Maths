@@ -15,6 +15,9 @@ C++23 模块库（`export module` / `import`，不再是 header-only），提供
 - **变量绑定与代入（Scope）** — 变量可绑定到常数或含其它变量的表达式，代入迭代到不动点
 - **表达式解析** — 文本（含 LaTeX 写法）解析成式子
 - **随机数** — 区间随机数，支持浮点与整数
+- **实代数数** — `√2`、`∛2`、`√2+√3` 这类无理数的精确表示（最小多项式 + 隔离区间），四则与开方全精确
+- **根号（系数位置）** — `\sqrt{2}*x`、`x + \sqrt{2}` 可直接写进式子；有理指数 `2^{1/2}`
+- **根式扩张（变量位置）** — `√x`、`√(x²+1) + √(x²+2)` 也能精确运算与代入求值
 - **LaTeX 输出** — 每个代数类型都有 `str()`（终端阅读）与 `latex()`（排版）
 
 ## 构建与运行
@@ -66,13 +69,16 @@ const Fraction value = (a / Fraction(1, 2)).unwrap();  // 失败则抛 MathsExce
 
 ## 模块
 
-| 模块 | 头文件 | 说明 | 文档 |
+| 模块 | 模块名 | 说明 | 文档 |
 | --- | --- | --- | --- |
 | 精确数值 | `maths.numbers` | `Integer`、`Fraction` | [文档](docs/src/numeric/numbers.md) |
+| 实代数数 | `maths.algebraic_number` | `RealAlgebraicNumber`：最小多项式 + 隔离区间、四则、开方、根式解析与渲染 | [文档](docs/src/numeric/algebraic_number.md) |
 | 代数表达式 | `maths.algebra:expression` | `Variable`、`Monomial`、`Polynomial`、带余除法 | [文档](docs/src/algebra/algebraic_expression.md) |
 | 分式 | `maths.algebra:rational` | 有理函数、三层化简、长除法归约 | [文档](docs/src/algebra/rational_function.md) |
 | 变量绑定 | `maths.algebra:scope` | `Scope` 与 `substitute` / `evaluate` | [文档](docs/src/algebra/scope.md) |
-| 表达式解析 | `maths.parser` | 文本与 LaTeX → 式子、代入条件解析 | [文档](docs/src/parser/expression_parser.md) |
+| 代数系数代数式 | `maths.algebra:algebraic` | 系数取实代数数的多项式与分式、代数作用域 | [文档](docs/src/algebra/algebraic.md) |
+| 根式扩张 | `maths.algebra:radical` | `√x`、`√(x²+1) + √(x²+2)` 这类含变量根号的精确表示与运算 | [文档](docs/src/algebra/radical.md) |
+| 表达式解析 | `maths.parser` | 文本与 LaTeX → 式子、代入条件解析、代数版入口 | [文档](docs/src/parser/expression_parser.md) |
 | 错误码 | `maths.error` | `MathsError`、`MathsException` | [文档](docs/src/core/maths_error.md) |
 | 结果类型 | `maths.result` | `Result<T>` | [文档](docs/src/core/result.md) |
 | 随机数 | `maths.random` | 区间随机数 | [文档](docs/src/numeric/random.md) |

@@ -23,11 +23,17 @@ if (result.isErr()) { /* result.unwrapErr() */ }     // Result 路径
 | `ZeroToNegativePower` | 0 的负数次幂无定义 | `pow` 底数为 0、指数为负 |
 | `NonIntegralPowerResult` | 指数运算结果不是整数 | `Integer ^= 负指数`（结果是分数，塞不回 `Integer`） |
 | `ExponentOverflow` | 变量指数超出可表示范围 | 同底数幂合并时指数相加溢出 |
+| `NumericOverflow` | 数值超出可精确表示的范围 | 代数数运算的中间量过大，`Fraction` 容纳不下 |
+| `NegativeEvenRoot` | 负数不能开偶次根 | `\sqrt{-4}`、`(-4)^{1/2}`、`RealAlgebraicNumber::nthRootOf(-2, 4)` |
+| `RadicandIsSquare` | 被开方数是完全平方，开方结果带绝对值（如 √(x²) = \|x\|），本库不引入 \|x\| | `RadicalExtension` 的 `√(x²)`、`√((x+1)²)` |
+| `RadicandsNotIndependent` | 多个根号落在同一平方类（如 √x 与 √(4x)），请先化成最简根式再写 | `RadicalExtension::sumOfRadicals({x, 4x})` |
 | `NotAMonomial` | 多项式无法化简为单项式 | `Polynomial::toMonomial` 遇到多于一项 |
 | `NotAPolynomial` | 分式无法化简为多项式 | `RationalFunction::toPolynomial` 余式非零 |
+| `NotAnInteger` | 分数不是整数 | `Fraction::toInteger` 分母不为 1 |
+| `NotARational` | 实代数数不是有理数 | `RealAlgebraicNumber::toFraction` 值无理；`RadicalExtension::toRationalFunction` 仍有根号部分 |
 | `InvalidExpression` | 不支持的表达式 | 解析失败、残留字符、`x + 1 = 2` 这类需要解方程的条件 |
 | `InvalidName` | 非法的名字 | `Variable("x^")`、`Name` 含非字母数字字符 |
-| `InvalidRange` | 区间参数非法 | `random` 的区间为空或超出 `long long` |
+| `InvalidRange` | 区间参数非法 | `random` 的区间为空或超出 `long long`；代数数的隔离区间不合法、精化超限。**只管真正的区间问题** —— 负数开偶次根另有错误码 |
 | `UndefinedVariable` | 变量未定义 | `Scope::lookup` 未绑定；`evaluate` 代入后仍含未绑定变量 |
 | `NotAnAssignment` | 右边含被赋值的变量本身，那是方程不是赋值 | `x = 2x`、`x = x + 1` |
 | `CircularReference` | 该赋值会形成循环引用 | `x = s`、`s = t`、`t = x` |

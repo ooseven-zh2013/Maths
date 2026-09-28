@@ -2,8 +2,9 @@
 
 对应 `src/parser/parser.cppm`。
 
-递归下降解析器，把文本解析成 `RationalFunction`。
-放在 `include/` 而不是 `apps/` 是因为它是库级能力（字符串 → 式子），应该能被测试和复用。
+递归下降解析器，把文本解析成式子。按**系数类型**参数化，因此同一套语法既能产
+`RationalFunction`（有理系数），也能产 `AlgebraicRationalFunction`（系数取实代数数）。
+放在 `src/parser/` 而不是 `apps/` 是因为它是库级能力（字符串 → 式子），应该能被测试和复用。
 
 结果**统一用 `RationalFunction` 承载**：除法必然引入分式，用统一类型可以省掉
 「多项式还是分式」的分支判断。
@@ -13,12 +14,23 @@
 ```
 expr    := term (('+' | '-') term)*
 term    := power (('*' | '/') power)*
-power   := unary ('^' 非负整数)?
+power   := unary ('^' 指数)?
 unary   := ('-' | '+')? primary
 primary := 整数 | 变量名 | '(' expr ')'
 ```
 
-幂用重复乘法实现（`RationalFunction` 未提供 `pow`），指数只接受非负整数。
+幂用重复乘法实现（`RationalFunction` 未提供 `pow`）。指数可以写成：
+
+| 写法 | 例子 | 说明 |
+| --- | --- | --- |
+| 非负整数 | `x^2`、`x^{12}` | 花括号里必须是**纯非负整数** |
+| 有理指数 | `2^{1/2}`、`2^{-1/2}`、`2^{\frac{1}{2}}` | `p`、`p/q`、`\frac{p}{q}`，允许负号 |
+
+`x^{1/2}` 这类**变量底的分数指数**解析失败（见下）：`x^{1/2}` 不是 `x/2`，
+也不在本解析器能力范围内。分母为 0（`2^{1/0}`）报 `ZeroDenominator`。
+
+> 指数必须**整串校验**：`std::stoull` 遇到非法字符只解析前缀且不抛异常
+> （`"1/2"` 直接返回 `1`），早期实现因此把 `2^{1/2}` 静默算成 `2`。
 
 ```cpp
 Result<RationalFunction> value = parseExpression("(x^2 - 1)/(x - 1)");
@@ -49,12 +61,36 @@ Result<RationalFunction> value = parseExpression("(x^2 - 1)/(x - 1)");
 | `\frac{a}{b}` | `(a)/(b)`（支持嵌套） |
 | `\cdot`、`\times` | `*` |
 | `\div` | `/` |
-| `x^{2}` | `x^2` |
+| `x^{2}` | `x^2`（内容不是纯整数时**不**展开，交给指数解析器报错）|
 | `\left`、`\right` | 忽略 |
+| `\sqrt{2}`、`\sqrt[3]{2}` | 原样保留，由解析器识别（**根号内只许常数**）|
 
 ```cpp
 parseExpression("\\frac{x}{y} + 1").unwrap().latex();   // "\frac{x + y}{y}"
 ```
+
+## 代数版入口：根号出现在系数位置
+
+`parseAlgebraicExpression` 用同一个 `ParserOf<Coefficient>` 模板、把系数换成
+`RealAlgebraicNumber`，于是式子里的根号不再被拒：
+
+```cpp
+parseAlgebraicExpression("\\sqrt{2}*x").unwrap().latex();     // "\\sqrt{2}x"
+parseAlgebraicExpression("x + \\sqrt{2}").unwrap().latex();   // "x + \\sqrt{2}"
+parseAlgebraicExpression("\\sqrt[3]{2}*y").unwrap().latex();  // "\\sqrt[3]{2}y"
+parseAlgebraicExpression("\\sqrt{2}/2").unwrap().latex();     // "\\frac{\\sqrt{2}}{2}"
+```
+
+两条入口有明确分工：
+
+| 入口 | 系数域 | 根号 |
+| --- | --- | --- |
+| `parseExpression` | ℚ（`RationalFunction`） | **拒收** —— 有理系数域里没有根式 |
+| `parseAlgebraicExpression` | 实代数数（`AlgebraicRationalFunction`） | 系数位置的根号可以写 |
+
+`parseExpression` 是前者的子集：纯有理式子走两条路结果等价（有断言的对照）。
+**根号包变量**（`\sqrt{x}`）两条路都拒收 —— 那需要函数域，见
+[radical.md](../algebra/radical.md)。
 
 ## 代入条件
 

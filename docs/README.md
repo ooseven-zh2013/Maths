@@ -17,6 +17,7 @@
 | 文档 | 对应模块文件 | 内容 |
 | --- | --- | --- |
 | [numbers.md](src/numeric/numbers.md) | `src/numeric/numbers.cppm` | `Integer`、`Fraction` 的精确数值运算 |
+| [algebraic_number.md](src/numeric/algebraic_number.md) | `src/numeric/algebraic_number.cppm` | 实代数数 `RealAlgebraicNumber`（最小多项式 + 隔离区间）、根式解析与渲染 |
 | [random.md](src/numeric/random.md) | `src/numeric/random.cppm` | 区间随机数 |
 
 ### algebra — 符号代数
@@ -26,6 +27,8 @@
 | [algebraic_expression.md](src/algebra/algebraic_expression.md) | `src/algebra/expression.cppm` | `Variable`、`Monomial`、`Polynomial`、多项式带余除法 |
 | [rational_function.md](src/algebra/rational_function.md) | `src/algebra/rational.cppm` | 分式、三层化简、定义域约束、长除法归约 |
 | [scope.md](src/algebra/scope.md) | `src/algebra/scope.cppm` | 变量绑定表 `Scope`、代入与求值的实现 |
+| [algebraic.md](src/algebra/algebraic.md) | `src/algebra/algebraic.cppm` | 系数取实代数数的代数式（代数栈按系数参数化、`toAlgebraic` 提升）|
+| [radical.md](src/algebra/radical.md) | `src/algebra/radical.cppm` | 根式扩张 `RadicalExtension`：`√x`、`√(x²+1) + √(x²+2)` 这类含变量根号 |
 
 ### parser — 文本 → 式子
 
@@ -45,13 +48,13 @@
 
 | 文档 | 对应程序 | 内容 |
 | --- | --- | --- |
-| [simplify.md](apps/simplify.md) | `apps/simplify` → `maths_simplify` | 交互式表达式化简：语法、条件写法、结果说明 |
+| [simplify.md](apps/simplify.md) | `apps/simplify/main.cpp` → 产物 `releases/simplify/` | 交互式表达式化简：语法、条件写法、结果说明 |
 
 ## 其他
 
 | 文档 | 对应目录 | 内容 |
 | --- | --- | --- |
-| [test.md](test.md) | `test/` | 断言宏、跑测试、新增测试的注意事项 |
+| [test.md](test.md) | `tests/` | 断言宏、跑测试、新增测试的注意事项 |
 | [packaging.md](packaging.md) | `scripts/` | 打包脚本与在 GitHub Releases 上发布 |
 
 ## 怎么读

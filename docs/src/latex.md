@@ -1,7 +1,7 @@
 # LaTeX 输出
 
-`Monomial`、`Polynomial`、`RationalFunction` 都提供 `latex()`，与 `str()` **并存**
-—— 一个面向终端阅读，一个面向排版，不要用一个替换另一个。
+`Monomial`、`Polynomial`、`RationalFunction`、`RealAlgebraicNumber`、`RadicalExtension`
+都提供 `latex()`，与 `str()` **并存** —— 一个面向终端阅读，一个面向排版，不要用一个替换另一个。
 
 ## 两套输出对照
 
@@ -54,3 +54,35 @@ parseExpression("\\frac{x}{y} + 1").unwrap().latex();   // "\frac{x + y}{y}"
 
 数学运算（取首项、长除法）用的是另一套序 —— 字典序 `compareLex`，
 两者不能混用，详见 [algebraic_expression.md](algebra/algebraic_expression.md#坑存储序--数学项序)。
+
+## 根式怎么排版
+
+`RealAlgebraicNumber::latex()` 会尽量写成根号，写不成就退回 `RootOf` 记法：
+
+| 情形 | `latex()` |
+| --- | --- |
+| 有理数 | `\frac{3}{2}` |
+| 最小多项式只有首项与常数项（`a·x^n + c`） | `\sqrt{2}`、`\sqrt[3]{2}`、`\sqrt[6]{128}` |
+| 还原不成单根式（多项式有中间项） | `\operatorname{RootOf}(x^{4} - 10x^{2} + 1, [...])` |
+
+判定与符号：
+
+- 有解的条件是 `a·x^n + c = 0` 型，此时该数就是 `±ⁿ√(-c/a)`
+- **奇次根**的符号由被开方数承载：`-∛2` 写成 `-\sqrt[3]{2}`。
+  写成 `-\sqrt[3]{-2}` 是错的（那是正数）
+- **偶次根**被开方数恒正、`±` 分不出来，必须靠隔离区间实测值本身的符号
+
+**不做最简根式化**：`2√2` 输出 `\sqrt{8}`，两者数值相等且都精确。
+另外 `str()` 与 `latex()` 在这块**分工不同** —— `str()` 保留 `RootOf` 记法（带多项式与区间，
+终端诊断时信息更多），`latex()` 才换成根号写法。
+
+`RadicalExtension`（含变量根号）同理，写 `\sqrt{...}`，多个生成元连写：
+
+| 值 | `latex()` |
+| --- | --- |
+| `√x` | `\sqrt{x}` |
+| `1 + √x` | `1 + \sqrt{x}` |
+| `2√x` | `2\sqrt{x}` |
+| `√(x²+1) + √(x²+2)` | `\sqrt{x^2 + 1} + \sqrt{x^2 + 2}` |
+
+它的 `str()` 用 `sqrt(...)` 写法，同样是给终端看的。
