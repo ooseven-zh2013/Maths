@@ -25,6 +25,9 @@ enum class MathsError {
   // 被开方数是完全平方（如 √(x²)、√((x+1)²)）：开方结果是 |x|、|x+1|，
   // 不是单值的代数函数。本库不引入绝对值节点，因此明确拒收而不是猜一个分支
   RadicandIsSquare,
+  // 多个根号落在同一平方类（如 √x 与 √(4x)，后者等于 2√x）：这时它们不是独立的
+  // 生成元，必须先折叠成最简根式。本库不做最简根式化，所以明确拒收
+  RadicandsNotIndependent,
   NotAMonomial,
   NotAPolynomial,
   // 解析
@@ -62,6 +65,8 @@ inline std::string_view describe(MathsError error) {
     return "负数不能开偶次根";
   case MathsError::RadicandIsSquare:
     return "被开方数是完全平方，开方结果带绝对值（如 √(x²) = |x|），本库不引入 |x|";
+  case MathsError::RadicandsNotIndependent:
+    return "多个根号落在同一平方类（如 √x 与 √(4x)），请先化成最简根式再写";
   case MathsError::NotAMonomial:
     return "多项式无法化简为单项式";
   case MathsError::NotAPolynomial:
