@@ -22,6 +22,9 @@ enum class MathsError {
   // 负数开偶次根：实数域上无定义，和「区间参数非法」不是一回事，单列一个码，
   // 免得用户看到「区间参数非法」以为是语法问题
   NegativeEvenRoot,
+  // 被开方数是完全平方（如 √(x²)、√((x+1)²)）：开方结果是 |x|、|x+1|，
+  // 不是单值的代数函数。本库不引入绝对值节点，因此明确拒收而不是猜一个分支
+  RadicandIsSquare,
   NotAMonomial,
   NotAPolynomial,
   // 解析
@@ -57,6 +60,8 @@ inline std::string_view describe(MathsError error) {
     return "实代数数不是有理数";
   case MathsError::NegativeEvenRoot:
     return "负数不能开偶次根";
+  case MathsError::RadicandIsSquare:
+    return "被开方数是完全平方，开方结果带绝对值（如 √(x²) = |x|），本库不引入 |x|";
   case MathsError::NotAMonomial:
     return "多项式无法化简为单项式";
   case MathsError::NotAPolynomial:

@@ -4,3 +4,4 @@ export import :expression;
 export import :rational;
 export import :scope;
 export import :algebraic;
+export import :quadratic;
