@@ -1136,6 +1136,13 @@ public:
       return RealAlgebraicNumber(UnivariatePolynomial::shifted(rhs.poly_, lhs.low_), rhs.low_ + lhs.low_,
                                  rhs.high_ + lhs.low_, Validated{});
     }
+    // 同一个数自加就是 2α，直接走缩放路线。
+    // 通用路线的候选多项式在这里是 x·(x²−8) 这种带个多余 0 根的东西，
+    // 它本身已无平方因子（去掉 0 根要靠因式分解，库里明确不做），
+    // 于是 asSingleRadical 认不出单根式，渲染退化成 RootOf。
+    if (lhs == rhs) {
+      return lhs.scaledByRational(Fraction(2, 1));
+    }
     // 候选多项式的根取遍所有「α_i + β_j」，再用区间加法定位到目标那一个
     const UnivariatePolynomial candidate =
         UnivariatePolynomial::annihilatorOfSum(lhs.poly_, rhs.poly_).squareFreePart();
@@ -1155,6 +1162,11 @@ public:
   }
 
   friend RealAlgebraicNumber operator-(const RealAlgebraicNumber &lhs, const RealAlgebraicNumber &rhs) {
+    // 同一个数相减恒为 0。走通用路线会得到一个「零但不是规范零」的表示
+    // （多余 0 根留在多项式里），渲染出来是 RootOf 而不是 0。
+    if (lhs == rhs) {
+      return RealAlgebraicNumber(Fraction(0, 1));
+    }
     return lhs + (-rhs);
   }
 

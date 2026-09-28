@@ -332,6 +332,33 @@ int runTests() {
     CHECK_TRUE(sum.pow(2).unwrap() == RealAlgebraicNumber::parse("5+2\\sqrt{6}").unwrap());
   }
 
+  // ---------- 同一个数自加 / 自减：别绕通用路线 ----------
+  //
+  // 回归用：√2+√2 曾经渲染成 RootOf(x³−8x, …)。通用加法的候选多项式是 x(x²−8)，
+  // 它已无平方因子（去掉那个多余的 0 根要靠因式分解，库里明确不做），
+  // 于是 asSingleRadical 认不出单根式 —— 数值一直是对的，只是渲染难看。
+  {
+    const RealAlgebraicNumber rootTwo = sqrtTwo();
+
+    CHECK_EQ((rootTwo + rootTwo).latex(), std::string("\\sqrt{8}")); // 仍不做最简根式化，故不是 2√2
+    CHECK_TRUE(rootTwo + rootTwo == RealAlgebraicNumber::parse("2\\sqrt{2}").unwrap());
+    CHECK_TRUE(rootTwo + rootTwo == rootTwo * RealAlgebraicNumber(Fraction(2, 1)));
+
+    // 自减恒为 0，而且要是**规范零**（有理数 0），不是带多余根号的表示
+    CHECK_TRUE((rootTwo - rootTwo).isRational());
+    CHECK_TRUE((rootTwo - rootTwo).isZero());
+    CHECK_EQ((rootTwo - rootTwo).latex(), std::string("0"));
+
+    // 高次根式同理：2·⁶√2 = ⁶√128
+    const RealAlgebraicNumber sixthRoot = RealAlgebraicNumber::nthRootOf(Fraction(2, 1), 6).unwrap();
+    CHECK_EQ((sixthRoot + sixthRoot).latex(), std::string("\\sqrt[6]{128}"));
+    CHECK_TRUE(sixthRoot + sixthRoot == RealAlgebraicNumber::parse("2\\sqrt[6]{2}").unwrap());
+
+    // 表示能力边界：√2+√3 本来就没有单一根式写法，仍走 RootOf（不是 bug）
+    CHECK_TRUE(
+        (rootTwo + RealAlgebraicNumber::parse("\\sqrt{3}").unwrap()).latex().starts_with("\\operatorname{RootOf}"));
+  }
+
   // ---------- 常量底数的有理指数，以及严格整数解析 ----------
   //
   // 回归用两件事：

@@ -255,6 +255,21 @@ int main() {
     }
   }
 
+  // ---------- 系数相加不该退化成 RootOf ----------
+  //
+  // app 侧报的场景：`x + \sqrt{2}` 配 `x = \sqrt{2}`，两个 √2 相加。
+  // 走通用加法时候选多项式是 x(x²−8)，多一个 0 根去不掉 → 渲染 RootOf(x³−8x, …)。
+  // 这条打在**代入层**（app 真正走的路径），不是只测 RealAlgebraicNumber::operator+。
+  {
+    const Result<AlgebraicRationalFunction> expression = parseAlgebraicExpression("x + \\sqrt{2}");
+    CHECK_OK(expression);
+    AlgebraicScope scope;
+    CHECK_OK(scope.assign(Variable("x"), number("\\sqrt{2}")));
+    const Result<AlgebraicRationalFunction> substituted = expression.unwrap().substitute(scope);
+    CHECK_OK(substituted);
+    CHECK_EQ(substituted.unwrap().latex(), std::string("\\sqrt{8}"));
+  }
+
   // ---------- 与有理数运算的廉价特例 ----------
   {
     const RealAlgebraicNumber root = number("\\sqrt[4]{2}"); // ⁴√2
