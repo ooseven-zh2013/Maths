@@ -5,6 +5,7 @@ import maths.error;
 import maths.result;
 import maths.numbers;
 import maths.algebra;
+import maths.algebraic_number;
 
 export namespace maths {
 
@@ -53,6 +54,19 @@ inline std::optional<unsigned long long> parseWholeUnsigned(std::string_view tex
     return static_cast<unsigned long long>(std::stoull(digits));
   } catch (const std::exception &) {
     return std::nullopt;
+  }
+}
+
+// 系数开 n 次根。只有能表示无理数的系数类型（如实代数数）才可用；
+// 有理系数域 ℚ 里没有根式，于是 \sqrt{…} 在有理解析这条路上会明确报错 ——
+// 这正是 app 侧「两条解析路」的前提：有理解析器拒收的根式交给代数数解析器。
+template <class Coefficient> inline Result<Coefficient> coefficientNthRoot(const Coefficient &value, unsigned degree) {
+  if constexpr (requires(const Coefficient &base, unsigned power) { base.nthRoot(power); }) {
+    return value.nthRoot(degree);
+  } else {
+    (void)value;
+    (void)degree;
+    return std::unexpected(MathsError::InvalidExpression);
   }
 }
 
@@ -158,16 +172,16 @@ inline std::string normalizeLatex(std::string_view source) {
   return result;
 }
 
-class Parser {
+template <class Coefficient> class ParserOf {
 public:
-  explicit Parser(std::string_view source) : text(source) {}
+  explicit ParserOf(std::string_view source) : text(source) {}
 
-  Result<RationalFunction> parse() {
+  Result<RationalFunctionOf<Coefficient>> parse() {
     skipSpaces();
     if (atEnd()) {
       return std::unexpected(MathsError::InvalidExpression);
     }
-    Result<RationalFunction> value = parseAdditive();
+    Result<RationalFunctionOf<Coefficient>> value = parseAdditive();
     if (value.isErr()) {
       return value;
     }
@@ -190,8 +204,8 @@ private:
     }
   }
 
-  Result<RationalFunction> parseAdditive() {
-    Result<RationalFunction> left = parseMultiplicative();
+  Result<RationalFunctionOf<Coefficient>> parseAdditive() {
+    Result<RationalFunctionOf<Coefficient>> left = parseMultiplicative();
     if (left.isErr()) {
       return left;
     }
@@ -202,7 +216,7 @@ private:
         return left;
       }
       ++position;
-      Result<RationalFunction> right = parseMultiplicative();
+      Result<RationalFunctionOf<Coefficient>> right = parseMultiplicative();
       if (right.isErr()) {
         return right;
       }
@@ -221,8 +235,8 @@ private:
            character == '\\';
   }
 
-  Result<RationalFunction> parseMultiplicative() {
-    Result<RationalFunction> left = parsePower();
+  Result<RationalFunctionOf<Coefficient>> parseMultiplicative() {
+    Result<RationalFunctionOf<Coefficient>> left = parsePower();
     if (left.isErr()) {
       return left;
     }
@@ -239,12 +253,12 @@ private:
         ++position;
       }
 
-      Result<RationalFunction> right = parsePower();
+      Result<RationalFunctionOf<Coefficient>> right = parsePower();
       if (right.isErr()) {
         return right;
       }
       if (operation == '/') {
-        Result<RationalFunction> quotient = left.unwrap() / right.unwrap();
+        Result<RationalFunctionOf<Coefficient>> quotient = left.unwrap() / right.unwrap();
         if (quotient.isErr()) {
           return quotient;
         }
@@ -255,8 +269,8 @@ private:
     }
   }
 
-  Result<RationalFunction> parsePower() {
-    Result<RationalFunction> base = parseUnary();
+  Result<RationalFunctionOf<Coefficient>> parsePower() {
+    Result<RationalFunctionOf<Coefficient>> base = parseUnary();
     if (base.isErr()) {
       return base;
     }
@@ -272,11 +286,11 @@ private:
     return powerOf(base.unwrap(), exponent.unwrap());
   }
 
-  Result<RationalFunction> parseUnary() {
+  Result<RationalFunctionOf<Coefficient>> parseUnary() {
     skipSpaces();
     if (peek() == '-') {
       ++position;
-      Result<RationalFunction> operand = parseUnary();
+      Result<RationalFunctionOf<Coefficient>> operand = parseUnary();
       if (operand.isErr()) {
         return operand;
       }
@@ -289,14 +303,14 @@ private:
     return parsePrimary();
   }
 
-  Result<RationalFunction> parsePrimary() {
+  Result<RationalFunctionOf<Coefficient>> parsePrimary() {
     skipSpaces();
     if (atEnd()) {
       return std::unexpected(MathsError::InvalidExpression);
     }
     if (peek() == '(') {
       ++position;
-      Result<RationalFunction> inner = parseAdditive();
+      Result<RationalFunctionOf<Coefficient>> inner = parseAdditive();
       if (inner.isErr()) {
         return inner;
       }
@@ -306,6 +320,12 @@ private:
       }
       ++position;
       return inner;
+    }
+    // \sqrt{…} / \sqrt[n]{…}：只支持**不含变量**的被开方数（根号包的是数）。
+    // 根号包变量（\sqrt{x}）需要代数函数域 ℚ(x)[y]/(y²−x)，本库没有这个表示，
+    // 会在 parseRadical 里明确报错，而不是悄悄算错。
+    if (text.compare(position, 5, "\\sqrt") == 0) {
+      return parseRadical();
     }
     if (peek() == '{') {
       return parseBracedVariable();
@@ -319,9 +339,60 @@ private:
     return std::unexpected(MathsError::InvalidExpression);
   }
 
+  Result<RationalFunctionOf<Coefficient>> parseRadical() {
+    position += 5; // 吃掉 "\sqrt"
+    skipSpaces();
+
+    unsigned degree = 2;
+    if (!atEnd() && peek() == '[') {
+      ++position;
+      const std::size_t start = position;
+      while (!atEnd() && peek() != ']') {
+        ++position;
+      }
+      if (atEnd()) {
+        return std::unexpected(MathsError::InvalidExpression); // 少了 ']'
+      }
+      const std::string_view degreeText = text.substr(start, position - start);
+      ++position;
+      const std::optional<unsigned long long> parsed = parseWholeUnsigned(degreeText);
+      if (!parsed || *parsed == 0 || *parsed > static_cast<unsigned long long>(std::numeric_limits<unsigned>::max())) {
+        return std::unexpected(MathsError::InvalidExpression);
+      }
+      degree = static_cast<unsigned>(*parsed);
+    }
+
+    std::string radicandText;
+    if (!takeBracedGroup(text, position, radicandText)) {
+      return std::unexpected(MathsError::InvalidExpression); // 根号下必须是花括号分组
+    }
+
+    // 被开方数按同一套语法递归解析，然后要求它**不含变量**
+    const Result<RationalFunctionOf<Coefficient>> radicand = ParserOf<Coefficient>(radicandText).parse();
+    if (radicand.isErr()) {
+      return radicand;
+    }
+    const Result<MonomialOf<Coefficient>> numerator = radicand.unwrap().getNumerator().toMonomial();
+    const Result<MonomialOf<Coefficient>> denominator = radicand.unwrap().getDenominator().toMonomial();
+    if (numerator.isErr() || !numerator.unwrap().isConstant() || denominator.isErr() ||
+        !denominator.unwrap().isConstant()) {
+      return std::unexpected(MathsError::InvalidExpression); // \sqrt{x} 这类：本库表示不了
+    }
+
+    const Result<Coefficient> value = numerator.unwrap().getCoefficient() / denominator.unwrap().getCoefficient();
+    if (value.isErr()) {
+      return std::unexpected(value.unwrapErr());
+    }
+    const Result<Coefficient> root = coefficientNthRoot(value.unwrap(), degree);
+    if (root.isErr()) {
+      return std::unexpected(root.unwrapErr());
+    }
+    return RationalFunctionOf<Coefficient>(root.unwrap());
+  }
+
   // {name} 一次性声明多字母变量名，可跟下标：{node}_{car}。
   // 不用花括号的话，连续的字母按隐含乘法拆开（node 即 n*o*d*e）。
-  Result<RationalFunction> parseBracedVariable() {
+  Result<RationalFunctionOf<Coefficient>> parseBracedVariable() {
     std::string name;
     if (!takeBracedGroup(text, position, name) || name.empty()) {
       return std::unexpected(MathsError::InvalidExpression);
@@ -344,26 +415,27 @@ private:
 
     try {
       const Variable variable(name);
-      return RationalFunction(Monomial(Fraction(1, 1), {{variable, 1ULL}}));
+      return RationalFunctionOf<Coefficient>(
+          MonomialOf<Coefficient>(detail::coefficientOne<Coefficient>(), {{variable, 1ULL}}));
     } catch (const MathsException &error) {
       return std::unexpected(error.code());
     }
   }
 
-  Result<RationalFunction> parseNumber() {
+  Result<RationalFunctionOf<Coefficient>> parseNumber() {
     const std::size_t start = position;
     while (isDigit()) {
       ++position;
     }
     try {
       const long long value = std::stoll(std::string(text.substr(start, position - start)));
-      return RationalFunction(Monomial(Fraction(value, 1LL)));
+      return RationalFunctionOf<Coefficient>(MonomialOf<Coefficient>(Coefficient(Fraction(value, 1LL))));
     } catch (const std::exception &) {
       return std::unexpected(MathsError::InvalidExpression);
     }
   }
 
-  Result<RationalFunction> parseVariable() {
+  Result<RationalFunctionOf<Coefficient>> parseVariable() {
     // 变量名 = 单个字母 + 可选下标（x、a_1、x_{i,j}）。
     // 连续字母不合并成一个名字，而是留给 parseMultiplicative 做隐含乘法：xy 即 x*y。
     // 这样「输入 xy」与「输入 x*y」得到同一个式子，也与 latex() 的输出闭环。
@@ -394,7 +466,8 @@ private:
     const std::string name(text.substr(start, position - start));
     try {
       const Variable variable(name);
-      return RationalFunction(Monomial(Fraction(1, 1), {{variable, 1ULL}}));
+      return RationalFunctionOf<Coefficient>(
+          MonomialOf<Coefficient>(detail::coefficientOne<Coefficient>(), {{variable, 1ULL}}));
     } catch (const MathsException &error) {
       return std::unexpected(error.code());
     }
@@ -445,9 +518,10 @@ private:
     return *parsed;
   }
 
-  // 幂用重复乘法实现：RationalFunction 未提供 pow
-  static Result<RationalFunction> powerOf(const RationalFunction &base, unsigned long long exponent) {
-    RationalFunction result(Fraction(1, 1));
+  // 幂用重复乘法实现：RationalFunctionOf<Coefficient> 未提供 pow
+  static Result<RationalFunctionOf<Coefficient>> powerOf(const RationalFunctionOf<Coefficient> &base,
+                                                         unsigned long long exponent) {
+    RationalFunctionOf<Coefficient> result(detail::coefficientOne<Coefficient>());
     for (unsigned long long i = 0; i < exponent; ++i) {
       result = result * base;
     }
@@ -493,7 +567,21 @@ inline std::optional<Fraction> asConstant(const RationalFunction &value) {
 inline Result<RationalFunction> parseExpression(std::string_view text) {
   // normalized 的生命周期覆盖整个 Parser 调用，Parser 持有的 string_view 不会悬垂
   const std::string normalized = expression_detail::normalizeLatex(text);
-  return expression_detail::Parser(normalized).parse();
+  return expression_detail::ParserOf<Fraction>(normalized).parse();
+}
+
+// 解析成**代数系数**的式子：根号可以出现在系数位置。
+//
+//   \sqrt{2}*x   → √2 · x
+//   x + \sqrt{2} → x + √2
+//   \sqrt[3]{2}*y
+//
+// 语法与 parseExpression 完全一致（同一个 ParserOf，只是系数换成实代数数），
+// 区别只在于：有理系数域 ℚ 表示不了根式，所以那些写法在有理解析器里必然失败，
+// 得走这条入口。\sqrt{x} 仍然不支持 —— 那是代数函数域（另一件事）。
+inline Result<AlgebraicRationalFunction> parseAlgebraicExpression(std::string_view text) {
+  const std::string normalized = expression_detail::normalizeLatex(text);
+  return expression_detail::ParserOf<RealAlgebraicNumber>(normalized).parse();
 }
 
 struct Assignment {

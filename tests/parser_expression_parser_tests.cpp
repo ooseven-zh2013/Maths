@@ -417,5 +417,41 @@ int main() {
     CHECK_EQ(parseExpression("2^3/4").unwrap().str(), std::string("2"));
   }
 
+  // ---------- 代数版解析：根号出现在系数位置 ----------
+  //
+  // 之前 `\sqrt{2}*x`、`x+\sqrt{2}` 被拒收（有理系数域装不下根式），
+  // 只好绕道「式子 x*z + 条件 x=\sqrt{2}」。现在同一个 ParserOf 换个系数类型即可。
+  {
+    const Result<AlgebraicRationalFunction> parsed = parseAlgebraicExpression("\\sqrt{2}*x");
+    CHECK_OK(parsed);
+    CHECK_EQ(parsed.unwrap().latex(), std::string("\\sqrt{2}x"));
+    CHECK_TRUE(parsed.unwrap().containsVariable(Variable("x")));
+
+    CHECK_EQ(parseAlgebraicExpression("x + \\sqrt{2}").unwrap().latex(), std::string("x + \\sqrt{2}"));
+    CHECK_EQ(parseAlgebraicExpression("\\sqrt[3]{2}*y").unwrap().latex(), std::string("\\sqrt[3]{2}y"));
+    CHECK_EQ(parseAlgebraicExpression("\\sqrt{2}*x*y").unwrap().latex(), std::string("\\sqrt{2}xy"));
+    CHECK_EQ(parseAlgebraicExpression("\\sqrt{2}/2").unwrap().latex(), std::string("\\frac{\\sqrt{2}}{2}"));
+
+    // 与「式子 + 条件」那条老路必须等价 —— 这正是新增入口的意义
+    AlgebraicPolynomial xTimesZ;
+    xTimesZ.addTerm({{Variable("x"), 1ULL}, {Variable("z"), 1ULL}}, RealAlgebraicNumber(Fraction(1, 1)));
+    AlgebraicScope scope;
+    CHECK_OK(scope.assign(Variable("x"), RealAlgebraicNumber::parse("\\sqrt{2}").unwrap()));
+    CHECK_TRUE(AlgebraicRationalFunction(xTimesZ).substitute(scope).unwrap() ==
+               parseAlgebraicExpression("\\sqrt{2}*z").unwrap());
+
+    // 纯有理式子走这条入口也应与有理解析等价
+    CHECK_TRUE(parseAlgebraicExpression("2x + 1").unwrap() == toAlgebraic(parseExpression("2x + 1").unwrap()));
+
+    // 根号包**变量**仍不支持：那是代数函数域 ℚ(x)[y]/(y²−x)，与「系数取代数数」是两件事
+    CHECK_ERR(parseAlgebraicExpression("\\sqrt{x}"), MathsError::InvalidExpression);
+    CHECK_ERR(parseAlgebraicExpression("\\sqrt{x^2}"), MathsError::InvalidExpression);
+    CHECK_ERR(parseAlgebraicExpression("\\sqrt{2x}"), MathsError::InvalidExpression);
+
+    // 有理路径不受影响：ℚ 里没有根式，`\sqrt{2}*x` 仍应拒收（app 侧两条路的判据）
+    CHECK_ERR(parseExpression("\\sqrt{2}*x"), MathsError::InvalidExpression);
+    CHECK_EQ(parseExpression("2x + 1").unwrap().str(), std::string("2 x + 1"));
+  }
+
   TEST_SUMMARY();
 }
