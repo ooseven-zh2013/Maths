@@ -444,7 +444,7 @@ std::string exactValueLatex(const RealAlgebraicNumber &value) {
   if (rational.isErr()) {
     return value.latex();
   }
-  // 再包回 RealAlgebraicNumber 只为复用库里的分数 LaTeX（app 侧拿不到 fractionLatex）
+  // 再包回 RealAlgebraicNumber 只为复用库里的分数 LaTeX（库没导出 fractionLatex）
   return RealAlgebraicNumber(rational.unwrap()).latex();
 }
 
