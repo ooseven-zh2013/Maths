@@ -171,8 +171,14 @@ std::optional<InputExpression> readExpression() {
       return InputExpression{algebraic.unwrap(), trim(line)};
     }
 
-    // 报有理式那条路的错误：含变量时它的诊断更准
-    printFeedback("不接受", describe(rational.unwrapErr()));
+    // 两条路都失败了，报谁的错误？看谁更具体：
+    //   含变量的输入 —— 有理解析器的诊断更准（它认得变量、能说清语法错在哪）
+    //   纯数值输入   —— 只有代数数解析器给得出 ZeroDenominator / DivisionByZero /
+    //                   NumericOverflow 这类具体原因（2^{1/0}、0^{-1}、(-4)^{1/2}）
+    // InvalidExpression 是两条路共有的兜底错误码，它不算「更具体」。
+    const MathsError algebraicError = algebraic.unwrapErr();
+    const bool algebraicIsSpecific = algebraicError != MathsError::InvalidExpression;
+    printFeedback("不接受", describe(algebraicIsSpecific ? algebraicError : rational.unwrapErr()));
     if (const std::optional<std::string> hint = radicalHint(line)) {
       printFeedback("提示", *hint);
     } else if (line.find("\\sqrt") != std::string::npos) {
