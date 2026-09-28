@@ -108,13 +108,22 @@ inline std::string normalizeLatex(std::string_view source) {
       continue;
     }
     if (source.compare(position, 2, "^{") == 0) { // "^{" 只有 2 个字符
-      // 指数只接受整数，因此直接把花括号展开
+      // 指数只接受整数，因此把花括号展开 —— 但**只有确实是整数时才展开**。
+      // 早先这里无条件剥括号，于是 x^{1/2} 被改写成 x^1/2，
+      // 进而被解析成 (x^1)/2 并当成合法结果返回：不报错、给错答案，最坏的一种失败。
+      // 内容不是整数就原样保留（连同 '{'），由指数解析器明确报错。
       const std::size_t close = source.find('}', position + 2);
       if (close != std::string_view::npos) {
-        result += '^';
-        result.append(source.substr(position + 2, close - position - 2));
-        position = close + 1;
-        continue;
+        const std::string_view body = source.substr(position + 2, close - position - 2);
+        const bool isUnsignedInteger = !body.empty() && std::all_of(body.begin(), body.end(), [](char character) {
+          return std::isdigit(static_cast<unsigned char>(character)) != 0;
+        });
+        if (isUnsignedInteger) {
+          result += '^';
+          result.append(body);
+          position = close + 1;
+          continue;
+        }
       }
     }
     result += source[position];
@@ -230,7 +239,7 @@ private:
       return base;
     }
     ++position;
-    Result<unsigned long long> exponent = parseUnsignedInteger();
+    Result<unsigned long long> exponent = parseExponent();
     if (exponent.isErr()) {
       return std::unexpected(exponent.unwrapErr());
     }
@@ -363,6 +372,37 @@ private:
     } catch (const MathsException &error) {
       return std::unexpected(error.code());
     }
+  }
+
+  // 幂指数：接受 ^12 与 LaTeX 的 ^{12}。花括号形式必须单独校验，
+  // 因为「读到数字就收工」会把 x^{1/2} 解析成 x^1 / 2 —— 静默给出错答案。
+  Result<unsigned long long> parseExponent() {
+    skipSpaces();
+    if (peek() == '{') {
+      std::string group;
+      if (!takeBracedGroup(text, position, group)) {
+        return std::unexpected(MathsError::InvalidExpression);
+      }
+      std::string digits;
+      for (const char character : group) {
+        if (std::isspace(static_cast<unsigned char>(character)) != 0) {
+          continue;
+        }
+        if (std::isdigit(static_cast<unsigned char>(character)) == 0) {
+          return std::unexpected(MathsError::InvalidExpression); // 例如 ^{1/2}、^{-1}
+        }
+        digits += character;
+      }
+      if (digits.empty()) {
+        return std::unexpected(MathsError::InvalidExpression);
+      }
+      try {
+        return static_cast<unsigned long long>(std::stoull(digits));
+      } catch (const std::exception &) {
+        return std::unexpected(MathsError::InvalidExpression);
+      }
+    }
+    return parseUnsignedInteger();
   }
 
   Result<unsigned long long> parseUnsignedInteger() {

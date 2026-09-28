@@ -390,5 +390,32 @@ int main() {
     CHECK_TRUE(!parseExpression("2 + 3*4 + y").unwrap().variables().empty());
   }
 
+  // ---------- 指数：^{1/2} 这类必须报错，不能静默当成除法 ----------
+  //
+  // 回归用：曾经 normalizeLatex 无条件剥掉 ^{...} 的花括号，x^{1/2} 被改写成 x^1/2，
+  // 于是解析成 (x^1)/2 = x/2 并当作合法结果返回 —— 不报错、给错答案。
+  {
+    // 合法的整数指数
+    CHECK_EQ(parseExpression("x^{2}").unwrap().str(), std::string("x^2"));
+    CHECK_EQ(parseExpression("x^{12}").unwrap().str(), std::string("x^12"));
+    CHECK_EQ(parseExpression("2^{3}").unwrap().str(), std::string("8"));
+    CHECK_EQ(parseExpression("x^2").unwrap().str(), std::string("x^2"));
+
+    // 非整数指数：明确报错
+    CHECK_ERR(parseExpression("x^{1/2}"), MathsError::InvalidExpression);
+    CHECK_ERR(parseExpression("x^{3/4}"), MathsError::InvalidExpression);
+    CHECK_ERR(parseExpression("x^{2/3}"), MathsError::InvalidExpression);
+    CHECK_ERR(parseExpression("x^{1/2}+1"), MathsError::InvalidExpression);
+    CHECK_ERR(parseExpression("x^{-1}"), MathsError::InvalidExpression);
+    CHECK_ERR(parseExpression("x^{}"), MathsError::InvalidExpression);
+    CHECK_ERR(parseExpression("x^{a}"), MathsError::InvalidExpression);
+    CHECK_ERR(parseExpression("x^{1/2"), MathsError::InvalidExpression); // 括号不配平
+
+    // 不能过度拒绝：花括号之外出现除号是正常的除法（x^2 除以 3）
+    CHECK_EQ(parseExpression("x^{2}/3").unwrap().str(), std::string("(x^2) / (3)"));
+    CHECK_EQ(parseExpression("x^2/3").unwrap().str(), std::string("(x^2) / (3)"));
+    CHECK_EQ(parseExpression("2^3/4").unwrap().str(), std::string("2"));
+  }
+
   TEST_SUMMARY();
 }

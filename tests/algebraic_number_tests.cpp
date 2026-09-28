@@ -309,6 +309,29 @@ int runTests() {
     CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt{2}").unwrap().str().starts_with("RootOf"));
   }
 
+  // ---------- 纯根式的整数次幂：走 O(deg) 特例 ----------
+  //
+  // 回归用：x^6 配 x = √[6]{2} 曾经 NumericOverflow（x^6 = x³·x³，
+  // 而 x³ 是通用乘积，环维数 36）。根式特例按 gcd 约掉次数，直接给出答案。
+  {
+    const RealAlgebraicNumber sixthRoot = RealAlgebraicNumber::nthRootOf(Fraction(2, 1), 6).unwrap();
+    CHECK_TRUE(sixthRoot.pow(6).unwrap() == Fraction(2, 1));                                             // (⁶√2)^6 = 2
+    CHECK_TRUE(sixthRoot.pow(3).unwrap() == RealAlgebraicNumber::squareRootOf(Fraction(2, 1)).unwrap()); // √2
+    CHECK_TRUE(sixthRoot.pow(4).unwrap() == RealAlgebraicNumber::nthRootOf(Fraction(4, 1), 3).unwrap()); // ∛4
+
+    const RealAlgebraicNumber fourthRoot = RealAlgebraicNumber::nthRootOf(Fraction(2, 1), 4).unwrap();
+    CHECK_TRUE(fourthRoot.pow(6).unwrap() == RealAlgebraicNumber::squareRootOf(Fraction(8, 1)).unwrap()); // √8
+
+    // 负根式：奇次幂仍是负数
+    const RealAlgebraicNumber negativeFifthRoot = RealAlgebraicNumber::nthRootOf(Fraction(-2, 1), 5).unwrap();
+    CHECK_TRUE(negativeFifthRoot.pow(5).unwrap() == Fraction(-2, 1));
+    CHECK_TRUE(negativeFifthRoot.pow(3).unwrap() < Fraction(0, 1));
+
+    // 非根式走通用路线，结果同样正确：(√2+√3)^2 = 5 + 2√6
+    const RealAlgebraicNumber sum = RealAlgebraicNumber::parse("\\sqrt{2}+\\sqrt{3}").unwrap();
+    CHECK_TRUE(sum.pow(2).unwrap() == RealAlgebraicNumber::parse("5+2\\sqrt{6}").unwrap());
+  }
+
   TEST_SUMMARY();
 }
 

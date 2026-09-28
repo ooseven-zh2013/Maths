@@ -1236,9 +1236,21 @@ public:
 
   Result<RealAlgebraicNumber> sqrt() const { return nthRoot(2); }
 
-  // 非负整数次幂（重复平方）。代数数对乘法封闭，所以幂不会失败；
+  // 非负整数次幂。代数数对乘法封闭，所以幂不会失败；
   // 返回 Result 只是为了和其它可能失败的入口保持一致的形状。
   Result<RealAlgebraicNumber> pow(unsigned exponent) const {
+    if (exponent == 0) {
+      return RealAlgebraicNumber(Fraction(1, 1));
+    }
+    if (exponent == 1) {
+      return *this;
+    }
+    // 纯根式先走 O(deg) 特例：x^6 配 x = √[6]{2} 直接得 2，
+    // 而不是让 x^6 = x³·x³ 掉进「环维数 deg²」的通用乘积里溢出。
+    if (const std::optional<RealAlgebraicNumber> fast = radicalPower(exponent)) {
+      return *fast;
+    }
+
     RealAlgebraicNumber result(Fraction(1, 1));
     RealAlgebraicNumber base = *this;
     unsigned remaining = exponent;
@@ -1298,6 +1310,55 @@ public:
 
 private:
   struct Validated {}; // 标记：参数已由调用方验证，不再重复检查
+
+  // α 的 k 次幂的闭区间：奇次幂单调，偶次幂取端点幂的最小/最大，并留意跨过 0 的情形。
+  // 结果只是**包住** α^k 的一个界，是否真隔离出唯一根仍由 tryIsolate 判定。
+  static std::pair<Fraction, Fraction> powerInterval(const Fraction &low, const Fraction &high, unsigned exponent) {
+    const Fraction lowPower = algebraic_detail::powInt(low, exponent);
+    const Fraction highPower = algebraic_detail::powInt(high, exponent);
+    Fraction minimum = std::min(lowPower, highPower);
+    const Fraction maximum = std::max(lowPower, highPower);
+    if (exponent % 2 == 0 && low <= 0LL && high >= 0LL) {
+      minimum = Fraction(0, 1);
+    }
+    return {minimum, maximum};
+  }
+
+  // α 恰好是 ±ⁿ√r 时，α^k 是 x^(n/g) − r^(k/g) 的根（g = gcd(n, k)）——
+  // 因为 (α^k)^(n/g) = (α^n)^(k/g) = r^(k/g)。
+  // 这条比通用乘积（环维数 n²）便宜得多，也让高次幂不再顶穿表示范围。
+  // 拿不到根式（例如 √2+√3）时返回 nullopt，由调用方回退到通用路线。
+  std::optional<RealAlgebraicNumber> radicalPower(unsigned exponent) const {
+    if (exponent == 0 || isRational()) {
+      return std::nullopt;
+    }
+    const std::optional<std::pair<unsigned, Fraction>> radical = asSingleRadical();
+    if (!radical) {
+      return std::nullopt;
+    }
+    const unsigned degree = radical->first;
+    const unsigned common = std::gcd(degree, exponent);
+    const unsigned reducedDegree = degree / common;
+    const unsigned reducedPower = exponent / common;
+    if (reducedDegree == 0 || reducedPower == 0) {
+      return std::nullopt;
+    }
+
+    const UnivariatePolynomial candidate =
+        UnivariatePolynomial::powerMinus(algebraic_detail::powInt(radical->second, reducedPower), reducedDegree)
+            .squareFreePart();
+    // 存的隔离区间可能很宽（如 ⁶√2 的 [0.75, 2.25]），取幂后区间会同时罩住 ± 根，
+    // 那就永远隔离不出来。先精化到幂区间只含一个根为止，否则交回调用方走通用路线。
+    RealAlgebraicNumber self = *this;
+    for (int iteration = 0; iteration < kRefinementLimit; ++iteration) {
+      const std::pair<Fraction, Fraction> bounds = powerInterval(self.low_, self.high_, exponent);
+      if (std::optional<RealAlgebraicNumber> isolated = tryIsolate(candidate, bounds.first, bounds.second)) {
+        return isolated;
+      }
+      self.refine();
+    }
+    return std::nullopt;
+  }
 
   // 最小多项式只有首项与常数项非零时（a·x^n + c），这个数就是 ±ⁿ√(-c/a)。
   // 返回 (阶数, 被开方数)；nullopt 表示还原不成单个根式
