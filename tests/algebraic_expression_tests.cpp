@@ -224,6 +224,37 @@ int main() {
     }
   }
 
+  // ---------- 代入路径的高次幂 ----------
+  //
+  // 回归用：库层的 pow 曾经修好了，app 却仍然溢出 —— 因为**代入路径是逐个乘**，
+  // 压根不经过 pow（x^6 = x³·x³，而 x³ 走通用乘积，环维数 deg²）。
+  // 所以这一层必须单独验：pow 直算的断言替不了它。
+  {
+    struct Case {
+      const char *value;
+      unsigned exponent;
+      const char *expectedLatex;
+    };
+    const Case cases[] = {
+        {"\\sqrt[6]{2}", 3, "\\sqrt{2}"},
+        {"\\sqrt[6]{2}", 6, "2"},
+        {"\\sqrt[3]{2}", 6, "4"},
+        {"\\sqrt[4]{2}", 5, "\\sqrt[4]{32}"},
+        {"\\sqrt{2}", 3, "\\sqrt{8}"},
+        {"5+2\\sqrt{6}", 2, "\\operatorname{RootOf}(x^{2} - 98x + 1, [\\frac{229}{4}, \\frac{589}{4}])"},
+    };
+    for (const Case &item : cases) {
+      AlgebraicScope scope;
+      CHECK_OK(scope.assign(Variable("x"), number(item.value)));
+
+      AlgebraicPolynomial polynomial;
+      polynomial.addTerm({{Variable("x"), item.exponent}}, RealAlgebraicNumber(Fraction(1, 1)));
+      const Result<RealAlgebraicNumber> evaluated = polynomial.evaluate(scope);
+      CHECK_OK(evaluated);
+      CHECK_EQ(evaluated.unwrap().latex(), std::string(item.expectedLatex));
+    }
+  }
+
   // ---------- 与有理数运算的廉价特例 ----------
   {
     const RealAlgebraicNumber root = number("\\sqrt[4]{2}"); // ⁴√2

@@ -194,6 +194,33 @@ template <class Coefficient> inline Coefficient coefficientZero() { return Coeff
 template <class Coefficient> inline Coefficient coefficientOne() { return Coefficient(Fraction(1, 1)); }
 template <class Coefficient> inline Coefficient coefficientMinusOne() { return Coefficient(Fraction(-1, 1)); }
 
+// 系数取幂。系数类型自带 pow 时走它 —— 例如 RealAlgebraicNumber::pow 对纯根式有
+// O(deg) 特例（α = ±ⁿ√r 时 α^k 直接给出）。**不要**在调用方用线性乘法代替：
+// α^k 会被退化成 k−1 次通用乘积（环维数 deg²），中间量迅速顶穿 Fraction。
+template <class Coefficient>
+inline Result<Coefficient> coefficientPower(const Coefficient &base, unsigned long long exponent) {
+  if (exponent == 0ULL) {
+    return coefficientOne<Coefficient>();
+  }
+  if constexpr (requires(const Coefficient &value, unsigned power) { value.pow(power); }) {
+    return base.pow(static_cast<unsigned>(exponent));
+  } else {
+    Coefficient result = coefficientOne<Coefficient>();
+    Coefficient current = base;
+    unsigned long long remaining = exponent;
+    while (remaining > 0) {
+      if (remaining % 2 == 1) {
+        result = result * current;
+      }
+      remaining /= 2;
+      if (remaining > 0) {
+        current = current * current;
+      }
+    }
+    return result;
+  }
+}
+
 template <class Coefficient> inline bool isZeroCoefficient(const Coefficient &value) {
   if constexpr (requires { value.isZero(); }) {
     return value.isZero();

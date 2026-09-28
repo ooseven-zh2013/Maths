@@ -30,6 +30,32 @@ export namespace maths {
 
 namespace expression_detail {
 
+// 非负整数的严格解析：整串必须都是数字。
+//
+// std::stoull 遇到非法字符**只解析前缀且不抛异常**（"1/2" 直接返回 1），
+// 所以 try/catch 拦不住 —— 2026-09-28 的 ⑤ 就是它：`2^{1/2}` 静默算成 2。
+// 凡是把文本交给 stoull 的地方都先过这里。
+inline std::optional<unsigned long long> parseWholeUnsigned(std::string_view text) {
+  std::string digits;
+  for (const char character : text) {
+    if (std::isspace(static_cast<unsigned char>(character)) != 0) {
+      continue;
+    }
+    if (std::isdigit(static_cast<unsigned char>(character)) == 0) {
+      return std::nullopt;
+    }
+    digits += character;
+  }
+  if (digits.empty() || digits.size() > 19) {
+    return std::nullopt;
+  }
+  try {
+    return static_cast<unsigned long long>(std::stoull(digits));
+  } catch (const std::exception &) {
+    return std::nullopt;
+  }
+}
+
 // 读取一个花括号分组（允许前面有空白），position 停在 } 之后
 inline bool takeBracedGroup(std::string_view source, std::size_t &position, std::string &out) {
   while (position < source.size() && std::isspace(static_cast<unsigned char>(source[position])) != 0) {
@@ -393,14 +419,11 @@ private:
         }
         digits += character;
       }
-      if (digits.empty()) {
+      const std::optional<unsigned long long> parsed = expression_detail::parseWholeUnsigned(digits);
+      if (!parsed) {
         return std::unexpected(MathsError::InvalidExpression);
       }
-      try {
-        return static_cast<unsigned long long>(std::stoull(digits));
-      } catch (const std::exception &) {
-        return std::unexpected(MathsError::InvalidExpression);
-      }
+      return *parsed;
     }
     return parseUnsignedInteger();
   }
@@ -414,11 +437,12 @@ private:
     while (isDigit()) {
       ++position;
     }
-    try {
-      return static_cast<unsigned long long>(std::stoull(std::string(text.substr(start, position - start))));
-    } catch (const std::exception &) {
+    const std::optional<unsigned long long> parsed =
+        expression_detail::parseWholeUnsigned(text.substr(start, position - start));
+    if (!parsed) {
       return std::unexpected(MathsError::InvalidExpression);
     }
+    return *parsed;
   }
 
   // 幂用重复乘法实现：RationalFunction 未提供 pow

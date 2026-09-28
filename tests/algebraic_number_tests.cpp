@@ -332,6 +332,44 @@ int runTests() {
     CHECK_TRUE(sum.pow(2).unwrap() == RealAlgebraicNumber::parse("5+2\\sqrt{6}").unwrap());
   }
 
+  // ---------- 常量底数的有理指数，以及严格整数解析 ----------
+  //
+  // 回归用两件事：
+  //   ⑥ 第一层：a^{p/q}（含负指数、\frac 写法）
+  //   ⑤ 严格解析：解析器里裸调 std::stoull 会**只解析前缀**（"1/2" → 1），
+  //      于是 2^{1/2} 静默算成 2；`\sqrt[1/2]{2}` 同理静默算成 2。
+  {
+    const RealAlgebraicNumber rootTwo = RealAlgebraicNumber::parse("\\sqrt{2}").unwrap();
+
+    // a^{p/q} = (a^{1/q})^p
+    CHECK_TRUE(RealAlgebraicNumber::parse("2^{1/2}").unwrap() == rootTwo);
+    CHECK_TRUE(RealAlgebraicNumber::parse("13^{1/2}").unwrap() == RealAlgebraicNumber::parse("\\sqrt{13}").unwrap());
+    CHECK_TRUE(RealAlgebraicNumber::parse("9^{1/2}").unwrap() == Fraction(3, 1)); // 完全平方落回有理数
+    CHECK_TRUE(RealAlgebraicNumber::parse("8^{1/3}").unwrap() == Fraction(2, 1));
+    CHECK_TRUE(RealAlgebraicNumber::parse("2^{3/2}").unwrap() == RealAlgebraicNumber::parse("2\\sqrt{2}").unwrap());
+    CHECK_TRUE(RealAlgebraicNumber::parse("2^{2/2}").unwrap() == Fraction(2, 1));
+    CHECK_TRUE(RealAlgebraicNumber::parse("2^{0/9}").unwrap() == Fraction(1, 1));
+    CHECK_TRUE(RealAlgebraicNumber::parse("2^{2}").unwrap() == Fraction(4, 1));
+    CHECK_TRUE(RealAlgebraicNumber::parse("2^{100/50}").unwrap() == Fraction(4, 1)); // 约分交给根式特例
+    CHECK_TRUE(RealAlgebraicNumber::parse("2^{-1/2}").unwrap() ==
+               RealAlgebraicNumber::parse("\\frac{1}{\\sqrt{2}}").unwrap());
+    CHECK_TRUE(RealAlgebraicNumber::parse("2^{\\frac{1}{2}}").unwrap() == rootTwo);
+
+    // 严格解析：内容不合法一律报错，绝不做前缀解析
+    CHECK_ERR(RealAlgebraicNumber::parse("2^{a}"), MathsError::InvalidExpression);
+    CHECK_ERR(RealAlgebraicNumber::parse("2^{1/2x}"), MathsError::InvalidExpression);
+    CHECK_ERR(RealAlgebraicNumber::parse("2^{}"), MathsError::InvalidExpression);
+    CHECK_ERR(RealAlgebraicNumber::parse("2^{1/"), MathsError::InvalidExpression);
+    CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt[1/2]{2}"), MathsError::InvalidExpression);
+    CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt[3/2]{8}"), MathsError::InvalidExpression);
+    CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt[4/2]{16}"), MathsError::InvalidExpression);
+
+    // 定义域
+    CHECK_ERR(RealAlgebraicNumber::parse("2^{1/0}"), MathsError::ZeroDenominator); // 分母为 0
+    CHECK_ERR(RealAlgebraicNumber::parse("0^{-1}"), MathsError::DivisionByZero);   // 0 的负次幂
+    CHECK_ERR(RealAlgebraicNumber::parse("(-4)^{1/2}"), MathsError::InvalidRange); // 偶次根下为负
+  }
+
   TEST_SUMMARY();
 }
 

@@ -161,6 +161,48 @@ private:
 // ==================== 代入的实现 ====================
 // 放在 ScopeOf 定义之后：expression.cppm 与 rational.cppm 里只有声明。
 
+namespace detail {
+
+// 值取幂。值是纯系数（分母为 1、分子为常数）时直接走系数的 pow，那里有纯根式的
+// O(deg) 特例；其余情形用二进制取幂。
+//
+// **别改回线性乘**：`α^k` 会被退化成 k−1 次通用乘积（环维数 deg²），
+// x^3 配 α = ⁶√2 在 α²·α 那一步就 NumericOverflow —— app 侧实测过的坑。
+template <class Coefficient>
+inline Result<RationalFunctionOf<Coefficient>> valuePower(const RationalFunctionOf<Coefficient> &base,
+                                                          unsigned long long exponent) {
+  if (exponent == 0ULL) {
+    return RationalFunctionOf<Coefficient>(detail::coefficientOne<Coefficient>());
+  }
+
+  const Result<MonomialOf<Coefficient>> numerator = base.getNumerator().toMonomial();
+  const Result<MonomialOf<Coefficient>> denominator = base.getDenominator().toMonomial();
+  if (numerator.isOk() && numerator.unwrap().isConstant() && denominator.isOk() && denominator.unwrap().isConstant() &&
+      denominator.unwrap().getCoefficient() == detail::coefficientOne<Coefficient>()) {
+    const Result<Coefficient> powered = detail::coefficientPower(numerator.unwrap().getCoefficient(), exponent);
+    if (powered.isErr()) {
+      return std::unexpected(powered.unwrapErr());
+    }
+    return RationalFunctionOf<Coefficient>(powered.unwrap());
+  }
+
+  RationalFunctionOf<Coefficient> result(detail::coefficientOne<Coefficient>());
+  RationalFunctionOf<Coefficient> current = base;
+  unsigned long long remaining = exponent;
+  while (remaining > 0) {
+    if (remaining % 2 == 1) {
+      result = result * current;
+    }
+    remaining /= 2;
+    if (remaining > 0) {
+      current = current * current;
+    }
+  }
+  return result;
+}
+
+} // namespace detail
+
 // 一次替换：已绑定的变量换成它的值，未绑定的原样保留。
 // 结果用 RationalFunctionOf 承载，因为绑定值本身可能是分式。
 template <class Coefficient>
@@ -182,12 +224,15 @@ inline RationalFunctionOf<Coefficient> MonomialOf<Coefficient>::substitute(const
       continue;
     }
 
-    // value^exponent 并进结果（指数非负，零次幂在规范化时已删除）
-    Value power(detail::coefficientOne<Coefficient>());
-    for (unsigned long long i = 0; i < exponent; ++i) {
-      power = power * value.unwrap();
+    // value^exponent 并进结果（指数非负，零次幂在规范化时已删除）。
+    // 走 valuePower 而不是线性乘：高次幂必须借到系数的纯根式特例。
+    const Result<Value> power = detail::valuePower(value.unwrap(), exponent);
+    if (power.isErr()) {
+      // 本函数没有返回值位置（签名就是 RationalFunctionOf），
+      // 由 RationalFunctionOf::substitute 在边界把异常转回 Result。
+      throw MathsException(power.unwrapErr());
     }
-    result = result * power;
+    result = result * power.unwrap();
   }
 
   if (!remaining.empty()) {

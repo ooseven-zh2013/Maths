@@ -143,6 +143,62 @@ inline unsigned long long binomial(unsigned total, unsigned choose) {
   return result;
 }
 
+// 解析「整串都是数字」的非负整数，失败返回 nullopt。
+//
+// **必须校验整串消费完**：std::stoull 遇到非法字符只解析前缀、而且不抛异常
+// （"1/2" 直接返回 1），于是 2^{1/2} 会静默算成 2 —— 不报错、给错答案。
+// 各处一律走这两个函数，不要再裸调 stoull。
+inline std::optional<unsigned long long> parseWholeUnsigned(std::string_view text) {
+  std::string digits;
+  for (const char character : text) {
+    if (std::isspace(static_cast<unsigned char>(character)) != 0) {
+      continue;
+    }
+    if (std::isdigit(static_cast<unsigned char>(character)) == 0) {
+      return std::nullopt; // 出现非数字即非法，绝不"读到哪算哪"
+    }
+    digits += character;
+  }
+  if (digits.empty() || digits.size() > 19) {
+    return std::nullopt;
+  }
+  try {
+    return static_cast<unsigned long long>(std::stoull(digits));
+  } catch (const std::exception &) {
+    return std::nullopt;
+  }
+}
+
+// 同上，允许一个前导正负号
+inline std::optional<long long> parseWholeSigned(std::string_view text) {
+  std::string digits;
+  bool negative = false;
+  bool sawSign = false;
+  for (const char character : text) {
+    if (std::isspace(static_cast<unsigned char>(character)) != 0) {
+      continue;
+    }
+    if (!sawSign && (character == '+' || character == '-')) {
+      negative = character == '-';
+      sawSign = true;
+      continue;
+    }
+    if (std::isdigit(static_cast<unsigned char>(character)) == 0) {
+      return std::nullopt;
+    }
+    digits += character;
+  }
+  if (digits.empty() || digits.size() > 18) {
+    return std::nullopt;
+  }
+  try {
+    const long long magnitude = std::stoll(digits);
+    return negative ? -magnitude : magnitude;
+  } catch (const std::exception &) {
+    return std::nullopt;
+  }
+}
+
 } // namespace algebraic_detail
 } // namespace maths
 
@@ -1311,19 +1367,6 @@ public:
 private:
   struct Validated {}; // 标记：参数已由调用方验证，不再重复检查
 
-  // α 的 k 次幂的闭区间：奇次幂单调，偶次幂取端点幂的最小/最大，并留意跨过 0 的情形。
-  // 结果只是**包住** α^k 的一个界，是否真隔离出唯一根仍由 tryIsolate 判定。
-  static std::pair<Fraction, Fraction> powerInterval(const Fraction &low, const Fraction &high, unsigned exponent) {
-    const Fraction lowPower = algebraic_detail::powInt(low, exponent);
-    const Fraction highPower = algebraic_detail::powInt(high, exponent);
-    Fraction minimum = std::min(lowPower, highPower);
-    const Fraction maximum = std::max(lowPower, highPower);
-    if (exponent % 2 == 0 && low <= 0LL && high >= 0LL) {
-      minimum = Fraction(0, 1);
-    }
-    return {minimum, maximum};
-  }
-
   // α 恰好是 ±ⁿ√r 时，α^k 是 x^(n/g) − r^(k/g) 的根（g = gcd(n, k)）——
   // 因为 (α^k)^(n/g) = (α^n)^(k/g) = r^(k/g)。
   // 这条比通用乘积（环维数 n²）便宜得多，也让高次幂不再顶穿表示范围。
@@ -1344,20 +1387,23 @@ private:
       return std::nullopt;
     }
 
-    const UnivariatePolynomial candidate =
-        UnivariatePolynomial::powerMinus(algebraic_detail::powInt(radical->second, reducedPower), reducedDegree)
-            .squareFreePart();
-    // 存的隔离区间可能很宽（如 ⁶√2 的 [0.75, 2.25]），取幂后区间会同时罩住 ± 根，
-    // 那就永远隔离不出来。先精化到幂区间只含一个根为止，否则交回调用方走通用路线。
-    RealAlgebraicNumber self = *this;
-    for (int iteration = 0; iteration < kRefinementLimit; ++iteration) {
-      const std::pair<Fraction, Fraction> bounds = powerInterval(self.low_, self.high_, exponent);
-      if (std::optional<RealAlgebraicNumber> isolated = tryIsolate(candidate, bounds.first, bounds.second)) {
-        return isolated;
-      }
-      self.refine();
+    // 结果直接交给 nthRootOf 这个**规范构造**去落地，而不是自己拼多项式 + tryIsolate：
+    // tryIsolate 对"区间是不是刚好只罩住一个根"很敏感，α 存的区间往往很宽
+    // （⁴√2 是 [3/4, 9/4]），取幂后区间会同时罩住 ± 两个根，于是特例白白放弃、
+    // 掉进通用乘积（α·α² 那条路还会抛 ZeroDenominator）。
+    // nthRootOf 走 nthRootBounds + 单调二分，对区间宽度不敏感。
+    const Result<RealAlgebraicNumber> root =
+        nthRootOf(algebraic_detail::powInt(radical->second, reducedPower), reducedDegree);
+    if (root.isErr()) {
+      return std::nullopt; // 例如偶次根下为负，交回通用路线
     }
-    return std::nullopt;
+
+    // 偶次根有两个实根，符号要靠 α 自己定；奇次根唯一，符号已由被开方数承载。
+    if (reducedDegree % 2 == 0 && exponent % 2 == 1 &&
+        compareToRational(Fraction(0, 1)) == std::strong_ordering::less) {
+      return -root.unwrap();
+    }
+    return root.unwrap();
   }
 
   // 最小多项式只有首项与常数项非零时（a·x^n + c），这个数就是 ±ⁿ√(-c/a)。
@@ -1702,11 +1748,50 @@ private:
     if (!takeChar('^')) {
       return base;
     }
-    Result<unsigned long long> exponent = parseUnsignedInteger();
+    const Result<std::pair<long long, long long>> exponent = parseRationalExponent();
     if (exponent.isErr()) {
       return std::unexpected(exponent.unwrapErr());
     }
-    return base.unwrap().pow(static_cast<unsigned>(exponent.unwrap()));
+    return powerWithRationalExponent(base.unwrap(), exponent.unwrap().first, exponent.unwrap().second);
+  }
+
+  // a^(p/q)：先取 q 次根再取 p 次幂；p 为负时取倒数。
+  // 实数域上的定义域限制交给 nthRoot 判（偶次根要求非负），这里只管负指数与零。
+  static Result<RealAlgebraicNumber> powerWithRationalExponent(const RealAlgebraicNumber &base, long long numerator,
+                                                               long long denominator) {
+    if (denominator == 0) {
+      return std::unexpected(MathsError::ZeroDenominator);
+    }
+    const bool negativeExponent = numerator < 0;
+    unsigned long long magnitude =
+        negativeExponent ? algebraic_detail::magnitudeOf(numerator) : static_cast<unsigned long long>(numerator);
+    unsigned long long reducedDenominator = static_cast<unsigned long long>(denominator);
+
+    // 先把 p/q 约到最简：2^{100/50} 没必要先开 50 次根（那要构造 50 次多项式，直接溢出）
+    const unsigned long long common = std::gcd(magnitude, reducedDenominator);
+    if (common > 1ULL) {
+      magnitude /= common;
+      reducedDenominator /= common;
+    }
+    if (magnitude == 0ULL) {
+      return RealAlgebraicNumber(Fraction(1, 1)); // p = 0 → a^0 = 1（含 a = 0，0^0 按 1 处理）
+    }
+
+    const Result<RealAlgebraicNumber> root = base.nthRoot(static_cast<unsigned>(reducedDenominator));
+    if (root.isErr()) {
+      return std::unexpected(root.unwrapErr());
+    }
+    const Result<RealAlgebraicNumber> powered = root.unwrap().pow(static_cast<unsigned>(magnitude));
+    if (powered.isErr()) {
+      return std::unexpected(powered.unwrapErr());
+    }
+    if (numerator >= 0) {
+      return powered.unwrap();
+    }
+    if (powered.unwrap().isZero()) {
+      return std::unexpected(MathsError::DivisionByZero); // 0 的负次幂无定义
+    }
+    return powered.unwrap().inverse();
   }
 
   Result<RealAlgebraicNumber> parseUnary() {
@@ -1769,23 +1854,18 @@ private:
           return std::unexpected(MathsError::InvalidExpression);
         }
         ++position_;
-        std::string cleaned;
-        for (const char character : digits) {
-          if (std::isspace(static_cast<unsigned char>(character)) == 0) {
-            cleaned.push_back(character);
-          }
-        }
-        if (cleaned.empty()) {
+        // 同样必须整串校验：`\sqrt[1/2]{2}` 曾是 stoul 前缀解析成 1 次根 → 静默给出 2
+        const std::optional<unsigned long long> parsedDegree = algebraic_detail::parseWholeUnsigned(digits);
+        if (!parsedDegree) {
           return std::unexpected(MathsError::InvalidExpression);
         }
-        try {
-          degree = static_cast<unsigned>(std::stoul(cleaned));
-        } catch (const std::exception &) {
-          return std::unexpected(MathsError::InvalidExpression);
-        }
-        if (degree == 0) {
+        if (*parsedDegree == 0ULL) {
           return std::unexpected(MathsError::InvalidRange);
         }
+        if (*parsedDegree > static_cast<unsigned long long>(std::numeric_limits<unsigned>::max())) {
+          return std::unexpected(MathsError::InvalidRange);
+        }
+        degree = static_cast<unsigned>(*parsedDegree);
       }
 
       std::string radicandText;
@@ -1840,29 +1920,139 @@ private:
     }
   }
 
-  Result<unsigned long long> parseUnsignedInteger() {
+  // 从一段独立文本里读花括号分组（逻辑同成员版，但不依赖 position_）
+  static bool takeBracedGroupAt(std::string_view source, std::size_t &position, std::string &out) {
+    while (position < source.size() && std::isspace(static_cast<unsigned char>(source[position])) != 0) {
+      ++position;
+    }
+    if (position >= source.size() || source[position] != '{') {
+      return false;
+    }
+    int depth = 0;
+    const std::size_t start = position + 1;
+    while (position < source.size()) {
+      if (source[position] == '{') {
+        ++depth;
+      } else if (source[position] == '}') {
+        --depth;
+        if (depth == 0) {
+          out = std::string(source.substr(start, position - start));
+          ++position;
+          return true;
+        }
+      }
+      ++position;
+    }
+    return false;
+  }
+
+  // 读一个可带符号的整数字面量（不含空白），返回消费到的文本；读不到则返回空
+  std::string_view takeIntegerToken() {
     skipSpaces();
-    std::string digits;
-    if (peek() == '{') { // LaTeX 的 x^{2}
+    const std::size_t start = position_;
+    if (!atEnd() && (peek() == '+' || peek() == '-')) {
+      ++position_;
+    }
+    const std::size_t digitsStart = position_;
+    while (!atEnd() && std::isdigit(static_cast<unsigned char>(peek())) != 0) {
+      ++position_;
+    }
+    if (position_ == digitsStart) {
+      position_ = start;
+      return {};
+    }
+    return text_.substr(start, position_ - start);
+  }
+
+  // 把分子分母两段文本合成一个有理数（分母必须非零）
+  static Result<std::pair<long long, long long>> combineRationalText(std::string_view numeratorText,
+                                                                     std::string_view denominatorText) {
+    const std::optional<long long> numerator = algebraic_detail::parseWholeSigned(numeratorText);
+    const std::optional<unsigned long long> denominator = algebraic_detail::parseWholeUnsigned(denominatorText);
+    if (!numerator || !denominator) {
+      return std::unexpected(MathsError::InvalidExpression);
+    }
+    if (*denominator == 0ULL) {
+      return std::unexpected(MathsError::ZeroDenominator);
+    }
+    if (*denominator > static_cast<unsigned long long>(std::numeric_limits<long long>::max())) {
+      return std::unexpected(MathsError::InvalidExpression);
+    }
+    return std::make_pair(*numerator, static_cast<long long>(*denominator));
+  }
+
+  // 一段文本形式的有理数指数：p、p/q、\frac{p}{q}
+  static Result<std::pair<long long, long long>> parseRationalText(std::string_view text) {
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())) != 0) {
+      text.remove_prefix(1);
+    }
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())) != 0) {
+      text.remove_suffix(1);
+    }
+    if (text.empty()) {
+      return std::unexpected(MathsError::InvalidExpression);
+    }
+
+    if (text.compare(0, 5, "\\frac") == 0) {
+      std::size_t position = 5;
+      std::string numeratorText;
+      std::string denominatorText;
+      if (!takeBracedGroupAt(text, position, numeratorText) || !takeBracedGroupAt(text, position, denominatorText)) {
+        return std::unexpected(MathsError::InvalidExpression);
+      }
+      if (position != text.size()) {
+        return std::unexpected(MathsError::InvalidExpression); // \frac 之后还有多余字符
+      }
+      return combineRationalText(numeratorText, denominatorText);
+    }
+
+    const std::size_t slash = text.find('/');
+    if (slash == std::string_view::npos) {
+      const std::optional<long long> numerator = algebraic_detail::parseWholeSigned(text);
+      if (!numerator) {
+        return std::unexpected(MathsError::InvalidExpression);
+      }
+      return std::make_pair(*numerator, 1LL);
+    }
+    return combineRationalText(text.substr(0, slash), text.substr(slash + 1));
+  }
+
+  // 指数：p、p/q、\frac{p}{q}，也接受外层花括号（^{…}）。
+  // 返回 (分子, 分母)，分母恒正。**内容有多余字符一律报错** ——
+  // 早先这里裸调 stoull，`2^{1/2}` 被前缀解析成指数 1，静默得到 2。
+  Result<std::pair<long long, long long>> parseRationalExponent() {
+    skipSpaces();
+    if (peek() == '{') {
       std::string group;
       if (!takeBracedGroup(group)) {
         return std::unexpected(MathsError::InvalidExpression);
       }
-      digits = std::move(group);
-    } else {
-      while (!atEnd() && std::isdigit(static_cast<unsigned char>(peek())) != 0) {
-        digits.push_back(peek());
-        ++position_;
+      return parseRationalText(group);
+    }
+    if (takeToken("\\frac")) {
+      std::string numeratorText;
+      std::string denominatorText;
+      if (!takeBracedGroup(numeratorText) || !takeBracedGroup(denominatorText)) {
+        return std::unexpected(MathsError::InvalidExpression);
       }
+      return combineRationalText(numeratorText, denominatorText);
     }
-    if (digits.empty()) {
+
+    const std::string_view numeratorText = takeIntegerToken();
+    if (numeratorText.empty()) {
       return std::unexpected(MathsError::InvalidExpression);
     }
-    try {
-      return static_cast<unsigned long long>(std::stoull(digits));
-    } catch (const std::exception &) {
+    skipSpaces();
+    if (peek() != '/') {
+      const Result<std::pair<long long, long long>> single = combineRationalText(numeratorText, std::string_view("1"));
+      return single;
+    }
+    ++position_;
+    const std::string_view denominatorText = takeIntegerToken();
+    if (denominatorText.empty()) {
       return std::unexpected(MathsError::InvalidExpression);
     }
+    return combineRationalText(numeratorText, denominatorText);
   }
 
   std::string_view text_;
