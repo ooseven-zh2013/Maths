@@ -453,5 +453,50 @@ int main() {
     CHECK_EQ(parseExpression("2x + 1").unwrap().str(), std::string("2 x + 1"));
   }
 
+  // ---------- 含变量根号的表达式（parseRadicalExpression） ----------
+  //
+  // 根号包变量需要函数域：解析出来的是 RadicalExtension 的元素，
+  // 域按式子里出现的根号自动扩张。
+  {
+    CHECK_EQ(parseRadicalExpression("\\sqrt{x}").unwrap().latex(), std::string("\\sqrt{x}"));
+    CHECK_EQ(parseRadicalExpression("2\\sqrt{x}").unwrap().latex(), std::string("2\\sqrt{x}"));
+    CHECK_EQ(parseRadicalExpression("\\sqrt{x} + 1").unwrap().latex(), std::string("1 + \\sqrt{x}"));
+    CHECK_EQ(parseRadicalExpression("\\sqrt{x^2 + 1}").unwrap().latex(), std::string("\\sqrt{x^2 + 1}"));
+
+    // 两个不同的根号：域自动扩张
+    const RadicalExtension widened = parseRadicalExpression("\\sqrt{x} \\cdot \\sqrt{x+1}").unwrap();
+    CHECK_TRUE(widened.radicands().size() == std::size_t(2));
+    CHECK_EQ(widened.latex(), std::string("\\sqrt{x}\\sqrt{x + 1}"));
+
+    // 多根号相加（用户要的那个形状）
+    CHECK_EQ(parseRadicalExpression("\\sqrt{x^2+1} + \\sqrt{x^2+2}").unwrap().latex(),
+             std::string("\\sqrt{x^2 + 1} + \\sqrt{x^2 + 2}"));
+
+    // 乘方与除法（分母有理化自动完成）
+    CHECK_EQ(parseRadicalExpression("(\\sqrt{x}+1)^2").unwrap().latex(), std::string("x + 1 + 2\\sqrt{x}"));
+    CHECK_EQ(parseRadicalExpression("\\frac{1}{\\sqrt{x}}").unwrap().latex(), std::string("\\frac{1}{x}\\sqrt{x}"));
+
+    // 根号乘上一个别的字母：被开方数仍然只有一个变量，合法
+    CHECK_EQ(parseRadicalExpression("\\sqrt{x}*y").unwrap().latex(), std::string("y\\sqrt{x}"));
+
+    // 纯有理式子也能走这条入口
+    CHECK_EQ(parseRadicalExpression("2x + 1").unwrap().latex(), std::string("2x + 1"));
+
+    // 代入求值
+    Scope scope;
+    CHECK_OK(scope.assign(Variable("x"), Fraction(4, 1)));
+    CHECK_TRUE(parseRadicalExpression("\\sqrt{x}").unwrap().evaluate(scope).unwrap() == Fraction(2, 1));
+    CHECK_OK(scope.assign(Variable("x"), Fraction(-1, 1)));
+    CHECK_ERR(parseRadicalExpression("\\sqrt{x}").unwrap().evaluate(scope), MathsError::NegativeEvenRoot);
+
+    // 拒收的情形
+    CHECK_ERR(parseRadicalExpression("\\sqrt{x} + \\sqrt{y}"), MathsError::InvalidExpression); // 两个变量
+    CHECK_ERR(parseRadicalExpression("\\sqrt{x} + \\sqrt{4x}"), MathsError::RadicandsNotIndependent);
+    CHECK_ERR(parseRadicalExpression("\\sqrt[3]{x}"), MathsError::InvalidExpression);      // 高次根
+    CHECK_ERR(parseRadicalExpression("\\sqrt{\\sqrt{x}}"), MathsError::InvalidExpression); // 嵌套
+    CHECK_ERR(parseRadicalExpression("\\sqrt{2}"), MathsError::InvalidExpression);         // 常数根号
+    CHECK_ERR(parseRadicalExpression("\\sqrt{x"), MathsError::InvalidExpression);          // 括号不配平
+  }
+
   TEST_SUMMARY();
 }

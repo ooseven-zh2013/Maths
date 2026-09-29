@@ -560,6 +560,266 @@ inline std::optional<Fraction> asConstant(const RationalFunction &value) {
   return evaluated.unwrap();
 }
 
+// 含**变量**根号的表达式求值器：\sqrt{…} 直接产出根式扩张的元素，其余部分整块交给
+// 有理解析器。全程走 RadicalExtension 的运算（它会按需自动扩域），错误一路以 Result 传出。
+//
+// 与 ParserOf<Coefficient> 的区别：那个模板要求「系数运算不失败且返回值」
+// （PolynomialOf 内部把 lhsCoeff * rhsCoeff 当值用），而根式扩张的运算**可能失败**
+// （同一平方类、跨变量），所以这里不复用那套模板，改用专门的求值器 —— 一趟即可，
+// 不需要先扫一遍建域。
+class RadicalParser {
+public:
+  explicit RadicalParser(std::string_view source) : text_(source) {}
+
+  Result<RadicalExtension> parse() {
+    skipSpaces();
+    if (atEnd()) {
+      return std::unexpected(MathsError::InvalidExpression);
+    }
+    Result<RadicalExtension> value = parseAdditive();
+    if (value.isErr()) {
+      return value;
+    }
+    skipSpaces();
+    if (!atEnd()) {
+      return std::unexpected(MathsError::InvalidExpression); // 有消费不掉的残留
+    }
+    return value;
+  }
+
+private:
+  bool atEnd() const { return position_ >= text_.size(); }
+  char peek() const { return atEnd() ? '\0' : text_[position_]; }
+
+  void skipSpaces() {
+    while (!atEnd() && std::isspace(static_cast<unsigned char>(peek())) != 0) {
+      ++position_;
+    }
+  }
+
+  bool takeToken(std::string_view token) {
+    skipSpaces();
+    if (text_.compare(position_, token.size(), token) != 0) {
+      return false;
+    }
+    position_ += token.size();
+    return true;
+  }
+
+  bool takeChar(char expected) {
+    skipSpaces();
+    if (peek() != expected) {
+      return false;
+    }
+    ++position_;
+    return true;
+  }
+
+  bool atRadicalKeyword() const { return text_.compare(position_, 5, "\\sqrt") == 0; }
+
+  // 下一个位置能否开始一个因子（用于隐含乘法）
+  bool startsAtom() const {
+    if (atEnd()) {
+      return false;
+    }
+    if (atRadicalKeyword()) {
+      return true;
+    }
+    const char character = peek();
+    return character != '+' && character != '-' && character != '*' && character != '/' && character != '(' &&
+           character != ')' && character != '^';
+  }
+
+  Result<RadicalExtension> parseAdditive() {
+    Result<RadicalExtension> left = parseMultiplicative();
+    if (left.isErr()) {
+      return left;
+    }
+    for (;;) {
+      skipSpaces();
+      const char operation = peek();
+      if (operation != '+' && operation != '-') {
+        return left;
+      }
+      ++position_;
+      Result<RadicalExtension> right = parseMultiplicative();
+      if (right.isErr()) {
+        return right;
+      }
+      Result<RadicalExtension> combined =
+          operation == '+' ? left.unwrap() + right.unwrap() : left.unwrap() - right.unwrap();
+      if (combined.isErr()) {
+        return combined;
+      }
+      left = combined;
+    }
+  }
+
+  Result<RadicalExtension> parseMultiplicative() {
+    Result<RadicalExtension> left = parsePower();
+    if (left.isErr()) {
+      return left;
+    }
+    for (;;) {
+      skipSpaces();
+      char operation = peek();
+      if (operation == '*' || operation == '/') {
+        ++position_;
+      } else if (startsAtom()) {
+        operation = '*'; // 隐含乘法：2\sqrt{x}
+      } else {
+        return left;
+      }
+      Result<RadicalExtension> right = parsePower();
+      if (right.isErr()) {
+        return right;
+      }
+      Result<RadicalExtension> combined =
+          operation == '/' ? left.unwrap() / right.unwrap() : left.unwrap() * right.unwrap();
+      if (combined.isErr()) {
+        return combined;
+      }
+      left = combined;
+    }
+  }
+
+  Result<RadicalExtension> parsePower() {
+    Result<RadicalExtension> base = parseUnary();
+    if (base.isErr()) {
+      return base;
+    }
+    if (!takeChar('^')) {
+      return base;
+    }
+    Result<unsigned long long> exponent = parseExponent();
+    if (exponent.isErr()) {
+      return std::unexpected(exponent.unwrapErr());
+    }
+    RadicalExtension result(Fraction(1, 1));
+    for (unsigned long long step = 0; step < exponent.unwrap(); ++step) {
+      const Result<RadicalExtension> next = result * base.unwrap();
+      if (next.isErr()) {
+        return next;
+      }
+      result = next.unwrap();
+    }
+    return result;
+  }
+
+  Result<unsigned long long> parseExponent() {
+    skipSpaces();
+    if (peek() == '{') {
+      std::string group;
+      if (!takeBracedGroup(text_, position_, group)) {
+        return std::unexpected(MathsError::InvalidExpression);
+      }
+      const std::optional<unsigned long long> parsed = parseWholeUnsigned(group);
+      if (!parsed) {
+        return std::unexpected(MathsError::InvalidExpression);
+      }
+      return *parsed;
+    }
+    const std::size_t start = position_;
+    while (!atEnd() && std::isdigit(static_cast<unsigned char>(peek())) != 0) {
+      ++position_;
+    }
+    const std::optional<unsigned long long> parsed = parseWholeUnsigned(text_.substr(start, position_ - start));
+    if (!parsed) {
+      return std::unexpected(MathsError::InvalidExpression);
+    }
+    return *parsed;
+  }
+
+  Result<RadicalExtension> parseUnary() {
+    skipSpaces();
+    if (peek() == '-') {
+      ++position_;
+      Result<RadicalExtension> operand = parseUnary();
+      if (operand.isErr()) {
+        return operand;
+      }
+      return -operand.unwrap();
+    }
+    if (peek() == '+') {
+      ++position_;
+      return parseUnary();
+    }
+    return parseAtom();
+  }
+
+  Result<RadicalExtension> parseAtom() {
+    skipSpaces();
+    if (atEnd()) {
+      return std::unexpected(MathsError::InvalidExpression);
+    }
+
+    if (takeToken("\\sqrt")) {
+      // 只支持二次根：高次根在含变量的情形下需要更大的结构
+      skipSpaces();
+      if (peek() == '[') {
+        return std::unexpected(MathsError::InvalidExpression);
+      }
+      std::string radicandText;
+      if (!takeBracedGroup(text_, position_, radicandText)) {
+        return std::unexpected(MathsError::InvalidExpression);
+      }
+      if (radicandText.find("\\sqrt") != std::string::npos) {
+        return std::unexpected(MathsError::InvalidExpression); // 嵌套根号暂不支持
+      }
+      const Result<RationalFunction> radicand = ParserOf<Fraction>(radicandText).parse();
+      if (radicand.isErr()) {
+        return std::unexpected(radicand.unwrapErr());
+      }
+      return RadicalExtension::make(radicand.unwrap());
+    }
+
+    if (peek() == '(') {
+      ++position_;
+      Result<RadicalExtension> inner = parseAdditive();
+      if (inner.isErr()) {
+        return inner;
+      }
+      skipSpaces();
+      if (peek() != ')') {
+        return std::unexpected(MathsError::InvalidExpression);
+      }
+      ++position_;
+      return inner;
+    }
+
+    // 其余交给有理解析器：读一段「有理块」，直到顶层运算符、括号或下一个 \sqrt
+    const std::string_view chunk = takeRationalChunk();
+    if (chunk.find_first_not_of(" \t") == std::string_view::npos) {
+      return std::unexpected(MathsError::InvalidExpression);
+    }
+    const Result<RationalFunction> parsed = ParserOf<Fraction>(chunk).parse();
+    if (parsed.isErr()) {
+      return std::unexpected(parsed.unwrapErr());
+    }
+    return RadicalExtension(parsed.unwrap()); // 零生成元元素：一个有理函数
+  }
+
+  // 有理块：连续字符直到顶层运算符、括号或下一个 \sqrt（`^` 留在块里，交给有理解析器）
+  std::string_view takeRationalChunk() {
+    const std::size_t start = position_;
+    while (!atEnd()) {
+      const char character = peek();
+      if (character == '+' || character == '-' || character == '*' || character == '/' || character == '(' ||
+          character == ')') {
+        break;
+      }
+      if (atRadicalKeyword()) {
+        break;
+      }
+      ++position_;
+    }
+    return text_.substr(start, position_ - start);
+  }
+
+  std::string_view text_;
+  std::size_t position_{0};
+};
+
 } // namespace expression_detail
 
 // 解析表达式：先做 LaTeX 规范化，再交给解析器。
@@ -579,6 +839,20 @@ inline Result<RationalFunction> parseExpression(std::string_view text) {
 // 语法与 parseExpression 完全一致（同一个 ParserOf，只是系数换成实代数数），
 // 区别只在于：有理系数域 ℚ 表示不了根式，所以那些写法在有理解析器里必然失败，
 // 得走这条入口。\sqrt{x} 仍然不支持 —— 那是代数函数域（另一件事）。
+
+// 解析含**变量**根号的表达式：\sqrt{x}、\sqrt{x^2+1}、2\sqrt{x}、\sqrt{x}\sqrt{x+1} …
+//
+// 返回一个根式扩张元素（`RadicalExtension`）：域按式子里出现的根号自动扩张，
+// 于是「两个不同的根号」能自然地相加相乘。可代入求值（`evaluate`）。
+//
+// 边界：只支持**二次根**（`\sqrt{…}`），不支持 `\sqrt[n]{…}` 与嵌套根号；
+// 根号下必须是含变量的有理函数（常数根号 `\sqrt{2}` 属于实代数数，请分开算）；
+// 所有被开方数必须含同一个变量（系数的其它字母不受限）。
+inline Result<RadicalExtension> parseRadicalExpression(std::string_view text) {
+  const std::string normalized = expression_detail::normalizeLatex(text);
+  return expression_detail::RadicalParser(normalized).parse();
+}
+
 inline Result<AlgebraicRationalFunction> parseAlgebraicExpression(std::string_view text) {
   const std::string normalized = expression_detail::normalizeLatex(text);
   return expression_detail::ParserOf<RealAlgebraicNumber>(normalized).parse();

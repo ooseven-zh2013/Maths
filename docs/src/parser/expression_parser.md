@@ -69,6 +69,48 @@ Result<RationalFunction> value = parseExpression("(x^2 - 1)/(x - 1)");
 parseExpression("\\frac{x}{y} + 1").unwrap().latex();   // "\frac{x + y}{y}"
 ```
 
+## 含变量根号的入口：`parseRadicalExpression`
+
+`\sqrt{x}`、`\sqrt{x^2+1}`、`2\sqrt{x}`、`\sqrt{x}\sqrt{x+1}` 这类**根号包变量**的式子走这条入口，
+返回一个根式扩张元素（`RadicalExtension`，见 [radical.md](../algebra/radical.md)），
+域按式子里出现的根号**自动扩张**：
+
+```cpp
+parseRadicalExpression("\\sqrt{x}").unwrap().latex();                  // "\\sqrt{x}"
+parseRadicalExpression("2\\sqrt{x}").unwrap().latex();                 // "2\\sqrt{x}"
+parseRadicalExpression("\\sqrt{x} + 1").unwrap().latex();              // "1 + \\sqrt{x}"
+parseRadicalExpression("(\\sqrt{x}+1)^2").unwrap().latex();            // "x + 1 + 2\\sqrt{x}"
+parseRadicalExpression("\\sqrt{x}\\cdot\\sqrt{x+1}").unwrap();         // 两个生成元（自动扩域）
+parseRadicalExpression("\\sqrt{x^2+1} + \\sqrt{x^2+2}").unwrap().latex();
+                                                                       // "\\sqrt{x^2 + 1} + \\sqrt{x^2 + 2}"
+```
+
+结果可以代入求值：`√x | x=4 = 2`；`x = −1` 时该点无实值，返回 `NegativeEvenRoot`。
+
+三个入口的分工：
+
+| 入口 | 返回 | 根号能出现在哪 |
+| --- | --- | --- |
+| `parseExpression` | `RationalFunction`（系数 ℚ） | 不行 |
+| `parseAlgebraicExpression` | `AlgebraicRationalFunction`（系数取实代数数） | **系数位置**（`\sqrt{2}*x`）|
+| `parseRadicalExpression` | `RadicalExtension`（函数域元素） | **根号包变量**（`\sqrt{x}`）|
+
+> 为什么这条入口**不复用** `ParserOf<Coefficient>`：那个模板要求「系数运算不失败且返回值」
+> （`PolynomialOf` 内部把 `lhsCoeff * rhsCoeff` 当值用），而根式扩张的运算可能失败
+> （同一平方类、跨变量），所以改用专门的求值器：`\sqrt{…}` 直接产出元素，其余整块交给
+> 有理解析器，错误一路以 `Result` 传出。
+
+边界（都明确报错）：
+
+| 写法 | 结果 |
+| --- | --- |
+| `\sqrt[3]{x}` | `InvalidExpression` —— 只支持二次根 |
+| `\sqrt{\sqrt{x}}` | `InvalidExpression` —— 嵌套根号需要更大的结构 |
+| `\sqrt{2}` | `InvalidExpression` —— 常数根号属于实代数数，请走 `parseAlgebraicExpression` / `RealAlgebraicNumber` |
+| `\sqrt{x} + \sqrt{y}` | `InvalidExpression` —— 被开方数必须含同一个变量 |
+| `\sqrt{x} + \sqrt{4x}` | `RadicandsNotIndependent` —— 同一平方类，需要最简根式化 |
+| `\sqrt{x}*y` | ✅ 合法 —— 被开方数仍只有一个变量，系数的其它字母不受限 |
+
 ## 代数版入口：根号出现在系数位置
 
 `parseAlgebraicExpression` 用同一个 `ParserOf<Coefficient>` 模板、把系数换成
