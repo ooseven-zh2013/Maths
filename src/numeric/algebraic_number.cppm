@@ -524,8 +524,7 @@ public:
   // 要求入参平方自由、端点不是根；返回 (low, high] 内实根的个数。
   // 这是整个表示的判据：隔离区间里恰好一个根，才唯一地确定一个数。
 
-  static int UnivariatePolynomial::countRealRootsIn(const UnivariatePolynomial &squareFree, const Fraction &low,
-                                                    const Fraction &high) {
+  static int countRealRootsIn(const UnivariatePolynomial &squareFree, const Fraction &low, const Fraction &high) {
     if (squareFree.isZero() || squareFree.isConstant()) {
       return 0;
     }
