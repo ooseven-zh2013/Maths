@@ -10,10 +10,14 @@
 //   - 纯数值式子里的根号走代数数，直接给精确值
 //   - 条件右边同样可以写根号（x = \sqrt{2}）；此时整个代入过程提升到 ℚ(α) 上算，
 //     结果依然是精确的
-//   - 式子里也可以写根号，但**根号内只能是常数** —— `\sqrt{2}*x` 行，`\sqrt{x}` 不行
-//     （`\sqrt{x}` 要的是代数函数域，库里还没有这个表示）
-//   - 输出侧由库的 `RealAlgebraicNumber::latex()` 渲染：单根式给 `\sqrt{2}`，
-//     还原不成的（如 \sqrt{2}+\sqrt{3}）退回 RootOf 记法
+//   - 式子里也可以写根号，两种情形都支持：
+//       * 根号内是**常数** —— `\sqrt{2}*x`、`x+\sqrt{2}`，系数落在 ℚ(α) 上
+//       * 根号包着**变量** —— `\sqrt{x}`、`\sqrt{x^2+1}`、`\sqrt{x}+\sqrt{x+1}`，
+//         落在函数域上；代入时要求变量都取到有理数（`√x` 配 `x=4` 给 2）
+//   - 含变量根号的限制：只支持二次根（无 `\sqrt[3]{x}`）、不支持嵌套根号、
+//     被开方数必须含同一个变量（`\sqrt{x}+\sqrt{y}` 不行，而 `\sqrt{x}*y` 可以）
+//   - 输出侧由库的 `RealAlgebraicNumber::latex()` / `RadicalExtension::latex()` 渲染：
+//     单根式给 `\sqrt{2}`，还原不成的（如 \sqrt{2}+\sqrt{3}）退回 RootOf 记法
 //
 // ===========================================================================
 // 输出格式约定 —— 新增提示一律沿用这几种行式，不要另起一套
@@ -130,12 +134,14 @@ std::optional<std::string> radicalHint(std::string_view text) {
 
 // ---------------- 式子 ----------------
 
-// 式子的三种表示：
+// 式子的四种表示：
 //   RationalFunction          系数是有理数，可以含变量 —— 走「代入条件再化简」那条路
 //   RealAlgebraicNumber       纯数值且含根号 —— 直接给精确值
 //   AlgebraicRationalFunction 系数含根号、且带变量（`\sqrt{2}*x`、`x+\sqrt{2}`）——
 //                             一直在 ℚ(α) 上算，效果等同「式子 + 条件」那条路
-using Expression = std::variant<RationalFunction, RealAlgebraicNumber, AlgebraicRationalFunction>;
+//   RadicalExtension          根号包着变量（`\sqrt{x}`、`\sqrt{x^2+1}`、`\sqrt{x}+\sqrt{x+1}`）——
+//                             落在函数域上，代入有理数后给精确值
+using Expression = std::variant<RationalFunction, RealAlgebraicNumber, AlgebraicRationalFunction, RadicalExtension>;
 
 struct InputExpression {
   Expression value;
@@ -182,18 +188,31 @@ std::optional<InputExpression> readExpression() {
       return InputExpression{algebraicExpression.unwrap(), trim(line)};
     }
 
-    // 两条路都失败了，报谁的错误？看谁更具体：
+    // 第四档：根号包着**变量**的式子 —— `\sqrt{x}`、`\sqrt{x^2+1}`、`\sqrt{x}+\sqrt{x+1}`。
+    // 它落在函数域上（域按式子里出现的根号自动扩张），代入有理数后仍是精确值。
+    const Result<RadicalExtension> radicalExpression = parseRadicalExpression(line);
+    if (radicalExpression.isOk()) {
+      printField("解析为", radicalExpression.unwrap().latex(), true);
+      return InputExpression{radicalExpression.unwrap(), trim(line)};
+    }
+
+    // 都失败了，报谁的错误？看谁更具体：
     //   含变量的输入 —— 有理解析器的诊断更准（它认得变量、能说清语法错在哪）
     //   纯数值输入   —— 只有代数数解析器给得出 ZeroDenominator / DivisionByZero /
     //                   NumericOverflow 这类具体原因（2^{1/0}、0^{-1}、(-4)^{1/2}）
-    // InvalidExpression 是两条路共有的兜底错误码，它不算「更具体」。
+    // InvalidExpression 是各条路共有的兜底错误码，它不算「更具体」。
     const MathsError algebraicError = algebraic.unwrapErr();
-    const bool algebraicIsSpecific = algebraicError != MathsError::InvalidExpression;
-    printFeedback("不接受", describe(algebraicIsSpecific ? algebraicError : rational.unwrapErr()));
+    const MathsError radicalError = radicalExpression.unwrapErr();
+    MathsError reported = rational.unwrapErr();
+    if (algebraicError != MathsError::InvalidExpression) {
+      reported = algebraicError;
+    }
+    if (radicalError != MathsError::InvalidExpression && radicalError != MathsError::RadicandIsSquare) {
+      reported = radicalError; // 例如「多个根号落在同一平方类」这类更具体的诊断
+    }
+    printFeedback("不接受", describe(reported));
     if (const std::optional<std::string> hint = radicalHint(line)) {
       printFeedback("提示", *hint);
-    } else if (line.find("\\sqrt") != std::string::npos) {
-      printFeedback("提示", "根号里只能放常数 —— \\sqrt{2}*x、x+\\sqrt{2} 都行，\\sqrt{x} 不行");
     } else {
       printFeedback("提示", "语法见开头；普通写法与 LaTeX 写法都接受");
     }
@@ -207,7 +226,7 @@ void printSyntax() {
   printField("变量", "单个字母可带下标 —— x、a_1、x_{i,j}", true);
   printField("长名", "多字母变量加花括号 —— {node}、{node}_{car}", true);
   printField("乘法", "可省略 —— xy 即 x*y，2x 即 2*x（所以 {node} 不写花括号会变成 n*o*d*e）", true);
-  printField("根号", "只认 LaTeX 写法 —— \\sqrt{2}、\\sqrt[3]{2}；可写在式子里，但根号内只能是常数", true);
+  printField("根号", "只认 LaTeX 写法 —— \\sqrt{2}、\\sqrt{x}、\\sqrt{x^2+1}；根号内既可以是常数也可以是变量", true);
   printField("写法", "普通写法与 LaTeX 写法都接受 —— \\frac{a}{b}、\\cdot、\\times、\\div、x^{2}", true);
 }
 
@@ -561,6 +580,35 @@ void printAlgebraicResult(const AlgebraicRationalFunction &expression, const std
   printDiscardedNote(substituted.unwrap().discardedConstraints());
 }
 
+// 根式路径：根号包里是变量，值落在函数域上。求值要把每个被开方数都开出来，
+// 所以条件是「所有变量都取到有理数」—— 做不到只代一部分。
+void printRadicalResult(const RadicalExtension &expression, const std::vector<Constraint> &constraints) {
+  Scope scope;
+  for (const Constraint &entry : constraints) {
+    const RationalFunction *value = std::get_if<RationalFunction>(&entry.value);
+    if (value == nullptr) {
+      printField("无法代入", entry.variable.str() + ": 含变量根号的式子暂时只能用有理数取值（该条件给的是根号）");
+      return;
+    }
+    const Result<void> assigned = scope.assign(entry.variable, *value);
+    if (assigned.isErr()) {
+      printField("无法代入", entry.variable.str() + ": " + std::string(describe(assigned.unwrapErr())));
+      return;
+    }
+  }
+
+  const Result<RealAlgebraicNumber> evaluated = expression.evaluate(scope);
+  if (evaluated.isOk()) {
+    printField("精确值", exactValueLatex(evaluated.unwrap()));
+    return;
+  }
+  if (evaluated.unwrapErr() == MathsError::UndefinedVariable) {
+    printField("无法代入", "还有变量没有取值 —— 含变量根号的式子要把变量都代成有理数");
+    return;
+  }
+  printField("无法代入", std::string(describe(evaluated.unwrapErr())) + "（该处没有实数值）");
+}
+
 } // namespace
 
 int main() {
@@ -588,6 +636,13 @@ int main() {
     std::vector<Constraint> constraints;
     printExpressionAndCollectConstraints(*algebraicExpression, scope, constraints);
     printAlgebraicResult(*algebraicExpression, constraints);
+  } else if (const RadicalExtension *radical = std::get_if<RadicalExtension>(&input->value)) {
+    // 根号包着变量的式子（\sqrt{x}、\sqrt{x^2+1}）：条件照读，但取值要有理数
+    printFeedback("提示", "式子里含带变量的根号，按函数域精确计算；条件请给有理数取值");
+    Scope scope;
+    std::vector<Constraint> constraints;
+    printExpressionAndCollectConstraints(*radical, scope, constraints);
+    printRadicalResult(*radical, constraints);
   } else {
     const RationalFunction &expression = std::get<RationalFunction>(input->value);
     Scope scope;

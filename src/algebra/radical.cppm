@@ -112,6 +112,24 @@ public:
   std::size_t termCount() const { return coefficients_.size(); }
   const RationalFunction &coefficient(std::size_t mask) const { return coefficients_[mask]; }
 
+  // 元素里出现过的全部变量：被开方数与所有系数里出现的并集
+  std::set<Variable> variables() const {
+    std::set<Variable> result;
+    for (const RationalFunction &radicand : radicands_) {
+      for (const Variable &variable : radicand.variables()) {
+        result.insert(variable);
+      }
+    }
+    for (const RationalFunction &coefficient : coefficients_) {
+      for (const Variable &variable : coefficient.variables()) {
+        result.insert(variable);
+      }
+    }
+    return result;
+  }
+
+  bool containsVariable(const Variable &variable) const { return variables().count(variable) == 1; }
+
   bool isZero() const {
     for (const RationalFunction &coefficient : coefficients_) {
       if (!coefficient.isZero()) {
