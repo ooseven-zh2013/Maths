@@ -211,6 +211,20 @@ public:
     return false;
   }
 
+  // 精确判等：区间个数 + 逐个端点的值与取到性（端点是代数数，比较是精确的）
+  bool operator==(const RealSet &rhs) const {
+    if (intervals_.size() != rhs.intervals_.size()) {
+      return false;
+    }
+    for (std::size_t index = 0; index < intervals_.size(); ++index) {
+      if (!(intervals_[index].lower == rhs.intervals_[index].lower) ||
+          !(intervals_[index].upper == rhs.intervals_[index].upper)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   RealSet unite(const RealSet &rhs) const {
     std::vector<Interval> all = intervals_;
     all.insert(all.end(), rhs.intervals_.begin(), rhs.intervals_.end());

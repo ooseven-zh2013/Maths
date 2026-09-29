@@ -4,6 +4,7 @@ import std;
 import maths.error;
 import maths.result;
 import maths.numbers;
+import maths.algebraic_number;
 
 export namespace maths {
 
@@ -786,5 +787,29 @@ inline Result<PolynomialDivisionOf<Coefficient>> divideWithRemainder(const Polyn
 using Monomial = MonomialOf<Fraction>;
 using Polynomial = PolynomialOf<Fraction>;
 using PolynomialDivision = PolynomialDivisionOf<Fraction>;
+
+// 把**单变量**多项式转成 ℚ[x] 上的一元多项式，好复用实根隔离那一套机器
+// （Sturm 计数、平方自由化、符号判断）。含多于一个变量时返回 nullopt。
+//
+// 之所以放在这里：它是多项式自己的能力，而实根计算在 numeric 层，
+// numeric 层不能反向依赖代数层，所以转换放在代数这边。
+inline std::optional<UnivariatePolynomial> toUnivariatePolynomial(const Polynomial &polynomial,
+                                                                  const Variable &variable) {
+  std::vector<Fraction> coefficients(polynomial.degree() + 1, Fraction(0, 1));
+  for (const auto &[factors, coefficient] : polynomial.getTerms()) {
+    unsigned long long exponent = 0;
+    for (const auto &factor : factors) {
+      if (factor.first != variable) {
+        return std::nullopt; // 多变量：实根隔离那套机器处理不了
+      }
+      exponent = factor.second;
+    }
+    if (exponent >= coefficients.size()) {
+      return std::nullopt;
+    }
+    coefficients[exponent] = coefficient;
+  }
+  return UnivariatePolynomial(std::move(coefficients));
+}
 
 } // namespace maths

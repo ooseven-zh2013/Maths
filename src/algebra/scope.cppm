@@ -6,6 +6,7 @@ import maths.result;
 import maths.numbers;
 import :expression;
 import :rational;
+import :constraint;
 
 export namespace maths {
 
@@ -53,6 +54,13 @@ inline std::string jsonEscape(std::string_view text) {
 
 } // namespace detail
 
+// 绑定的值是否满足该变量的取值范围约束
+enum class Admission {
+  Admits,   // 满足（或该变量没有约束）
+  Violates, // 违反
+  Unknown,  // 判断不了：变量未绑定，或绑定值不是常数
+};
+
 template <class Coefficient> class ScopeOf {
 public:
   using ValueType = RationalFunctionOf<Coefficient>;
@@ -95,12 +103,70 @@ public:
     return found->second;
   }
 
+  // ==================== 取值范围约束 ====================
+  //
+  // 赋值给的是「点」（x = 2），约束给的是「范围」（x ≥ 1、x ≠ 0），两者并存。
+  // 同一个变量重复给约束时取交集，于是约束只会越来越紧。
+
+  Result<void> restrict(const Variable &variable, const RealSet &allowed) {
+    for (RangeConstraint &constraint : constraints_) {
+      if (constraint.variable() == variable) {
+        const Result<RealSet> narrowed = constraint.allowed().intersect(allowed);
+        if (narrowed.isErr()) {
+          return Result<void>::err(narrowed.unwrapErr());
+        }
+        constraint = RangeConstraint(variable, narrowed.unwrap());
+        return Result<void>();
+      }
+    }
+    constraints_.emplace_back(variable, allowed);
+    return Result<void>();
+  }
+
+  const std::vector<RangeConstraint> &constraints() const { return constraints_; }
+
+  // 该变量当前绑定的值是否满足约束。
+  // 绑定值不是常数（含其它变量）时无从判定 —— 返回 Unknown 而不是猜。
+  Admission admits(const Variable &variable) const {
+    for (const RangeConstraint &constraint : constraints_) {
+      if (!(constraint.variable() == variable)) {
+        continue;
+      }
+      const auto found = values.find(variable);
+      if (found == values.end()) {
+        return Admission::Unknown; // 还没绑定，无从谈起
+      }
+      const Result<MonomialOf<Coefficient>> numerator = found->second.getNumerator().toMonomial();
+      const Result<MonomialOf<Coefficient>> denominator = found->second.getDenominator().toMonomial();
+      if (numerator.isErr() || !numerator.unwrap().isConstant() || denominator.isErr() ||
+          !denominator.unwrap().isConstant()) {
+        return Admission::Unknown; // 绑定值是含变量的式子
+      }
+      const Result<Coefficient> value = numerator.unwrap().getCoefficient() / denominator.unwrap().getCoefficient();
+      if (value.isErr()) {
+        return Admission::Unknown;
+      }
+      if constexpr (std::is_same_v<Coefficient, Fraction>) {
+        return constraint.admits(RealAlgebraicNumber(value.unwrap())) ? Admission::Admits : Admission::Violates;
+      } else if constexpr (std::is_same_v<Coefficient, RealAlgebraicNumber>) {
+        return constraint.admits(value.unwrap()) ? Admission::Admits : Admission::Violates;
+      } else {
+        return Admission::Unknown;
+      }
+    }
+    return Admission::Admits; // 该变量没有约束
+  }
+
   // ==================== 修改 ====================
 
   // 解除绑定；返回是否确实删除了某个绑定
   bool erase(const Variable &variable) { return values.erase(variable) != 0; }
 
-  void clear() { values.clear(); }
+  // 清空整张表：绑定与取值范围约束一起清
+  void clear() {
+    values.clear();
+    constraints_.clear();
+  }
 
   const Bindings &bindings() const { return values; }
 
@@ -156,6 +222,9 @@ public:
 
 private:
   Bindings values;
+  // 取值范围约束。`erase` 只解除绑定，不动约束（约束说的是这个变量能取什么，
+  // 与「当前绑了没」是两件事）；要一并清掉用 `clear`。
+  std::vector<RangeConstraint> constraints_;
 };
 
 // ==================== 代入的实现 ====================

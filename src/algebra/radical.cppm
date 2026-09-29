@@ -42,26 +42,6 @@ export namespace maths {
 
 namespace radical_detail {
 
-// 把（单变量的）多项式转成 ℚ[x] 上的一元多项式，好复用那边已经测过的平方自由化。
-// 含多于一个变量时返回 nullopt。
-inline std::optional<UnivariatePolynomial> toUnivariate(const Polynomial &polynomial, const Variable &variable) {
-  std::vector<Fraction> coefficients(polynomial.degree() + 1, Fraction(0, 1));
-  for (const auto &[factors, coefficient] : polynomial.getTerms()) {
-    unsigned long long exponent = 0;
-    for (const auto &factor : factors) {
-      if (factor.first != variable) {
-        return std::nullopt;
-      }
-      exponent = factor.second;
-    }
-    if (exponent >= coefficients.size()) {
-      return std::nullopt;
-    }
-    coefficients[exponent] = coefficient;
-  }
-  return UnivariatePolynomial(std::move(coefficients));
-}
-
 // 非负整数的精确平方根判定（std::sqrt 可能因舍入给出错判，故做一次校正）
 inline bool isPerfectSquare(unsigned long long value) {
   if (value == 0ULL) {
@@ -309,10 +289,9 @@ private:
         return std::unexpected(MathsError::InvalidExpression); // 所有被开方数必须同一个变量
       }
 
-      const std::optional<UnivariatePolynomial> numerator =
-          radical_detail::toUnivariate(radicand.getNumerator(), variable);
+      const std::optional<UnivariatePolynomial> numerator = toUnivariatePolynomial(radicand.getNumerator(), variable);
       const std::optional<UnivariatePolynomial> denominator =
-          radical_detail::toUnivariate(radicand.getDenominator(), variable);
+          toUnivariatePolynomial(radicand.getDenominator(), variable);
       if (!numerator || !denominator) {
         return std::unexpected(MathsError::InvalidExpression);
       }
@@ -364,9 +343,8 @@ private:
                radical_detail::isPerfectSquare(static_cast<unsigned long long>(denominator)));
     }
     const auto variable = *variables.begin();
-    const std::optional<UnivariatePolynomial> numerator = radical_detail::toUnivariate(value.getNumerator(), variable);
-    const std::optional<UnivariatePolynomial> denominator =
-        radical_detail::toUnivariate(value.getDenominator(), variable);
+    const std::optional<UnivariatePolynomial> numerator = toUnivariatePolynomial(value.getNumerator(), variable);
+    const std::optional<UnivariatePolynomial> denominator = toUnivariatePolynomial(value.getDenominator(), variable);
     if (!numerator || !denominator) {
       return false;
     }
