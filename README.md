@@ -79,7 +79,7 @@ const Fraction value = (a / Fraction(1, 2)).unwrap();  // 失败则抛 MathsExce
 | 实代数数 | `maths.algebraic_number` | `RealAlgebraicNumber`：最小多项式 + 隔离区间、四则、开方、根式解析与渲染 | [文档](docs/src/numeric/algebraic_number.md) |
 | 实点集 | `maths.real_set` | 一维实点集 `RealSet`：区间并集、精确端点、解不等式、多项式的全部实根 | [文档](docs/src/numeric/real_set.md) |
 | 约束 | `maths.algebra:constraint` | 取值范围约束：解不等式、函数定义域、`Scope` 接集合约束 | [文档](docs/src/algebra/constraint.md) |
-| 多维约束 | `maths.algebra:constraint_system` | 多变量限定条件（`x−y=z`、`x²+y²≤1`）：原子约束、成员判定、可分离情形 | [文档](docs/src/algebra/constraint_system.md) |
+| 多维约束 | `maths.algebra:constraint_system` | 多变量限定条件：原子约束、成员判定、可分离情形、线性投影（Fourier–Motzkin）| [文档](docs/src/algebra/constraint_system.md) |
 | Gröbner 基 | `maths.algebra:groebner` | 多变量等式组：一致性判定、消元 / 参数化 / 投影（Buchberger，精确有理）| [文档](docs/src/algebra/groebner.md) |
 | 代数表达式 | `maths.algebra:expression` | `Variable`、`Monomial`、`Polynomial`、带余除法 | [文档](docs/src/algebra/algebraic_expression.md) |
 | 分式 | `maths.algebra:rational` | 有理函数、三层化简、长除法归约 | [文档](docs/src/algebra/rational_function.md) |

@@ -124,5 +124,70 @@ int main() {
     CHECK_ERR(coupled.asSeparable(), MathsError::InvalidExpression);
   }
 
+  // ---------- 线性情形的投影：Fourier–Motzkin ----------
+  {
+    const auto atom = [](const char *latex, Relation relation) { return AtomConstraint(polynomial(latex), relation); };
+
+    // {x ≥ y, x ≤ z} 消去 x → y ≤ z（(y,z) 能被某个 x 补全的条件）
+    const ConstraintSystem between({atom("x-y", Relation::GreaterEqual), atom("x-z", Relation::LessEqual)});
+    const auto projected = projectLinear(between, {Variable("x")});
+    CHECK_OK(projected);
+    CHECK_TRUE(projected.unwrap().has_value());
+    const ConstraintSystem &reduced = *projected.unwrap();
+    CHECK_TRUE(reduced.variables().size() == std::size_t(2)); // 只剩 y、z
+    CHECK_TRUE(!reduced.atoms().empty());
+    CHECK_TRUE(reduced.admits(point({{"y", 1}, {"z", 2}})).unwrap());  // 可取 x ∈ [1,2]
+    CHECK_TRUE(reduced.admits(point({{"y", 1}, {"z", 1}})).unwrap());  // 取等也允许（非严格）
+    CHECK_TRUE(!reduced.admits(point({{"y", 2}, {"z", 1}})).unwrap()); // 2 ≤ 1 不成立
+
+    // 严格性要保留：{x > y, x < z} → y < z（等号不行）
+    const ConstraintSystem strictSystem({atom("x-y", Relation::Greater), atom("x-z", Relation::Less)});
+    const auto strictProjected = projectLinear(strictSystem, {Variable("x")});
+    CHECK_OK(strictProjected);
+    CHECK_TRUE(strictProjected.unwrap().has_value());
+    const ConstraintSystem &strictReduced = *strictProjected.unwrap();
+    CHECK_TRUE(strictReduced.admits(point({{"y", 1}, {"z", 2}})).unwrap());
+    CHECK_TRUE(!strictReduced.admits(point({{"y", 1}, {"z", 1}})).unwrap()); // y = z 不行
+
+    // 无解：{x ≥ 1, x ≤ 0} 消去 x → 1 ≤ 0
+    const ConstraintSystem contradictory({atom("x-1", Relation::GreaterEqual), atom("x", Relation::LessEqual)});
+    const auto impossible = projectLinear(contradictory, {Variable("x")});
+    CHECK_OK(impossible);
+    CHECK_TRUE(!impossible.unwrap().has_value()); // nullopt = 无解
+
+    // 恒真：{x ≥ 1, x ≤ 3} 消去 x 后对剩余变量没有任何限制
+    const ConstraintSystem bounded({atom("x-1", Relation::GreaterEqual), atom("3-x", Relation::GreaterEqual)});
+    const auto tautology = projectLinear(bounded, {Variable("x")});
+    CHECK_OK(tautology);
+    CHECK_TRUE(tautology.unwrap().has_value());
+    CHECK_TRUE(tautology.unwrap()->isTrivial());
+
+    // 等式：{x = y, x = z} → y = z
+    const ConstraintSystem equalities({atom("x-y", Relation::Equal), atom("x-z", Relation::Equal)});
+    const auto equalProjected = projectLinear(equalities, {Variable("x")});
+    CHECK_OK(equalProjected);
+    CHECK_TRUE(equalProjected.unwrap().has_value());
+    const ConstraintSystem &equalReduced = *equalProjected.unwrap();
+    CHECK_TRUE(equalReduced.admits(point({{"y", 3}, {"z", 3}})).unwrap());
+    CHECK_TRUE(!equalReduced.admits(point({{"y", 3}, {"z", 4}})).unwrap());
+
+    // 一次消两个：{x ≥ 0, y ≥ x, z ≥ y} → z ≥ 0
+    const ConstraintSystem chain(
+        {atom("x", Relation::GreaterEqual), atom("y-x", Relation::GreaterEqual), atom("z-y", Relation::GreaterEqual)});
+    const auto chainProjected = projectLinear(chain, {Variable("x"), Variable("y")});
+    CHECK_OK(chainProjected);
+    CHECK_TRUE(chainProjected.unwrap().has_value());
+    const ConstraintSystem &chainReduced = *chainProjected.unwrap();
+    CHECK_TRUE(chainReduced.variables().size() == std::size_t(1)); // 只剩 z
+    CHECK_TRUE(chainReduced.admits(point({{"z", 0}})).unwrap());
+    CHECK_TRUE(!chainReduced.admits(point({{"z", -1}})).unwrap());
+
+    // 不适用：非线性原子、以及「不等于」（非凸）
+    CHECK_ERR(projectLinear(ConstraintSystem({atom("x^2+y", Relation::LessEqual)}), {Variable("x")}),
+              MathsError::InvalidExpression);
+    CHECK_ERR(projectLinear(ConstraintSystem({atom("x-y", Relation::NotEqual)}), {Variable("x")}),
+              MathsError::InvalidExpression);
+  }
+
   TEST_SUMMARY();
 }

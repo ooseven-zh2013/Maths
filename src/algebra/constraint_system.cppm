@@ -245,4 +245,216 @@ private:
   std::vector<AtomConstraint> atoms_;
 };
 
+// ==================== 线性情形的投影：Fourier–Motzkin ====================
+//
+// 全是线性约束时，「消掉若干变量、看剩下哪些点可达」有精确的有限算法：
+// 逐个变量消去，每轮把「这个变量有上界」与「有下界」的行两两组合，
+// 消掉该变量得到一条不含它的新约束。这就是 Fourier–Motzkin 消元。
+//
+// 它给出的是**投影**：`{x ≥ y, x ≤ z}` 消掉 x 之后是 `y ≤ z` ——
+// 也就是「(y,z) 平面上哪些点能被某个 x 补全成解」。
+//
+// 代价随约束条数增长（每轮组合可能平方级），但对本库的规模足够；一般半代数集
+// 那层（非线性、含析取）仍要靠柱形代数分解，本库不做。
+
+namespace linear_detail {
+
+// 一条线性不等式：Σ aᵢxᵢ ≤ constant（strict 为真时是严格小于）
+struct LinearRow {
+  std::map<Variable, Fraction> coefficients;
+  Fraction constant{0, 1};
+  bool strict{false};
+
+  bool hasVariables() const { return !coefficients.empty(); }
+};
+
+// 所有单项式次数 ≤ 1
+inline bool isLinear(const Polynomial &polynomial) {
+  for (const auto &entry : polynomial.getTerms()) {
+    if (detail::degreeOf(entry.first) > 1) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// 把一个原子化成 ≤ 形式；`=` 会拆成两条（≤ 与 ≥）
+inline Result<std::vector<LinearRow>> toRows(const AtomConstraint &atom) {
+  if (!isLinear(atom.expression())) {
+    return std::unexpected(MathsError::InvalidExpression); // 非线性：FM 处理不了
+  }
+
+  LinearRow row;
+  for (const auto &entry : atom.expression().getTerms()) {
+    if (entry.first.empty()) {
+      row.constant = entry.second;
+      continue;
+    }
+    if (entry.first.size() != 1 || entry.first[0].second != 1) {
+      return std::unexpected(MathsError::InvalidExpression);
+    }
+    row.coefficients.emplace(entry.first[0].first, entry.second);
+  }
+
+  // p ⋈ 0，其中 p = Σ aᵢxᵢ + a₀，row 里存的是 aᵢ 与 a₀
+  //   p ≤ 0  ⟺  Σ aᵢxᵢ ≤ −a₀        → 系数取 aᵢ，常数取 −a₀
+  //   p ≥ 0  ⟺  Σ aᵢxᵢ ≥ −a₀ ⟺ −Σ aᵢxᵢ ≤ a₀  → 系数取 −aᵢ，常数取 +a₀
+  const auto lessRow = [&row]() {
+    LinearRow result = row;
+    result.constant = -row.constant;
+    return result;
+  };
+  const auto greaterRow = [&row]() {
+    LinearRow result;
+    result.constant = row.constant; // 注意是 +a₀：`≥` 移项后常数不过去
+    for (const auto &[variable, value] : row.coefficients) {
+      result.coefficients.emplace(variable, -value);
+    }
+    return result;
+  };
+
+  switch (atom.relation()) {
+  case Relation::Less:
+  case Relation::LessEqual: {
+    LinearRow upper = lessRow();
+    upper.strict = atom.relation() == Relation::Less;
+    return std::vector<LinearRow>{upper};
+  }
+  case Relation::Greater:
+  case Relation::GreaterEqual: {
+    LinearRow upper = greaterRow();
+    upper.strict = atom.relation() == Relation::Greater;
+    return std::vector<LinearRow>{upper};
+  }
+  case Relation::Equal: {
+    // 等式 = 两条不等式（方向相反，都不严格）
+    return std::vector<LinearRow>{lessRow(), greaterRow()};
+  }
+  case Relation::NotEqual:
+    // 「不等于」不是凸约束，Fourier–Motzkin 处理不了
+    return std::unexpected(MathsError::InvalidExpression);
+  }
+  return std::unexpected(MathsError::InvalidExpression);
+}
+
+// 消去一个变量；返回 nullopt 表示这一轮已经能判定**无解**
+inline std::optional<std::vector<LinearRow>> eliminateOne(const std::vector<LinearRow> &rows, const Variable &target) {
+  std::vector<LinearRow> upper;
+  std::vector<LinearRow> lower;
+  std::vector<LinearRow> passthrough;
+  for (const LinearRow &row : rows) {
+    const auto found = row.coefficients.find(target);
+    if (found == row.coefficients.end()) {
+      passthrough.push_back(row);
+      continue;
+    }
+    if (found->second > 0LL) {
+      upper.push_back(row);
+    } else {
+      lower.push_back(row);
+    }
+  }
+
+  std::vector<LinearRow> result = passthrough;
+  for (const LinearRow &up : upper) {
+    const Fraction positive = up.coefficients.at(target);
+    for (const LinearRow &down : lower) {
+      const Fraction negative = down.coefficients.at(target);
+      // 由 A·x ≤ c_u − Σa 与 C·x ≤ c_d − Σc（A > 0 > C）链起来：
+      //   x ≤ (c_u − Σa)/A  且  x ≥ (c_d − Σc)/C
+      //   ⟹ (c_d − Σc)/C ≤ (c_u − Σa)/A  ⟹ 两边乘 A·C（负数，翻转）
+      //   ⟹ A·(c_d − Σc) ≥ C·(c_u − Σa)
+      //   ⟹ Σ (A·cᵢ − C·aᵢ) xᵢ ≤ A·c_d − C·c_u
+      LinearRow combined;
+      combined.strict = up.strict || down.strict; // 有一边严格，链式结论就严格
+      for (const auto &[variable, value] : up.coefficients) {
+        if (variable == target) {
+          continue;
+        }
+        combined.coefficients[variable] = combined.coefficients[variable] + positive * value;
+      }
+      for (const auto &[variable, value] : down.coefficients) {
+        if (variable == target) {
+          continue;
+        }
+        combined.coefficients[variable] = combined.coefficients[variable] - negative * value;
+      }
+      combined.constant = positive * down.constant - negative * up.constant;
+      combined.coefficients.erase(target);
+      result.push_back(combined);
+    }
+  }
+
+  // 清掉零系数，并检查常数行是否已经矛盾
+  std::vector<LinearRow> cleaned;
+  const Fraction zero(0, 1);
+  for (LinearRow &row : result) {
+    std::map<Variable, Fraction> nonzero;
+    for (const auto &[variable, value] : row.coefficients) {
+      if (value != 0LL) {
+        nonzero.emplace(variable, value);
+      }
+    }
+    row.coefficients = std::move(nonzero);
+    if (row.hasVariables()) {
+      cleaned.push_back(row);
+      continue;
+    }
+    const bool holds = row.strict ? zero < row.constant : !(row.constant < zero);
+    if (!holds) {
+      return std::nullopt; // 0 ≤ 负数（或 0 < 非正数）：这组约束无解
+    }
+    // 恒真的常数行直接丢掉
+  }
+  return cleaned;
+}
+
+// 回到原子约束：Σ aᵢxᵢ ≤ c ⟺ Σ aᵢxᵢ − c ≤ 0
+inline AtomConstraint toAtom(const LinearRow &row) {
+  Polynomial expression;
+  for (const auto &[variable, value] : row.coefficients) {
+    expression.addTerm(VarPowers{{variable, 1ULL}}, value);
+  }
+  expression.addTerm(VarPowers{}, -row.constant);
+  return AtomConstraint(std::move(expression), row.strict ? Relation::Less : Relation::LessEqual);
+}
+
+} // namespace linear_detail
+
+// 线性约束组的投影：按变量名顺序消去指定变量（Fourier–Motzkin）。
+//
+// - 返回**空系统**表示投影后恒真（原来的约束对剩余的变量没有任何限制）
+// - 返回 `nullopt` 表示这组约束**无解**
+// - 报错表示不适用：含非线性原子，或含「不等于」（FM 处理不了非凸约束）
+//
+// 例：`{x ≥ y, x ≤ z}` 消去 x → `y ≤ z`。
+inline Result<std::optional<ConstraintSystem>> projectLinear(const ConstraintSystem &system,
+                                                             const std::set<Variable> &eliminate) {
+  std::vector<linear_detail::LinearRow> rows;
+  for (const AtomConstraint &atom : system.atoms()) {
+    const Result<std::vector<linear_detail::LinearRow>> converted = linear_detail::toRows(atom);
+    if (converted.isErr()) {
+      return std::unexpected(converted.unwrapErr());
+    }
+    rows.insert(rows.end(), converted.unwrap().begin(), converted.unwrap().end());
+  }
+
+  for (const Variable &variable : eliminate) { // std::set 按名字升序，顺序确定
+    const std::optional<std::vector<linear_detail::LinearRow>> reduced = linear_detail::eliminateOne(rows, variable);
+    if (!reduced.has_value()) {
+      return std::optional<ConstraintSystem>(); // 无解
+    }
+    rows = reduced.value();
+  }
+
+  std::vector<AtomConstraint> atoms;
+  for (const linear_detail::LinearRow &row : rows) {
+    if (!row.hasVariables()) {
+      continue; // 到这一步剩下的常数行都恒真
+    }
+    atoms.push_back(linear_detail::toAtom(row));
+  }
+  return std::optional<ConstraintSystem>(ConstraintSystem(std::move(atoms)));
+}
+
 } // namespace maths
