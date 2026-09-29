@@ -58,6 +58,8 @@ Result<RealSet> domainOf(const RationalFunction &function);
 ```
 
 分母的所有实根从 ℝ 里去掉；分母是常数时是整条实轴。
+根式表达式另有一个重载（在 [radical.md](radical.md)）：`domainOf(RadicalExtension)`
+= 所有被开方数 ≥ 0 与系数分母 ≠ 0 取交。
 
 ```cpp
 domainOf(parseExpression("1/x").unwrap());         // (-\infty, 0) \cup (0, +\infty)

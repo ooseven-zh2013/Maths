@@ -583,6 +583,11 @@ void printAlgebraicResult(const AlgebraicRationalFunction &expression, const std
 // 根式路径：根号包里是变量，值落在函数域上。求值要把每个被开方数都开出来，
 // 所以条件是「所有变量都取到有理数」—— 做不到只代一部分。
 void printRadicalResult(const RadicalExtension &expression, const std::vector<Constraint> &constraints) {
+  // 先报定义域：被开方数 ≥ 0 与系数分母 ≠ 0 取交。整条实轴时不报（没有信息量）
+  if (const Result<RealSet> domain = domainOf(expression); domain.isOk() && !domain.unwrap().isRealLine()) {
+    printField("定义域", domain.unwrap().latex());
+  }
+
   Scope scope;
   for (const Constraint &entry : constraints) {
     const RationalFunction *value = std::get_if<RationalFunction>(&entry.value);

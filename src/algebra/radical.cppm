@@ -8,6 +8,7 @@ import maths.algebraic_number;
 import :expression;
 import :rational;
 import :scope;
+import :constraint;
 
 export namespace maths {
 
@@ -586,5 +587,54 @@ private:
 };
 
 inline std::ostream &operator<<(std::ostream &os, const RadicalExtension &value) { return os << value.str(); }
+
+// 根式表达式的定义域：**所有被开方数 ≥ 0** 与**所有系数的分母 ≠ 0** 取交。
+//
+// 定义域是「表达式」的性质（√x·√x 的值等于 x、处处有定义，但作为表达式它要求 x ≥ 0），
+// 所以这里按被开方数逐个收条件，而不是先把元素化简。
+//
+//   √x            → x ≥ 0
+//   √(x²+1)       → ℝ（被开方数恒正）
+//   √(x²−1)       → (−∞,−1] ∪ [1,+∞)
+//   1/√x          → x > 0（系数的分母带来的 x ≠ 0 与被开方数的 x ≥ 0 取交）
+//
+// 只支持**单变量**：多变量时定义域是多维点集（`√x·y` 这类），不在本模块范围。
+inline Result<RealSet> domainOf(const RadicalExtension &expression) {
+  const std::set<Variable> variables = expression.variables();
+  if (variables.empty()) {
+    return RealSet::realLine(); // 常数元素
+  }
+  if (variables.size() > 1) {
+    return std::unexpected(MathsError::InvalidExpression); // 多维定义域另说
+  }
+
+  Result<RealSet> domain = RealSet::realLine();
+  for (const RationalFunction &radicand : expression.radicands()) {
+    const Result<RealSet> condition = solveInequality(radicand, Relation::GreaterEqual);
+    if (condition.isErr()) {
+      return condition;
+    }
+    const Result<RealSet> intersected = domain.unwrap().intersect(condition.unwrap());
+    if (intersected.isErr()) {
+      return intersected;
+    }
+    domain = intersected.unwrap();
+  }
+  for (const RationalFunction &coefficient : expression.coefficients()) {
+    if (coefficient.isZero()) {
+      continue;
+    }
+    const Result<RealSet> condition = domainOf(coefficient);
+    if (condition.isErr()) {
+      return condition;
+    }
+    const Result<RealSet> intersected = domain.unwrap().intersect(condition.unwrap());
+    if (intersected.isErr()) {
+      return intersected;
+    }
+    domain = intersected.unwrap();
+  }
+  return domain;
+}
 
 } // namespace maths

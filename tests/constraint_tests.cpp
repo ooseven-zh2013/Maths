@@ -162,5 +162,39 @@ int main() {
     CHECK_TRUE(scope.admits(Variable("x")) == Admission::Admits);
   }
 
+  // ---------- 根式表达式的定义域 ----------
+  //
+  // 定义域是**表达式**的性质：√x·√x 的值等于 x 处处有定义，但作为表达式它要求 x ≥ 0。
+  {
+    // √x → x ≥ 0
+    const RealSet rootX = domainOf(parseRadicalExpression("\\sqrt{x}").unwrap()).unwrap();
+    CHECK_TRUE(rootX.contains(RealAlgebraicNumber(Fraction(0, 1)))); // 0 处有定义（√0 = 0）
+    CHECK_TRUE(rootX.contains(RealAlgebraicNumber(Fraction(4, 1))));
+    CHECK_TRUE(!rootX.contains(RealAlgebraicNumber(Fraction(-1, 1))));
+
+    // √(x²+1) → ℝ（被开方数恒正）
+    CHECK_TRUE(domainOf(parseRadicalExpression("\\sqrt{x^2+1}").unwrap()).unwrap().isRealLine());
+
+    // √(x²−1) → (−∞,−1] ∪ [1,+∞)
+    const RealSet beyondOne = domainOf(parseRadicalExpression("\\sqrt{x^2-1}").unwrap()).unwrap();
+    CHECK_TRUE(beyondOne.intervals().size() == std::size_t(2));
+    CHECK_TRUE(beyondOne.contains(RealAlgebraicNumber(Fraction(1, 1)))); // 端点是闭的
+    CHECK_TRUE(beyondOne.contains(RealAlgebraicNumber(Fraction(-1, 1))));
+    CHECK_TRUE(!beyondOne.contains(RealAlgebraicNumber(Fraction(0, 1))));
+
+    // 1/√x → x > 0（被开方数 ≥ 0 与系数分母 ≠ 0 取交，0 被排掉）
+    const RealSet positive = domainOf(parseRadicalExpression("\\frac{1}{\\sqrt{x}}").unwrap()).unwrap();
+    CHECK_TRUE(positive.contains(RealAlgebraicNumber(Fraction(1, 2))));
+    CHECK_TRUE(!positive.contains(RealAlgebraicNumber(Fraction(0, 1))));
+
+    // √x + √(x+1) → x ≥ 0（两个被开方数的条件取交）
+    const RealSet sum = domainOf(parseRadicalExpression("\\sqrt{x}+\\sqrt{x+1}").unwrap()).unwrap();
+    CHECK_TRUE(sum.contains(RealAlgebraicNumber(Fraction(0, 1))));
+    CHECK_TRUE(!sum.contains(RealAlgebraicNumber(Fraction(-1, 2)))); // x+1 ≥ 0 不满足
+
+    // 多变量：定义域是多维点集，本模块不做
+    CHECK_ERR(domainOf(parseRadicalExpression("\\sqrt{x}*y").unwrap()), MathsError::InvalidExpression);
+  }
+
   TEST_SUMMARY();
 }
