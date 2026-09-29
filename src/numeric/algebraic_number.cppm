@@ -524,7 +524,8 @@ public:
   // 要求入参平方自由、端点不是根；返回 (low, high] 内实根的个数。
   // 这是整个表示的判据：隔离区间里恰好一个根，才唯一地确定一个数。
 
-  static int countRealRootsIn(const UnivariatePolynomial &squareFree, const Fraction &low, const Fraction &high) {
+  static int UnivariatePolynomial::countRealRootsIn(const UnivariatePolynomial &squareFree, const Fraction &low,
+                                                    const Fraction &high) {
     if (squareFree.isZero() || squareFree.isConstant()) {
       return 0;
     }
@@ -956,6 +957,21 @@ public:
     return std::unexpected(MathsError::InvalidRange);
   }
 
+  // 多项式的全部实根，**按升序**排列（互不相同，各自带精确隔离区间）。
+  // 零多项式与常数多项式没有实根，返回空。
+  // 解不等式的第一步就是它：把实数轴按这些临界点切开，每段符号恒定。
+  static std::vector<RealAlgebraicNumber> realRoots(const UnivariatePolynomial &polynomial) {
+    std::vector<RealAlgebraicNumber> result;
+    const UnivariatePolynomial squareFree = polynomial.squareFreePart();
+    if (squareFree.isZero() || squareFree.isConstant()) {
+      return result;
+    }
+    const Fraction bound = cauchyBound(squareFree); // 所有实根都严格落在 (-bound, bound) 内
+    isolateRootsRecursively(squareFree, -bound, bound,
+                            UnivariatePolynomial::countRealRootsIn(squareFree, -bound, bound), result);
+    return result;
+  }
+
   // 有理数的 n 次实根（偶数次要求被开方数非负）
   static Result<RealAlgebraicNumber> nthRootOf(const Fraction &value, unsigned exponent) {
     if (exponent == 0) {
@@ -1349,6 +1365,11 @@ public:
     if (isRational()) {
       return algebraic_detail::fractionLatex(low_);
     }
+    // 值本身是有理数就直接写分数：表示里可能还挂着更高次的多项式
+    // （例如 x²−1 的根 1），没必要给它套一层根号写成 \sqrt{1}
+    if (const Result<Fraction> rational = toFraction(); rational.isOk()) {
+      return algebraic_detail::fractionLatex(rational.unwrap());
+    }
     // 能还原成单个根式就写根式：\sqrt{2} 比 RootOf(x^2-2, [...]) 好读太多
     if (const std::optional<std::pair<unsigned, Fraction>> radical = asSingleRadical()) {
       const unsigned degree = radical->first;
@@ -1379,6 +1400,62 @@ public:
 
 private:
   struct Validated {}; // 标记：参数已由调用方验证，不再重复检查
+
+  // 所有根都严格落在 (-bound, bound) 内的有理界：bound = 1 + max|a_i / a_n|（Cauchy 界）。
+  // 「严格」这点用得上：取 ±bound 作端点时不会是根，Sturm 计数才不需要额外规避。
+  static Fraction cauchyBound(const UnivariatePolynomial &polynomial) {
+    const Fraction leading = polynomial.leadingCoefficient();
+    Fraction largest(0, 1);
+    for (std::size_t power = 0; power < polynomial.degree(); ++power) {
+      const Result<Fraction> ratio = polynomial.coefficient(power) / leading;
+      if (ratio.isErr()) {
+        continue; // leading 非零由调用方保证
+      }
+      const Fraction magnitude = ratio.unwrap() < 0LL ? -ratio.unwrap() : ratio.unwrap();
+      if (largest < magnitude) {
+        largest = magnitude;
+      }
+    }
+    return Fraction(1, 1) + largest;
+  }
+
+  // 把 [low, high] 里恰好 count 个实根逐个隔离出来，按升序追加到 out。
+  //
+  // 分裂点落在根上（有理根）时先把它除掉再分两段递归：Sturm 计数要求端点不是根，
+  // 而直接往端点挪会造成重复计数，除掉是最干净的做法。
+  static void isolateRootsRecursively(const UnivariatePolynomial &polynomial, const Fraction &low, const Fraction &high,
+                                      int count, std::vector<RealAlgebraicNumber> &out) {
+    if (count <= 0) {
+      return;
+    }
+    if (count == 1) {
+      if (const std::optional<RealAlgebraicNumber> root = tryIsolate(polynomial, low, high)) {
+        out.push_back(*root);
+      }
+      return;
+    }
+
+    const Fraction middle = (low + high) * Fraction(1, 2);
+    if (polynomial.evaluate(middle) == 0LL) {
+      const Result<std::pair<UnivariatePolynomial, UnivariatePolynomial>> division =
+          UnivariatePolynomial::divide(polynomial, UnivariatePolynomial::linearRoot(middle));
+      if (division.isErr()) {
+        return;
+      }
+      const UnivariatePolynomial quotient = division.unwrap().first; // 商仍平方自由
+      isolateRootsRecursively(quotient, low, middle, UnivariatePolynomial::countRealRootsIn(quotient, low, middle),
+                              out);
+      out.push_back(RealAlgebraicNumber(middle));
+      isolateRootsRecursively(quotient, middle, high, UnivariatePolynomial::countRealRootsIn(quotient, middle, high),
+                              out);
+      return;
+    }
+
+    isolateRootsRecursively(polynomial, low, middle, UnivariatePolynomial::countRealRootsIn(polynomial, low, middle),
+                            out);
+    isolateRootsRecursively(polynomial, middle, high, UnivariatePolynomial::countRealRootsIn(polynomial, middle, high),
+                            out);
+  }
 
   // α 恰好是 ±ⁿ√r 时，α^k 是 x^(n/g) − r^(k/g) 的根（g = gcd(n, k)）——
   // 因为 (α^k)^(n/g) = (α^n)^(k/g) = r^(k/g)。

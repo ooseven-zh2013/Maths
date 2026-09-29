@@ -18,6 +18,7 @@ C++23 模块库（`export module` / `import`，不再是 header-only），提供
 - **实代数数** — `√2`、`∛2`、`√2+√3` 这类无理数的精确表示（最小多项式 + 隔离区间），四则与开方全精确
 - **根号（系数位置）** — `\sqrt{2}*x`、`x + \sqrt{2}` 可直接写进式子；有理指数 `2^{1/2}`
 - **根式扩张（变量位置）** — `√x`、`√(x²+1) + √(x²+2)` 也能精确运算与代入求值
+- **集合与不等式** — 解 `x²−2 ≥ 0` 这类不等式，解集是端点精确（代数数）的区间并集
 - **LaTeX 输出** — 每个代数类型都有 `str()`（终端阅读）与 `latex()`（排版）
 
 ## 构建与运行
@@ -73,6 +74,7 @@ const Fraction value = (a / Fraction(1, 2)).unwrap();  // 失败则抛 MathsExce
 | --- | --- | --- | --- |
 | 精确数值 | `maths.numbers` | `Integer`、`Fraction` | [文档](docs/src/numeric/numbers.md) |
 | 实代数数 | `maths.algebraic_number` | `RealAlgebraicNumber`：最小多项式 + 隔离区间、四则、开方、根式解析与渲染 | [文档](docs/src/numeric/algebraic_number.md) |
+| 实点集 | `maths.real_set` | 一维实点集 `RealSet`：区间并集、精确端点、解不等式、多项式的全部实根 | [文档](docs/src/numeric/real_set.md) |
 | 代数表达式 | `maths.algebra:expression` | `Variable`、`Monomial`、`Polynomial`、带余除法 | [文档](docs/src/algebra/algebraic_expression.md) |
 | 分式 | `maths.algebra:rational` | 有理函数、三层化简、长除法归约 | [文档](docs/src/algebra/rational_function.md) |
 | 变量绑定 | `maths.algebra:scope` | `Scope` 与 `substitute` / `evaluate` | [文档](docs/src/algebra/scope.md) |

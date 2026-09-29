@@ -18,6 +18,7 @@
 | --- | --- | --- |
 | [numbers.md](src/numeric/numbers.md) | `src/numeric/numbers.cppm` | `Integer`、`Fraction` 的精确数值运算 |
 | [algebraic_number.md](src/numeric/algebraic_number.md) | `src/numeric/algebraic_number.cppm` | 实代数数 `RealAlgebraicNumber`（最小多项式 + 隔离区间）、根式解析与渲染 |
+| [real_set.md](src/numeric/real_set.md) | `src/numeric/real_set.cppm` | 一维实点集 `RealSet`（区间并集 + 代数端点）、精确解不等式、多项式的全部实根 |
 | [random.md](src/numeric/random.md) | `src/numeric/random.cppm` | 区间随机数 |
 
 ### algebra — 符号代数
