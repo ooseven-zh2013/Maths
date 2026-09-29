@@ -64,16 +64,26 @@ public:
   // 生成元个数的上限：维度 2^k，k = 4 时基向量 16 个，运算量仍然很小
   static constexpr unsigned kMaxRadicands = 4;
 
-  // Σ_S c_S ∏_{i∈S} √f_i。coefficients 的长度必须正好是 2^k。
+  // 纯有理元素（还没有任何生成元）。这是「零生成元」的域，也是让本类型能当
+  // 「系数类型」用的前提：模板里的单位元构造方式就是 `Coefficient(Fraction)`。
+  // 与真正的根式元素做运算时会自动扩域。
+  RadicalExtension(const Fraction &value)
+      : coefficients_{RationalFunction(value)} {} // NOLINT(google-explicit-constructor)
+
+  // 同上，但值可以是含变量的有理函数（√x·√x 就等于 x，它也是本类型的一个元素）
+  RadicalExtension(const RationalFunction &value) : coefficients_{value} {} // NOLINT(google-explicit-constructor)
+
+  // Σ_S c_S ∏_{i∈S} √f_i。coefficients 的长度必须正好是 2^k；
+  // radicands 可以为空，此时就是纯有理元素（coefficients 长度 1）。
   static Result<RadicalExtension> make(std::vector<RationalFunction> radicands,
                                        std::vector<RationalFunction> coefficients) {
-    if (radicands.empty() || radicands.size() > kMaxRadicands) {
+    if (radicands.size() > kMaxRadicands) {
       return std::unexpected(MathsError::InvalidExpression);
     }
     if (coefficients.size() != (std::size_t(1) << radicands.size())) {
       return std::unexpected(MathsError::InvalidExpression);
     }
-    if (const Result<Variable> valid = validateRadicands(radicands); valid.isErr()) {
+    if (const Result<void> valid = validateRadicands(radicands); valid.isErr()) {
       return std::unexpected(valid.unwrapErr());
     }
     if (const Result<void> independent = validateIndependence(radicands); independent.isErr()) {
@@ -122,34 +132,50 @@ public:
   }
 
   bool operator==(const RadicalExtension &rhs) const {
-    // 元素在基下的坐标唯一，逐坐标比即可（不需要因式分解）。
-    // 注意：生成元集合不同的两个元素分处不同的域，这里一律判不等。
-    return radicands_ == rhs.radicands_ && coefficients_ == rhs.coefficients_;
+    // 都退化成有理函数时直接比值（于是 √x·√x 与 x 相等、√2·√2 与 2 相等）
+    const std::optional<RationalFunction> lhsValue = radicalFreeValue();
+    const std::optional<RationalFunction> rhsValue = rhs.radicalFreeValue();
+    if (lhsValue.has_value() && rhsValue.has_value()) {
+      return *lhsValue == *rhsValue;
+    }
+    // 否则提升到共同的域后逐坐标比（基下坐标唯一，不需要因式分解）；
+    // 升不上去（不同平方类 / 多变量）说明它们没法放在同一个域里，判不等
+    const Result<std::pair<RadicalExtension, RadicalExtension>> unified = unify(*this, rhs);
+    if (unified.isErr()) {
+      return false;
+    }
+    return unified.unwrap().first.coefficients_ == unified.unwrap().second.coefficients_;
   }
 
   // ==================== 四则 ====================
   // 同生成元才能相加相乘；生成元不同就得升到更大的域，本类型做不到，明确报错。
 
   Result<RadicalExtension> operator+(const RadicalExtension &rhs) const {
-    if (const Result<void> compatible = sameField(rhs); compatible.isErr()) {
-      return std::unexpected(compatible.unwrapErr());
+    const Result<std::pair<RadicalExtension, RadicalExtension>> unified = unify(*this, rhs);
+    if (unified.isErr()) {
+      return std::unexpected(unified.unwrapErr());
     }
-    std::vector<RationalFunction> result = coefficients_;
+    const RadicalExtension &left = unified.unwrap().first;
+    const RadicalExtension &right = unified.unwrap().second;
+    std::vector<RationalFunction> result = left.coefficients_;
     for (std::size_t mask = 0; mask < result.size(); ++mask) {
-      result[mask] = result[mask] + rhs.coefficients_[mask];
+      result[mask] = result[mask] + right.coefficients_[mask];
     }
-    return RadicalExtension(radicands_, std::move(result), Validated{});
+    return RadicalExtension(left.radicands_, std::move(result), Validated{});
   }
 
   Result<RadicalExtension> operator-(const RadicalExtension &rhs) const {
-    if (const Result<void> compatible = sameField(rhs); compatible.isErr()) {
-      return std::unexpected(compatible.unwrapErr());
+    const Result<std::pair<RadicalExtension, RadicalExtension>> unified = unify(*this, rhs);
+    if (unified.isErr()) {
+      return std::unexpected(unified.unwrapErr());
     }
-    std::vector<RationalFunction> result = coefficients_;
+    const RadicalExtension &left = unified.unwrap().first;
+    const RadicalExtension &right = unified.unwrap().second;
+    std::vector<RationalFunction> result = left.coefficients_;
     for (std::size_t mask = 0; mask < result.size(); ++mask) {
-      result[mask] = result[mask] - rhs.coefficients_[mask];
+      result[mask] = result[mask] - right.coefficients_[mask];
     }
-    return RadicalExtension(radicands_, std::move(result), Validated{});
+    return RadicalExtension(left.radicands_, std::move(result), Validated{});
   }
 
   RadicalExtension operator-() const {
@@ -162,21 +188,23 @@ public:
 
   // y_i² = f_i 就是全部的乘法规则：两个子集相交的生成元两两配对后换成对应被开方数之积
   Result<RadicalExtension> operator*(const RadicalExtension &rhs) const {
-    if (const Result<void> compatible = sameField(rhs); compatible.isErr()) {
-      return std::unexpected(compatible.unwrapErr());
+    const Result<std::pair<RadicalExtension, RadicalExtension>> unified = unify(*this, rhs);
+    if (unified.isErr()) {
+      return std::unexpected(unified.unwrapErr());
     }
-    return multipliedBy(rhs);
+    return unified.unwrap().first.multipliedBy(unified.unwrap().second);
   }
 
   Result<RadicalExtension> operator/(const RadicalExtension &rhs) const {
-    if (const Result<void> compatible = sameField(rhs); compatible.isErr()) {
-      return std::unexpected(compatible.unwrapErr());
+    const Result<std::pair<RadicalExtension, RadicalExtension>> unified = unify(*this, rhs);
+    if (unified.isErr()) {
+      return std::unexpected(unified.unwrapErr());
     }
-    const Result<RadicalExtension> reciprocal = rhs.inverse();
+    const Result<RadicalExtension> reciprocal = unified.unwrap().second.inverse();
     if (reciprocal.isErr()) {
       return reciprocal;
     }
-    return multipliedBy(reciprocal.unwrap());
+    return unified.unwrap().first.multipliedBy(reciprocal.unwrap());
   }
 
   // 共轭相乘求逆：α⁻¹ = (∏_{S≠∅} conj_S(α)) / N(α)，其中 N(α) = ∏_{所有 S} conj_S(α) ∈ ℚ(x)
@@ -268,40 +296,41 @@ private:
   RadicalExtension(std::vector<RationalFunction> radicands, std::vector<RationalFunction> coefficients, Validated)
       : radicands_(std::move(radicands)), coefficients_(std::move(coefficients)) {}
 
-  // 被开方数必须含同一个变量，且各自不是 ℚ(x) 中的平方
-  static Result<Variable> validateRadicands(const std::vector<RationalFunction> &radicands) {
+  // 被开方数必须含同一个变量，且各自不是 ℚ(x) 中的平方。
+  // 空列表是合法的：那是「零生成元」的域，元素就是纯有理函数。
+  static Result<void> validateRadicands(const std::vector<RationalFunction> &radicands) {
     std::optional<Variable> common;
     for (const RationalFunction &radicand : radicands) {
       if (radicand.isZero()) {
-        return std::unexpected(MathsError::InvalidExpression); // 零不是扩张元素
+        return Result<void>::err(MathsError::InvalidExpression); // 零不是扩张元素
       }
       const std::set<Variable> variables = radicand.variables();
       if (variables.empty()) {
-        return std::unexpected(MathsError::InvalidExpression); // 常数被开方数请走实代数数
+        return Result<void>::err(MathsError::InvalidExpression); // 常数被开方数请走实代数数
       }
       if (variables.size() > 1) {
-        return std::unexpected(MathsError::InvalidExpression); // 多变量根号暂不支持
+        return Result<void>::err(MathsError::InvalidExpression); // 多变量根号暂不支持
       }
       const auto variable = *variables.begin();
       if (!common.has_value()) {
         common = variable;
       } else if (!(*common == variable)) {
-        return std::unexpected(MathsError::InvalidExpression); // 所有被开方数必须同一个变量
+        return Result<void>::err(MathsError::InvalidExpression); // 所有被开方数必须同一个变量
       }
 
       const std::optional<UnivariatePolynomial> numerator = toUnivariatePolynomial(radicand.getNumerator(), variable);
       const std::optional<UnivariatePolynomial> denominator =
           toUnivariatePolynomial(radicand.getDenominator(), variable);
       if (!numerator || !denominator) {
-        return std::unexpected(MathsError::InvalidExpression);
+        return Result<void>::err(MathsError::InvalidExpression);
       }
       // 平方自由 ⟺ 与导数互素 ⟺ squareFreePart 不降次
       if (numerator->squareFreePart().degree() != numerator->degree() ||
           denominator->squareFreePart().degree() != denominator->degree()) {
-        return std::unexpected(MathsError::RadicandIsSquare);
+        return Result<void>::err(MathsError::RadicandIsSquare);
       }
     }
-    return common.value();
+    return Result<void>();
   }
 
   // 多重二次扩张要是域，就要求各被开方数的平方类独立（Kummer，指数 2）：
@@ -352,11 +381,89 @@ private:
            denominator->squareFreePart().degree() == denominator->degree();
   }
 
-  Result<void> sameField(const RadicalExtension &rhs) const {
-    if (radicands_.size() != rhs.radicands_.size() || !(radicands_ == rhs.radicands_)) {
-      return Result<void>::err(MathsError::InvalidExpression);
+  // 纯有理元素（没有根号部分）时给出它的值，否则 nullopt
+  std::optional<RationalFunction> radicalFreeValue() const {
+    if (!isRadicalFree()) {
+      return std::nullopt;
     }
-    return Result<void>();
+    return coefficients_.empty() ? RationalFunction(Fraction(0, 1)) : coefficients_[0];
+  }
+
+  // 把元素放进更大的域。
+  //
+  // 关键是**位重映射**：元素自己的基按它自己的列表编号，而目标域按合并后的列表编号，
+  // 同一个生成元在两个列表里的位置可能不同（例如 √(x+1) 在 [x, x+1] 里是第 2 个），
+  // 所以要逐个生成元找出它在目标列表里的位置，再把掩码的位搬过去。
+  // 不能假设「自身列表是目标列表的前缀」—— 那只在合并顺序凑巧时才成立。
+  static Result<RadicalExtension> embed(const RadicalExtension &element,
+                                        const std::vector<RationalFunction> &radicands) {
+    std::vector<std::size_t> positions(element.radicands_.size(), 0);
+    for (std::size_t index = 0; index < element.radicands_.size(); ++index) {
+      bool found = false;
+      for (std::size_t target = 0; target < radicands.size(); ++target) {
+        if (element.radicands_[index] == radicands[target]) {
+          positions[index] = target;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        return std::unexpected(MathsError::InvalidExpression); // 目标域里没有这个生成元
+      }
+    }
+
+    std::vector<RationalFunction> coefficients(std::size_t(1) << radicands.size(), RationalFunction(Fraction(0, 1)));
+    for (std::size_t mask = 0; mask < element.coefficients_.size(); ++mask) {
+      if (element.coefficients_[mask].isZero()) {
+        continue;
+      }
+      std::size_t target = 0;
+      for (std::size_t index = 0; index < positions.size(); ++index) {
+        if ((mask & (std::size_t(1) << index)) != 0) {
+          target |= std::size_t(1) << positions[index];
+        }
+      }
+      coefficients[target] = coefficients[target] + element.coefficients_[mask];
+    }
+    return RadicalExtension(radicands, std::move(coefficients), Validated{});
+  }
+
+  // 把两侧提升到共同的域：被开方数取并（保序去重），并校验并集仍然合法且独立。
+  // 失败表示这两个元素没法放在同一个域里算 —— 比如 √x 与 √(4x) 其实是同一个根号
+  // （依赖，需要最简根式化才能合并，本库不做），或者被开方数根本不在同一个变量里。
+  static Result<std::pair<RadicalExtension, RadicalExtension>> unify(const RadicalExtension &lhs,
+                                                                     const RadicalExtension &rhs) {
+    std::vector<RationalFunction> merged = lhs.radicands_;
+    for (const RationalFunction &radicand : rhs.radicands_) {
+      bool present = false;
+      for (const RationalFunction &existing : merged) {
+        if (existing == radicand) {
+          present = true;
+          break;
+        }
+      }
+      if (!present) {
+        merged.push_back(radicand);
+      }
+    }
+    if (merged.size() > kMaxRadicands) {
+      return std::unexpected(MathsError::InvalidExpression);
+    }
+    if (const Result<void> valid = validateRadicands(merged); valid.isErr()) {
+      return std::unexpected(valid.unwrapErr());
+    }
+    if (const Result<void> independent = validateIndependence(merged); independent.isErr()) {
+      return std::unexpected(independent.unwrapErr());
+    }
+    const Result<RadicalExtension> left = embed(lhs, merged);
+    const Result<RadicalExtension> right = embed(rhs, merged);
+    if (left.isErr()) {
+      return std::unexpected(left.unwrapErr());
+    }
+    if (right.isErr()) {
+      return std::unexpected(right.unwrapErr());
+    }
+    return std::make_pair(left.unwrap(), right.unwrap());
   }
 
   // 前提：同域；调用方已核对，不再重复校验

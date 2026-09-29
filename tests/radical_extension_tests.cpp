@@ -99,10 +99,11 @@ int main() {
     CHECK_TRUE(back.isRadicalFree());
     CHECK_TRUE(back.toRationalFunction().unwrap() == expression("1"));
 
-    // 不同被开方数属于不同的域，四则运算必须报错而不是瞎算
+    // 不同被开方数**不再是错误**：运算时自动扩域到共同域（见下面「自动扩域」一节）。
+    // 只有「同一个平方类」（√x 与 √(4x)）和「不同变量」才拒收。
     const RadicalExtension other = RadicalExtension::make(expression("x+1")).unwrap();
-    CHECK_ERR(rootX + other, MathsError::InvalidExpression);
-    CHECK_ERR(rootX * other, MathsError::InvalidExpression);
+    CHECK_OK(rootX + other);
+    CHECK_OK(rootX * other);
 
     CHECK_ERR(rootX.toRationalFunction(), MathsError::NotARational); // 含根号部分，降不下去
   }
@@ -196,6 +197,75 @@ int main() {
 
     // 两个根号：\sqrt{x^{2} + 1} + \sqrt{x^{2} + 2}
     CHECK_EQ(twoRadicals().latex(), std::string("\\sqrt{x^2 + 1} + \\sqrt{x^2 + 2}"));
+  }
+
+  // ---------- 自动扩域：两个不同的根号能放在一个域里算 ----------
+  {
+    const RadicalExtension rootX = radicalX();
+    const RadicalExtension rootXPlusOne = RadicalExtension::make(expression("x+1")).unwrap();
+
+    // √x · √(x+1)：两边生成元不同，运算时自动取并集扩域
+    const RadicalExtension product = (rootX * rootXPlusOne).unwrap();
+    CHECK_TRUE(product.radicands().size() == std::size_t(2));
+    CHECK_TRUE(product.termCount() == std::size_t(4));
+    CHECK_TRUE(product.coefficient(3) == expression("1")); // y₁y₂ 的系数是 1
+    CHECK_TRUE(product.coefficient(0).isZero());
+
+    // √x + √(x+1)：同理
+    const RadicalExtension sum = (rootX + rootXPlusOne).unwrap();
+    CHECK_TRUE(sum.radicands().size() == std::size_t(2));
+    CHECK_TRUE(sum.coefficient(1) == expression("1"));
+    CHECK_TRUE(sum.coefficient(2) == expression("1"));
+
+    // 平方：(√x + √(x+1))² = 2x + 1 + 2√x√(x+1)
+    const RadicalExtension squared = (sum * sum).unwrap();
+    CHECK_TRUE(squared.coefficient(0) == expression("2x+1"));
+    CHECK_TRUE(squared.coefficient(3) == expression("2"));
+
+    // 取逆再乘回去得 1
+    const RadicalExtension back = (sum * sum.inverse().unwrap()).unwrap();
+    CHECK_TRUE(back.isRadicalFree());
+    CHECK_TRUE(back.toRationalFunction().unwrap() == expression("1"));
+
+    // 相加顺序不影响结果
+    CHECK_TRUE((rootXPlusOne + rootX).unwrap() == sum);
+
+    // 同一个平方类（√x 与 √(4x) 其实是一个根号）仍然拒收：合并需要最简根式化
+    const RadicalExtension rootFourX = RadicalExtension::make(expression("4x")).unwrap();
+    CHECK_ERR(rootX + rootFourX, MathsError::RadicandsNotIndependent);
+    CHECK_ERR(rootX * rootFourX, MathsError::RadicandsNotIndependent);
+
+    // 不同变量：并集里出现两个变量，同样拒收
+    CHECK_ERR(rootX + RadicalExtension::make(expression("y")).unwrap(), MathsError::InvalidExpression);
+  }
+
+  // ---------- 纯有理元素（零生成元）：为「当系数类型用」做准备 ----------
+  {
+    const RadicalExtension two(Fraction(2, 1));
+    CHECK_TRUE(two.isRadicalFree());
+    CHECK_TRUE(two.termCount() == std::size_t(1));
+    CHECK_EQ(two.latex(), std::string("2"));
+
+    const RadicalExtension rootX = radicalX();
+
+    // 与根式元素运算时自动扩域
+    const RadicalExtension sum = (two + rootX).unwrap();
+    CHECK_TRUE(sum.radicands().size() == std::size_t(1));
+    CHECK_TRUE(sum.coefficient(0) == expression("2"));
+    CHECK_TRUE(sum.coefficient(1) == expression("1"));
+    CHECK_TRUE(sum == RadicalExtension::make({expression("x")}, {expression("2"), expression("1")}).unwrap());
+
+    // 判等按值比：√x·√x 与 x 是同一种东西的两种写法（下面这条）
+    // 注意：常数被开方数（√2）属于实代数数，本类型明确拒收
+    CHECK_ERR(RadicalExtension::make(Fraction(2, 1)), MathsError::InvalidExpression);
+
+    // √x·√x 与 x 也是同一个值
+    const RadicalExtension squared = (rootX * rootX).unwrap();
+    CHECK_TRUE(squared == RadicalExtension(expression("x")));
+
+    // 有理元素之间的运算仍是有理元素
+    CHECK_TRUE((two + RadicalExtension(Fraction(3, 1))).unwrap() == RadicalExtension(Fraction(5, 1)));
+    CHECK_TRUE((two * RadicalExtension(Fraction(3, 1))).unwrap() == RadicalExtension(Fraction(6, 1)));
   }
 
   TEST_SUMMARY();
