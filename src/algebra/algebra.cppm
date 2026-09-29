@@ -6,4 +6,5 @@ export import :scope;
 export import :algebraic;
 export import :constraint;
 export import :constraint_system;
+export import :groebner;
 export import :radical;
