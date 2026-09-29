@@ -20,6 +20,7 @@ C++23 模块库（`export module` / `import`，不再是 header-only），提供
 - **根式扩张（变量位置）** — `√x`、`√(x²+1) + √(x²+2)` 能精确运算、代入求值，且可直接写进式子（`parseRadicalExpression`）
 - **集合与不等式** — 解 `x²−2 ≥ 0` 这类不等式，解集是端点精确（代数数）的区间并集
 - **取值范围约束** — 变量能取哪些值用同一个集合类型表示：不等式的解、函数定义域、`x ≠ 0` 这类隐含前提
+- **多变量限定条件** — `x−y=z`、`x²+y²≤1` 这类约束可精确判定成员（有理点与代数点），可分离时给出各维区间
 - **LaTeX 输出** — 每个代数类型都有 `str()`（终端阅读）与 `latex()`（排版）
 
 ## 构建与运行
@@ -77,6 +78,7 @@ const Fraction value = (a / Fraction(1, 2)).unwrap();  // 失败则抛 MathsExce
 | 实代数数 | `maths.algebraic_number` | `RealAlgebraicNumber`：最小多项式 + 隔离区间、四则、开方、根式解析与渲染 | [文档](docs/src/numeric/algebraic_number.md) |
 | 实点集 | `maths.real_set` | 一维实点集 `RealSet`：区间并集、精确端点、解不等式、多项式的全部实根 | [文档](docs/src/numeric/real_set.md) |
 | 约束 | `maths.algebra:constraint` | 取值范围约束：解不等式、函数定义域、`Scope` 接集合约束 | [文档](docs/src/algebra/constraint.md) |
+| 多维约束 | `maths.algebra:constraint_system` | 多变量限定条件（`x−y=z`、`x²+y²≤1`）：原子约束、成员判定、可分离情形 | [文档](docs/src/algebra/constraint_system.md) |
 | 代数表达式 | `maths.algebra:expression` | `Variable`、`Monomial`、`Polynomial`、带余除法 | [文档](docs/src/algebra/algebraic_expression.md) |
 | 分式 | `maths.algebra:rational` | 有理函数、三层化简、长除法归约 | [文档](docs/src/algebra/rational_function.md) |
 | 变量绑定 | `maths.algebra:scope` | `Scope` 与 `substitute` / `evaluate` | [文档](docs/src/algebra/scope.md) |

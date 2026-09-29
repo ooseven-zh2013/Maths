@@ -5,4 +5,5 @@ export import :rational;
 export import :scope;
 export import :algebraic;
 export import :constraint;
+export import :constraint_system;
 export import :radical;

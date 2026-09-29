@@ -31,6 +31,7 @@
 | [algebraic.md](src/algebra/algebraic.md) | `src/algebra/algebraic.cppm` | 系数取实代数数的代数式（代数栈按系数参数化、`toAlgebraic` 提升）|
 | [radical.md](src/algebra/radical.md) | `src/algebra/radical.cppm` | 根式扩张 `RadicalExtension`：`√x`、`√(x²+1) + √(x²+2)` 这类含变量根号 |
 | [constraint.md](src/algebra/constraint.md) | `src/algebra/constraint.cppm` | 取值范围约束 `RangeConstraint`、解不等式、定义域、`Scope` 的集合约束 |
+| [constraint_system.md](src/algebra/constraint_system.md) | `src/algebra/constraint_system.cppm` | 多维点集：原子约束 `AtomConstraint` 与合取 `ConstraintSystem`、成员判定、可分离情形 |
 
 ### parser — 文本 → 式子
 

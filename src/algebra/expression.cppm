@@ -496,6 +496,17 @@ public:
 
   bool isZero() const { return terms.empty(); }
 
+  // 多项式中出现过的全部变量（与 RationalFunction::variables 同名同义）
+  std::set<Variable> variables() const {
+    std::set<Variable> result;
+    for (const auto &entry : terms) {
+      for (const auto &factor : entry.first) {
+        result.insert(factor.first);
+      }
+    }
+    return result;
+  }
+
   // 化简后只剩不超过一项即为单项式（零多项式视为零单项式）
   bool isMonomial() const { return terms.size() <= 1; }
 
