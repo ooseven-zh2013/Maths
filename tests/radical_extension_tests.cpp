@@ -316,5 +316,25 @@ int main() {
     CHECK_ERR(radicalX().substitute(scope), MathsError::RadicandIsSquare);
   }
 
+  // ---------- 零生成元相除（曾经的越界 bug）----------
+  {
+    // 两个纯有理元素相除时，共轭乘积那个循环一次都不跑。若把共轭积的初值留成空表，
+    // 结果元素就没有系数表，随后 toRationalFunction 会去索引 [0] 直接越界。
+    const Result<RadicalExtension> quotient = RadicalExtension(Fraction(5, 1)) / RadicalExtension(Fraction(2, 1));
+    CHECK_OK(quotient);
+    CHECK_EQ(quotient.unwrap().latex(), std::string("\\frac{5}{2}"));
+
+    // 含变量的纯有理元素同理
+    const Result<RadicalExtension> divided = RadicalExtension(expression("x+1")) / RadicalExtension(expression("x-1"));
+    CHECK_OK(divided);
+    CHECK_EQ(divided.unwrap().latex(), std::string("\\frac{x + 1}{x - 1}"));
+
+    // 相除仍要拦住除零
+    CHECK_ERR(RadicalExtension(Fraction(1, 1)) / RadicalExtension(Fraction(0, 1)), MathsError::DivisionByZero);
+
+    // 有理元素的倒数
+    CHECK_EQ(RadicalExtension(Fraction(3, 4)).inverse().unwrap().latex(), std::string("\\frac{4}{3}"));
+  }
+
   TEST_SUMMARY();
 }

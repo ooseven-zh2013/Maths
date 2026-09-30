@@ -223,5 +223,33 @@ int main() {
     CHECK_TRUE(golden.contains(RealAlgebraicNumber(Fraction(-1, 1))));
   }
 
+  // ---------- 交由：端点值相同但开闭不同（曾经的取错界的 bug）----------
+  {
+    const RealAlgebraicNumber zero(Fraction(0, 1));
+    const RealAlgebraicNumber two(Fraction(2, 1));
+
+    // [0,2] ∩ (0,2] = (0,2]：并列端点上「不取到」更紧，不能把 0 放回来
+    const RealSet closedFromZero = RealSet::closedInterval(zero, two).unwrap();
+    const RealSet openFromZero =
+        RealSet::make({Interval{Bound::finite(zero, false), Bound::finite(two, true)}}).unwrap();
+    const RealSet intersected = closedFromZero.intersect(openFromZero).unwrap();
+    CHECK_TRUE(!intersected.contains(zero));
+    CHECK_TRUE(intersected.contains(two));
+    CHECK_EQ(intersected.latex(), std::string("(0, 2]"));
+
+    // 反方向也要对：(0,2] ∩ [0,2] 同上
+    CHECK_TRUE(!openFromZero.intersect(closedFromZero).unwrap().contains(zero));
+
+    // 两侧都取到时才保留端点：[0,2] ∩ [0,2] = [0,2]
+    CHECK_TRUE(closedFromZero.intersect(closedFromZero).unwrap().contains(zero));
+
+    // 函数定义域那一路最容易撞到：1/x 的天然定义域 ℝ\{0} = (−∞,0) ∪ (0,+∞)，
+    // 与 [0,2] 取交必须得到 (0,2]，端点 0 只能来自「不取到」的那一侧
+    const RealSet punctured = RealSet::point(zero).unwrap().complement().unwrap();
+    const RealSet clipped = punctured.intersect(closedFromZero).unwrap();
+    CHECK_TRUE(!clipped.contains(zero));
+    CHECK_TRUE(clipped.contains(two));
+  }
+
   TEST_SUMMARY();
 }

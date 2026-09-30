@@ -231,13 +231,13 @@ public:
     if (isZero()) {
       return std::unexpected(MathsError::DivisionByZero);
     }
-    std::vector<RationalFunction> cofactor;
+    // 共轭乘积的单位元。**不能留空表**：生成元个数为 0 时（纯有理元素）下面这个循环
+    // 一次都不跑，空表会在 toRationalFunction 里被当成「无根号」再去索引 coefficients_[0]，
+    // 直接越界 —— 而「两个纯有理元素相除」正是最容易走到的场景。
+    std::vector<RationalFunction> cofactor(coefficients_.size(), RationalFunction(Fraction(0, 1)));
+    cofactor[0] = RationalFunction(Fraction(1, 1));
     for (std::size_t flipped = 1; flipped < coefficients_.size(); ++flipped) {
       const RadicalExtension conjugate(radicands_, conjugatedCoefficients(flipped), Validated{});
-      if (cofactor.empty()) {
-        cofactor = conjugate.coefficients_;
-        continue;
-      }
       cofactor = RadicalExtension(radicands_, cofactor, Validated{}).multipliedBy(conjugate).coefficients_;
     }
 
@@ -345,7 +345,15 @@ private:
   struct Validated {};
 
   RadicalExtension(std::vector<RationalFunction> radicands, std::vector<RationalFunction> coefficients, Validated)
-      : radicands_(std::move(radicands)), coefficients_(std::move(coefficients)) {}
+      : radicands_(std::move(radicands)), coefficients_(std::move(coefficients)) {
+    // 兜底：内部构造偶尔可能给出空的系数表（空乘积、空共轭积）。空表会让
+    // isRadicalFree() 空真通过、随后 toRationalFunction() 去索引 [0] 越界崩溃 ——
+    // 那是个看不出病因的内存错误，不如在这里补成零元素，让症状留在语义层。
+    // 正常路径不会走到这里：make() 已要求系数表长度正好是 2^k。
+    if (coefficients_.empty()) {
+      coefficients_.push_back(RationalFunction(Fraction(0, 1)));
+    }
+  }
 
   // 被开方数必须含同一个变量，且各自不是 ℚ(x) 中的平方。
   // 空列表是合法的：那是「零生成元」的域，元素就是纯有理函数。

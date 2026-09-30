@@ -130,6 +130,38 @@ struct Interval {
   }
 };
 
+namespace real_set_detail {
+
+// 下界取两者中**更紧**的那个（即更大），上界取更紧的那个（即更小）。
+//
+// 值相同时必须看取到性，而且规则不对称于直觉：
+//   [0,1] ∩ (0,1] 的左端点是 0，但 0 不属于交集 —— 取到性只能更松不能更紧，
+//   所以只要有一侧写的是「不取到」，结果就是「不取到」。
+// 只看 compareTo 会在这个并列情形上选错，把端点悄悄放回集合里。
+inline Bound maxLower(const Bound &lhs, const Bound &rhs) {
+  const std::strong_ordering order = lhs.compareTo(rhs);
+  if (order != std::strong_ordering::equal) {
+    return order == std::strong_ordering::greater ? lhs : rhs;
+  }
+  if (lhs.isInfinite()) {
+    return lhs; // 同向无穷（−∞ 与 −∞）：取哪个都一样
+  }
+  return (lhs.isClosed() && rhs.isClosed()) ? lhs : Bound::finite(lhs.value(), false);
+}
+
+inline Bound minUpper(const Bound &lhs, const Bound &rhs) {
+  const std::strong_ordering order = lhs.compareTo(rhs);
+  if (order != std::strong_ordering::equal) {
+    return order == std::strong_ordering::less ? lhs : rhs;
+  }
+  if (lhs.isInfinite()) {
+    return lhs;
+  }
+  return (lhs.isClosed() && rhs.isClosed()) ? lhs : Bound::finite(lhs.value(), false);
+}
+
+} // namespace real_set_detail
+
 class RealSet {
 public:
   RealSet() = default; // 空集
@@ -235,10 +267,8 @@ public:
     std::vector<Interval> result;
     for (const Interval &lhs : intervals_) {
       for (const Interval &rhsInterval : rhs.intervals_) {
-        const Bound lower =
-            lhs.lower.compareTo(rhsInterval.lower) == std::strong_ordering::greater ? lhs.lower : rhsInterval.lower;
-        const Bound upper =
-            lhs.upper.compareTo(rhsInterval.upper) == std::strong_ordering::less ? lhs.upper : rhsInterval.upper;
+        const Bound lower = real_set_detail::maxLower(lhs.lower, rhsInterval.lower);
+        const Bound upper = real_set_detail::minUpper(lhs.upper, rhsInterval.upper);
         const std::strong_ordering order = lower.compareTo(upper);
         if (order == std::strong_ordering::greater) {
           continue;
