@@ -15,6 +15,35 @@ import :radical;
 
 export namespace maths {
 
+namespace function_detail {
+
+// 取一个落在 (low, high) 里的**有理**点，两端都是有限实代数数。
+//
+// 做法与 `RealSet::sampleIn` 相同：把两个隔离区间精化到分离，再取中间的有理数。
+// 「有理」是关键 —— 代入后是精确有理运算，判号不会因为近似而错。
+inline std::optional<Fraction> rationalBetween(RealAlgebraicNumber low, RealAlgebraicNumber high) {
+  for (int attempt = 0; attempt < 256; ++attempt) {
+    if (low.upperBound() < high.lowerBound()) {
+      return (low.upperBound() + high.lowerBound()) * Fraction(1, 2);
+    }
+    low.refine();
+    high.refine();
+  }
+  return std::nullopt;
+}
+
+// 一段连通块上的像集信息。三类值必须分开记，因为最后那个区间的端点**取到与否**
+// 全靠这个区分：临界点与闭端点上的值是取到的，开端点上的单侧极限不是，
+// 而 ±∞ 连值都不是。
+struct PieceImage {
+  std::vector<RealAlgebraicNumber> attained; // 取到的值
+  std::vector<RealAlgebraicNumber> limits;   // 开端点的有限极限（不取到）
+  bool toPositiveInfinity{false};
+  bool toNegativeInfinity{false};
+};
+
+} // namespace function_detail
+
 // 一元实函数 `f: S ⊆ ℝ → ℝ`：**规则 + 定义域**。
 //
 // 这是「集合 → 实数」的落点：定义域本身就是一个 `RealSet`（区间的有限并），端点是实代数数，
@@ -107,12 +136,7 @@ public:
     if (!domain_.contains(point)) {
       return std::unexpected(MathsError::OutsideDomain);
     }
-    AlgebraicScope scope;
-    const Result<void> assigned = scope.assign(variable_, point);
-    if (assigned.isErr()) {
-      return std::unexpected(assigned.unwrapErr());
-    }
-    return rule_.evaluate(scope);
+    return valueAt(point);
   }
 
   Result<RealAlgebraicNumber> at(const Fraction &point) const { return at(RealAlgebraicNumber(point)); }
@@ -237,6 +261,82 @@ public:
     return result;
   }
 
+  // ==================== 集合：像集 ====================
+  //
+  // `f(S) = {f(x) : x ∈ S}`，S 先与定义域取交。这是「集合 → 实数」的另一半
+  // （另一半是 `preimage`，把集合沿函数拉回去）。
+  //
+  // 算法：有理函数处处可导，临界点（g′ 的实根）把它切成单调段，于是
+  // **每个连通块的像都是一个区间**，两端取遍
+  //   {临界点上的值} ∪ {闭端点的值} ∪ {开端点的单侧极限}
+  // 的 min / max；端点取到与否，就看这个极值是「取到的」还是「只是极限」——
+  // 所以那三类值必须分开收集，不能一视同仁地丢进一个 vector。
+  //
+  // 全程精确：临界点是隔离出的实代数数，极限都有精确表达式
+  // （次数比 → 有理数；开端点有定义 → 就是该点的值；极点 → ±∞）。
+  Result<RealSet> image(const RealSet &subset) const {
+    if (!isRational()) {
+      return std::unexpected(MathsError::NotARational); // 含根号的规则要先做逐根号单调性推理，不做
+    }
+    const Result<RealSet> source = domain_.intersect(subset);
+    if (source.isErr()) {
+      return std::unexpected(source.unwrapErr());
+    }
+    if (source.unwrap().isEmpty()) {
+      return RealSet::empty();
+    }
+    if (isConstant()) {
+      // 常函数：像集就是那一个点。规则里没有变量，空作用域就能求值
+      const Result<RealAlgebraicNumber> value = rule_.evaluate(AlgebraicScope());
+      if (value.isErr()) {
+        return std::unexpected(value.unwrapErr());
+      }
+      return RealSet::point(value.unwrap());
+    }
+
+    const Result<RationalFunction> rule = rule_.toRationalFunction();
+    if (rule.isErr()) {
+      return std::unexpected(rule.unwrapErr());
+    }
+    const std::optional<UnivariatePolynomial> numerator =
+        toUnivariatePolynomial(rule.unwrap().getNumerator(), variable_);
+    const std::optional<UnivariatePolynomial> denominator =
+        toUnivariatePolynomial(rule.unwrap().getDenominator(), variable_);
+    if (!numerator || !denominator) {
+      return std::unexpected(MathsError::InvalidExpression);
+    }
+
+    // g′ = (p′q − pq′) / q²，分母是平方恒不为负，所以临界点就是分子的实根
+    const UnivariatePolynomial stationary =
+        numerator->derivative() * *denominator - *numerator * denominator->derivative();
+    const std::vector<RealAlgebraicNumber> criticalPoints =
+        stationary.isZero() ? std::vector<RealAlgebraicNumber>() : RealAlgebraicNumber::realRoots(stationary);
+
+    // 符号格的边界：g 只在 p、q 的零点处变号。极点一侧的极限是 +∞ 还是 −∞，
+    // 靠「该侧相邻格内取一个有理样本判号」得到
+    std::vector<RealAlgebraicNumber> boundaries = RealAlgebraicNumber::realRoots(*numerator);
+    for (const RealAlgebraicNumber &root : RealAlgebraicNumber::realRoots(*denominator)) {
+      boundaries.push_back(root);
+    }
+    std::sort(boundaries.begin(), boundaries.end(), [](const RealAlgebraicNumber &lhs, const RealAlgebraicNumber &rhs) {
+      return lhs.compareTo(rhs) == std::strong_ordering::less;
+    });
+
+    RealSet result = RealSet::empty();
+    for (const Interval &piece : source.unwrap().intervals()) {
+      const Result<RealSet> rendered =
+          imageOfPiece(piece, rule.unwrap(), *numerator, *denominator, criticalPoints, boundaries);
+      if (rendered.isErr()) {
+        return std::unexpected(rendered.unwrapErr());
+      }
+      result = result.unite(rendered.unwrap());
+    }
+    return result;
+  }
+
+  // 值域：`f(定义域)`
+  Result<RealSet> range() const { return image(domain_); }
+
   // ==================== 输出 ====================
 
   std::string ruleStr() const { return rule_.str(); }
@@ -289,6 +389,199 @@ private:
       return std::unexpected(domain.unwrapErr());
     }
     return make(merged.unwrap(), domain.unwrap());
+  }
+
+  // 不做定义域检查的求值：调用方已经确认这个点在定义域内
+  Result<RealAlgebraicNumber> valueAt(const RealAlgebraicNumber &point) const {
+    AlgebraicScope scope;
+    const Result<void> assigned = scope.assign(variable_, point);
+    if (assigned.isErr()) {
+      return std::unexpected(assigned.unwrapErr());
+    }
+    return rule_.evaluate(scope);
+  }
+
+  // ==================== 像集的内部计算 ====================
+
+  Result<RealSet> imageOfPiece(const Interval &piece, const RationalFunction &rule,
+                               const UnivariatePolynomial &numerator, const UnivariatePolynomial &denominator,
+                               const std::vector<RealAlgebraicNumber> &criticalPoints,
+                               const std::vector<RealAlgebraicNumber> &boundaries) const {
+    function_detail::PieceImage info;
+
+    // 落在这一块上的临界点（闭端点上的临界点也算，`contains` 已经照顾到取到性）
+    for (const RealAlgebraicNumber &point : criticalPoints) {
+      if (!piece.contains(point)) {
+        continue;
+      }
+      const Result<RealAlgebraicNumber> value = valueAt(point);
+      if (value.isErr()) {
+        return std::unexpected(value.unwrapErr());
+      }
+      info.attained.push_back(value.unwrap());
+    }
+
+    const Result<RealSet> natural = domainOf(rule_);
+    if (natural.isErr()) {
+      return std::unexpected(natural.unwrapErr());
+    }
+
+    for (const bool isLower : {true, false}) {
+      const Bound &bound = isLower ? piece.lower : piece.upper;
+      if (bound.isInfinite()) {
+        addLimitAtInfinity(info, numerator, denominator, isLower);
+        continue;
+      }
+      const RealAlgebraicNumber &endpoint = bound.value();
+      if (piece.contains(endpoint)) {
+        const Result<RealAlgebraicNumber> value = valueAt(endpoint); // 闭端点：值取到
+        if (value.isErr()) {
+          return std::unexpected(value.unwrapErr());
+        }
+        info.attained.push_back(value.unwrap());
+        continue;
+      }
+      // 开端点。它是「子集给的开口」还是「极点」，决定了这一头是有限极限还是无穷
+      if (natural.unwrap().contains(endpoint)) {
+        const Result<RealAlgebraicNumber> value = valueAt(endpoint);
+        if (value.isErr()) {
+          return std::unexpected(value.unwrapErr());
+        }
+        info.limits.push_back(value.unwrap()); // 规则在这里有定义 → 单侧极限就是函数值，但不取到
+        continue;
+      }
+      const Result<bool> positive = isPositiveBesidePole(rule, endpoint, isLower, boundaries);
+      if (positive.isErr()) {
+        return std::unexpected(positive.unwrapErr());
+      }
+      if (positive.unwrap()) {
+        info.toPositiveInfinity = true;
+      } else {
+        info.toNegativeInfinity = true;
+      }
+    }
+    return assemblePieceImage(info);
+  }
+
+  // x → ±∞ 时 g = p/q 的极限。三种情形，都不含近似：
+  //   deg p < deg q → 0        deg p = deg q → 首项系数比        deg p > deg q → ±∞
+  // 无穷远取不到，所以前两种进 limits（有限但不取到）。
+  // 次数更大时的方向：符号 = sign(lc p / lc q)，只有 x → −∞ 且次数差为奇数才翻转。
+  static void addLimitAtInfinity(function_detail::PieceImage &info, const UnivariatePolynomial &numerator,
+                                 const UnivariatePolynomial &denominator, bool atMinusInfinity) {
+    if (numerator.degree() > denominator.degree()) {
+      const Result<Fraction> ratio = numerator.leadingCoefficient() / denominator.leadingCoefficient();
+      bool positive = ratio.isOk() && ratio.unwrap() > 0LL;
+      if (atMinusInfinity && (numerator.degree() - denominator.degree()) % 2 == 1) {
+        positive = !positive;
+      }
+      // 只置位、不清另一位：区间的两头是独立的，x³ 在 −∞ 跑向 −∞ 而在 +∞ 跑向 +∞，
+      // 两头都得记下来，不能后一次调用把前一次的结果抹掉
+      if (positive) {
+        info.toPositiveInfinity = true;
+      } else {
+        info.toNegativeInfinity = true;
+      }
+      return;
+    }
+    const Result<Fraction> ratio = numerator.degree() < denominator.degree()
+                                       ? Result<Fraction>(Fraction(0, 1))
+                                       : numerator.leadingCoefficient() / denominator.leadingCoefficient();
+    if (ratio.isOk()) {
+      info.limits.push_back(RealAlgebraicNumber(ratio.unwrap()));
+    }
+  }
+
+  // 极点一侧的极限符号。
+  //
+  // g 只在 p、q 的零点处变号，所以相邻两个「符号格边界」之间符号恒定；找出该方向上
+  // 最近的一个边界，在格内取一个有理样本判号即可 —— 样本不必落在这块区间里，
+  // 因为整格同号，而这一头紧邻极点的部分就在该格里。
+  Result<bool> isPositiveBesidePole(const RationalFunction &rule, const RealAlgebraicNumber &pole, bool isLower,
+                                    const std::vector<RealAlgebraicNumber> &boundaries) const {
+    const bool rightSide = isLower; // 极点在下端 → 考察 x → pole⁺
+    std::optional<RealAlgebraicNumber> neighbor;
+    for (const RealAlgebraicNumber &boundary : boundaries) {
+      const std::strong_ordering order = boundary.compareTo(pole);
+      if (order == std::strong_ordering::equal) {
+        continue;
+      }
+      if (rightSide ? order != std::strong_ordering::greater : order != std::strong_ordering::less) {
+        continue;
+      }
+      const bool closer =
+          !neighbor.has_value() || (rightSide ? boundary.compareTo(*neighbor) == std::strong_ordering::less
+                                              : boundary.compareTo(*neighbor) == std::strong_ordering::greater);
+      if (closer) {
+        neighbor = boundary;
+      }
+    }
+
+    Fraction sample(0, 1);
+    if (neighbor.has_value()) {
+      const std::optional<Fraction> between = rightSide ? function_detail::rationalBetween(pole, *neighbor)
+                                                        : function_detail::rationalBetween(*neighbor, pole);
+      if (!between.has_value()) {
+        return std::unexpected(MathsError::InvalidRange);
+      }
+      sample = *between;
+    } else {
+      // 该方向上再没有符号格边界，格一直延伸到无穷：取隔离区间外侧的有理点
+      sample = rightSide ? pole.upperBound() + Fraction(1, 1) : pole.lowerBound() - Fraction(1, 1);
+    }
+
+    Scope scope;
+    const Result<void> assigned = scope.assign(variable_, sample);
+    if (assigned.isErr()) {
+      return std::unexpected(assigned.unwrapErr());
+    }
+    const Result<Fraction> value = rule.evaluate(scope);
+    if (value.isErr()) {
+      return std::unexpected(value.unwrapErr());
+    }
+    return value.unwrap() > 0LL;
+  }
+
+  // 把三类信息拼成一个区间。关键是最后那个 `constantOnPiece`：
+  // min == max 时函数在整块上恒等于该值（像是单点集），那时它当然取到；
+  // 但如果有一头跑到无穷去了，这就不是「常数」，min == max 只是候选值恰好只有一个，
+  // 不能因为相等就把端点标成取到（−1/x 在 (0,∞) 上候选值只有 0，像却是 (−∞,0)）。
+  static Result<RealSet> assemblePieceImage(const function_detail::PieceImage &info) {
+    std::vector<RealAlgebraicNumber> candidates = info.attained;
+    candidates.insert(candidates.end(), info.limits.begin(), info.limits.end());
+    if (candidates.empty()) {
+      if (!info.toNegativeInfinity || !info.toPositiveInfinity) {
+        return std::unexpected(MathsError::InvalidExpression); // 两个方向都没兜住，说明漏了一条分支
+      }
+      return RealSet::realLine();
+    }
+
+    RealAlgebraicNumber minimum = candidates.front();
+    RealAlgebraicNumber maximum = candidates.front();
+    for (const RealAlgebraicNumber &value : candidates) {
+      if (value.compareTo(minimum) == std::strong_ordering::less) {
+        minimum = value;
+      }
+      if (value.compareTo(maximum) == std::strong_ordering::greater) {
+        maximum = value;
+      }
+    }
+
+    const auto isAttained = [&info](const RealAlgebraicNumber &value) {
+      for (const RealAlgebraicNumber &attained : info.attained) {
+        if (attained == value) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const bool constantOnPiece = minimum == maximum && !info.toNegativeInfinity && !info.toPositiveInfinity;
+    const Bound lower = info.toNegativeInfinity ? Bound::negativeInfinity()
+                                                : Bound::finite(minimum, constantOnPiece || isAttained(minimum));
+    const Bound upper = info.toPositiveInfinity ? Bound::positiveInfinity()
+                                                : Bound::finite(maximum, constantOnPiece || isAttained(maximum));
+    return RealSet::make({Interval{lower, upper}});
   }
 
   Variable variable_{"x"};

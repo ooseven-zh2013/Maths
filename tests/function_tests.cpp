@@ -209,6 +209,57 @@ int main() {
     CHECK_TRUE(!range.unwrap().contains(number(3, 2) - Fraction(1, 100))); // 下界确实被卡住
   }
 
+  // ---------- 像集：f(S) ----------
+  {
+    // 经典值域题：x/(x²+1) 在 ℝ 上 → [−1/2, 1/2]（临界点 x = ±1 给出两个端点）
+    const RealFunction bell = functionOf("x/(x^2+1)");
+    CHECK_EQ(bell.range().unwrap().latex(), std::string("[-\\frac{1}{2}, \\frac{1}{2}]"));
+
+    // 1/x 的值域 = ℝ\{0}：两块各自的像分别是 (0,+∞) 与 (−∞,0)，都是开端点
+    const RealFunction reciprocal = functionOf("1/x");
+    CHECK_EQ(reciprocal.range().unwrap().latex(), std::string("(-\\infty, 0) \\cup (0, +\\infty)"));
+
+    // x² → [0,+∞)：0 是临界点上的值，取到；两侧无穷远都跑向 +∞
+    CHECK_EQ(functionOf("x^2").range().unwrap().latex(), std::string("[0, +\\infty)"));
+    CHECK_EQ(functionOf("x^2-1").range().unwrap().latex(), std::string("[-1, +\\infty)"));
+    CHECK_EQ(functionOf("x^3").range().unwrap().latex(), std::string("\\mathbb{R}")); // 三次：值域是整条实轴
+
+    const RealFunction square = functionOf("x^2");
+    CHECK_EQ(square.image(closed(1, 2)).unwrap().latex(), std::string("[1, 4]")); // 闭区间 → 闭
+    CHECK_EQ(square.image(RealSet::realLine()).unwrap().latex(), std::string("[0, +\\infty)"));
+
+    // 开区间 → 开：端点只是极限，取不到
+    const RealSet openUnit =
+        RealSet::make({Interval{Bound::finite(number(1), false), Bound::finite(number(2), false)}}).unwrap();
+    CHECK_EQ(square.image(openUnit).unwrap().latex(), std::string("(1, 4)"));
+
+    // 单调函数在闭区间上：像就是两端点之间
+    CHECK_EQ(functionOf("x+1").image(closed(0, 1)).unwrap().latex(), std::string("[1, 2]"));
+
+    // 定义域外的那部分自动切掉：1/x 限制在 [−1,1] 上，像是 (−∞,−1] ∪ [1,+∞)
+    const RealFunction hyperbola = functionOf("1/x");
+    CHECK_EQ(hyperbola.image(closed(-1, 1)).unwrap().latex(), std::string("(-\\infty, -1] \\cup [1, +\\infty)"));
+
+    // 空集进，空集出
+    CHECK_TRUE(square.image(RealSet::empty()).unwrap().isEmpty());
+
+    // 常函数：像是单点集
+    CHECK_EQ(RealFunction::constant(Fraction(5, 1)).range().unwrap().latex(), std::string("\\{5\\}"));
+
+    // 含根号的规则不做（要么逐根号做单调性推理，要么先把根号消掉）
+    CHECK_ERR(RealFunction::make(radicalOf("x")).unwrap().range(), MathsError::NotARational);
+
+    // 1/(x²+1)：极小值只是两端的极限（0，取不到），极大值 1 在临界点 x = 0 上取到
+    CHECK_EQ(functionOf("1/(x^2+1)").range().unwrap().latex(), std::string("(0, 1]"));
+
+    // x³−3x 在 [−1,1] 上：两个临界点 ±1 恰好是闭端点
+    CHECK_EQ(functionOf("x^3-3x").image(closed(-1, 1)).unwrap().latex(), std::string("[-2, 2]"));
+
+    // x/(x²−1)：中间那块 (−1,1) 从 +∞ 掉到 −∞，没有临界点 ——
+    // 「候选值一个都没有、两头都跑向无穷」这条路要能正确地给出整条实轴
+    CHECK_EQ(functionOf("x/(x^2-1)").range().unwrap().latex(), std::string("\\mathbb{R}"));
+  }
+
   // ---------- 输出 ----------
   {
     const RealFunction polynomial = functionOf("x^2");
