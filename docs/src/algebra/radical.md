@@ -41,7 +41,8 @@ RadicalExtension both  = RadicalExtension::sumOfRadicals({                      
 | 访问 | `radicands()`、`coefficients()`、`coefficient(mask)`、`termCount()`、`isZero()`、`isRadicalFree()` |
 | 运算 | `+` `-` `*` `/`（前三个在**同域**时可用）、一元 `-`、`inverse()` |
 | 降一阶 | `toRationalFunction()` —— 无根号部分时降回有理函数，否则 `NotARational` |
-| 求值 | `evaluate(Scope)` → `RealAlgebraicNumber`（变量全绑定为有理数时） |
+| 部分代入 | `substitute(Scope)` —— 变量换成有理函数（复合函数的前提，见下面的两条边界） |
+| 求值 | `evaluate(Scope)` / `evaluate(AlgebraicScope)` → `RealAlgebraicNumber`（变量全绑定为有理数或实代数数时） |
 | 输出 | `str()`、`latex()` |
 
 乘法的全部规则就是 `yᵢ² = fᵢ`：两个子集**相交**的生成元两两配对、换成对应被开方数之积，
@@ -65,6 +66,25 @@ RadicalExtension both  = RadicalExtension::sumOfRadicals({                      
 
 并起来之后仍然要满足独立性：`√x + √(4x)` 会因为 `x·4x = 4x²` 是平方而拒收
 （它们其实是同一个根号），`√x + √y` 会因为出现第二个变量而拒收。
+
+## 部分代入：变量换成有理函数
+
+`substitute(Scope)` 把被开方数与系数里的变量替换成 `Scope` 里绑定的**有理函数**
+（不是具体数值），再用替换后的被开方数重建元素，生成元顺序保持一致：
+
+```cpp
+√(x+1)   代入 x = w²    →  √(w²+1)       // 复合函数的基础
+```
+
+这是 [function.md](function.md) 里 `RealFunction::compose` 的实现手段。
+代入**具体数值**请用 `evaluate`，它直接给实代数数。
+
+两条边界都明确报错，不猜：
+
+| 情形 | 错误码 | 原因 |
+| --- | --- | --- |
+| 替换后被开方数变成**常数**（`√x` 代入 x = 4） | `InvalidExpression` | 本类型装不下一个常数的根，那属于实代数数，请改用 `evaluate` |
+| 替换后被开方数变成**完全平方**（`√x` 代入 x = w²） | `RadicandIsSquare` | 主根是 \|w\|，与构造时的规矩一致 |
 
 ## 零生成元的元素（纯有理函数）
 

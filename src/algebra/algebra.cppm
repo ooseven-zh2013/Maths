@@ -8,3 +8,4 @@ export import :constraint;
 export import :constraint_system;
 export import :groebner;
 export import :radical;
+export import :function;

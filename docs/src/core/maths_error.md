@@ -37,6 +37,8 @@ if (result.isErr()) { /* result.unwrapErr() */ }     // Result 路径
 | `UndefinedVariable` | 变量未定义 | `Scope::lookup` 未绑定；`evaluate` 代入后仍含未绑定变量 |
 | `NotAnAssignment` | 右边含被赋值的变量本身，那是方程不是赋值 | `x = 2x`、`x = x + 1` |
 | `CircularReference` | 该赋值会形成循环引用 | `x = s`、`s = t`、`t = x` |
+| `OutsideDomain` | 该点不在函数定义域内 | `RealFunction::at` 传入定义域外的点（如 `√x` 在 x = −1）。**不是「变量未定义」** —— 那是没给值，这是给了值但该点不属于函数 |
+| `NotUnivariate` | 不是一元函数（含多个自变量） | `RealFunction::make` 的规则里出现两个以上自变量；一元函数四则时两侧自变量名不同 |
 
 ## 两条传递路径
 

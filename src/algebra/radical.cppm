@@ -8,6 +8,7 @@ import maths.algebraic_number;
 import :expression;
 import :rational;
 import :scope;
+import :algebraic;
 import :constraint;
 
 export namespace maths {
@@ -300,7 +301,7 @@ public:
   }
 
   // ==================== 求值 ====================
-  // 所有变量都绑定到有理数时，结果落在一个实代数数上：每个 √f_i 是实代数数，
+  // 有理点求值：所有变量都绑定到有理数时，结果落在一个实代数数上：每个 √f_i 是实代数数，
   // 它们的有理系数组合仍是实代数数。某个被开方数在该点为负 → NegativeEvenRoot。
   Result<RealAlgebraicNumber> evaluate(const Scope &scope) const {
     RealAlgebraicNumber total(Fraction(0, 1));
@@ -334,6 +335,48 @@ public:
       total = total + term;
     }
     return total;
+  }
+
+  // 代数点求值：把变量绑到**实代数数**上（如 x = √2），结果仍是实代数数。
+  // 与上面同一套流程，区别只在系数与被开方数的求值走代数作用域 ——
+  // 这正是「一元函数在代数点上取值」需要的能力（定义域端点常常就是 √2 这种数）。
+  Result<RealAlgebraicNumber> evaluate(const AlgebraicScope &scope) const {
+    // 内部代数数运算（nthRoot 的隔离失败分支）仍会抛异常，有返回值位置就交 Result
+    try {
+      RealAlgebraicNumber total(Fraction(0, 1));
+      std::vector<std::optional<RealAlgebraicNumber>> roots(radicands_.size());
+      for (std::size_t mask = 0; mask < coefficients_.size(); ++mask) {
+        if (coefficients_[mask].isZero()) {
+          continue;
+        }
+        const Result<RealAlgebraicNumber> value = toAlgebraic(coefficients_[mask]).evaluate(scope);
+        if (value.isErr()) {
+          return std::unexpected(value.unwrapErr());
+        }
+        RealAlgebraicNumber term = value.unwrap();
+        for (std::size_t bit = 0; bit < radicands_.size(); ++bit) {
+          if ((mask & (std::size_t(1) << bit)) == 0) {
+            continue;
+          }
+          if (!roots[bit].has_value()) {
+            const Result<RealAlgebraicNumber> radicand = toAlgebraic(radicands_[bit]).evaluate(scope);
+            if (radicand.isErr()) {
+              return std::unexpected(radicand.unwrapErr());
+            }
+            const Result<RealAlgebraicNumber> root = radicand.unwrap().nthRoot(2);
+            if (root.isErr()) {
+              return std::unexpected(root.unwrapErr());
+            }
+            roots[bit] = root.unwrap();
+          }
+          term = term * *roots[bit];
+        }
+        total = total + term;
+      }
+      return total;
+    } catch (const MathsException &error) {
+      return std::unexpected(error.code());
+    }
   }
 
   // ==================== 输出 ====================

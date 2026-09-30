@@ -43,6 +43,13 @@ enum class MathsError {
   UndefinedVariable,
   NotAnAssignment,
   CircularReference,
+  // 函数
+  // 自变量的取值不在函数定义域内（如 √x 在 x = −1 上求值）。
+  // 与「变量未定义」不是一回事：那是没给值，这是给了值但这个点不属于函数。
+  OutsideDomain,
+  // 多元函数：本库的一元函数类型装不下多个自变量。
+  // 多维定义域请用点集（AtomConstraint / ConstraintSystem）
+  NotUnivariate,
 };
 
 inline std::string_view describe(MathsError error) {
@@ -85,6 +92,10 @@ inline std::string_view describe(MathsError error) {
     return "右边含被赋值的变量本身，那是方程不是赋值";
   case MathsError::CircularReference:
     return "该赋值会形成循环引用";
+  case MathsError::OutsideDomain:
+    return "该点不在函数定义域内";
+  case MathsError::NotUnivariate:
+    return "不是一元函数（含多个自变量）";
   }
   return "未知错误";
 }

@@ -33,6 +33,7 @@
 | [constraint.md](src/algebra/constraint.md) | `src/algebra/constraint.cppm` | 取值范围约束 `RangeConstraint`、解不等式、定义域、`Scope` 的集合约束 |
 | [constraint_system.md](src/algebra/constraint_system.md) | `src/algebra/constraint_system.cppm` | 多维点集：原子约束 `AtomConstraint` 与合取 `ConstraintSystem`、成员判定、可分离情形 |
 | [groebner.md](src/algebra/groebner.md) | `src/algebra/groebner.cppm` | Gröbner 基：等式组的一致性、消元 / 参数化 / 投影（Buchberger）|
+| [function.md](src/algebra/function.md) | `src/algebra/function.cppm` | 一元实函数 `RealFunction`（规则 + `RealSet` 定义域）：求值、四则、复合、集合拉回 |
 
 ### parser — 文本 → 式子
 
