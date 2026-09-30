@@ -267,6 +267,38 @@ public:
     return coefficients_[0];
   }
 
+  // ==================== 部分代入 ====================
+  //
+  // 把变量换成**有理函数**（不是具体数值）。被开方数与系数都会被替换，所以域随之改变：
+  // 结果用替换后的被开方数重建，生成元顺序保持一致（掩码含义不变）。
+  //
+  //   √(x+1)  代入 x = w²  →  √(w²+1)      —— 这就是「函数套函数」需要的操作
+  //
+  // 两条边界（都明确报错，不猜）：
+  //   - 替换后某个被开方数变成**常数**：本类型装不下它的根（`√5` 属于实代数数）→
+  //     想代入具体数值请用 `evaluate`，它直接给实代数数
+  //   - 替换后某个被开方数变成**完全平方**（如 `√x` 代入 x = w² 得 √(w²)）：主根是 |w|，
+  //     本库不引入 |w| → 按既有规矩拒收
+  Result<RadicalExtension> substitute(const Scope &scope) const {
+    std::vector<RationalFunction> radicands;
+    for (const RationalFunction &radicand : radicands_) {
+      const Result<RationalFunction> replaced = radicand.substitute(scope);
+      if (replaced.isErr()) {
+        return std::unexpected(replaced.unwrapErr());
+      }
+      radicands.push_back(replaced.unwrap());
+    }
+    std::vector<RationalFunction> coefficients;
+    for (const RationalFunction &coefficient : coefficients_) {
+      const Result<RationalFunction> replaced = coefficient.substitute(scope);
+      if (replaced.isErr()) {
+        return std::unexpected(replaced.unwrapErr());
+      }
+      coefficients.push_back(replaced.unwrap());
+    }
+    return make(std::move(radicands), std::move(coefficients));
+  }
+
   // ==================== 求值 ====================
   // 所有变量都绑定到有理数时，结果落在一个实代数数上：每个 √f_i 是实代数数，
   // 它们的有理系数组合仍是实代数数。某个被开方数在该点为负 → NegativeEvenRoot。

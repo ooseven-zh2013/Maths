@@ -268,5 +268,53 @@ int main() {
     CHECK_TRUE((two * RadicalExtension(Fraction(3, 1))).unwrap() == RadicalExtension(Fraction(6, 1)));
   }
 
+  // ---------- 部分代入：把变量换成有理函数（函数套函数需要它） ----------
+  {
+    // √(x+1) 代入 x = w²  →  √(w²+1)
+    const RadicalExtension shifted = RadicalExtension::make(expression("x+1")).unwrap();
+    Scope scope;
+    CHECK_OK(scope.assign(Variable("x"), expression("w^2")));
+    const Result<RadicalExtension> composed = shifted.substitute(scope);
+    CHECK_OK(composed);
+    CHECK_EQ(composed.unwrap().latex(), std::string("\\sqrt{w^2 + 1}"));
+    CHECK_TRUE(composed.unwrap().variables().count(Variable("x")) == 0); // x 已被换掉
+    CHECK_TRUE(composed.unwrap().containsVariable(Variable("w")));
+
+    // √x 代入 x = w²+1  →  √(w²+1)：被开方数整条换掉
+    Scope widened;
+    CHECK_OK(widened.assign(Variable("x"), expression("w^2+1")));
+    const Result<RadicalExtension> substituted = radicalX().substitute(widened);
+    CHECK_OK(substituted);
+    CHECK_EQ(substituted.unwrap().latex(), std::string("\\sqrt{w^2 + 1}"));
+    CHECK_TRUE(!substituted.unwrap().containsVariable(Variable("x")));
+
+    // 系数也会被替换：y√x 代入 y = w²  →  w²√x（x 仍在）
+    const RadicalExtension withCoefficient =
+        RadicalExtension::make({expression("x")}, {expression("0"), expression("y")}).unwrap();
+    CHECK_EQ(withCoefficient.latex(), std::string("y\\sqrt{x}"));
+    Scope onlyY;
+    CHECK_OK(onlyY.assign(Variable("y"), expression("w^2")));
+    const Result<RadicalExtension> coefficientReplaced = withCoefficient.substitute(onlyY);
+    CHECK_OK(coefficientReplaced);
+    CHECK_EQ(coefficientReplaced.unwrap().latex(), std::string("w^2\\sqrt{x}"));
+    CHECK_TRUE(coefficientReplaced.unwrap().containsVariable(Variable("w")));
+    CHECK_TRUE(coefficientReplaced.unwrap().containsVariable(Variable("x"))); // x 没被代入
+
+    // 没被代入的变量照旧：只代入 w 时 √(x+1) 原样不动
+    Scope other;
+    CHECK_OK(other.assign(Variable("w"), expression("t^2")));
+    const Result<RadicalExtension> untouched = shifted.substitute(other);
+    CHECK_OK(untouched);
+    CHECK_EQ(untouched.unwrap().latex(), std::string("\\sqrt{x + 1}"));
+
+    // 边界一：替换后被开方数变成常数 → 本类型装不下它的根（√5 属于实代数数）
+    Scope number;
+    CHECK_OK(number.assign(Variable("x"), expression("4")));
+    CHECK_ERR(radicalX().substitute(number), MathsError::InvalidExpression);
+
+    // 边界二：替换后被开方数变成完全平方 → 主根是 |w|，按规矩拒收
+    CHECK_ERR(radicalX().substitute(scope), MathsError::RadicandIsSquare);
+  }
+
   TEST_SUMMARY();
 }
