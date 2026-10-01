@@ -74,6 +74,14 @@ int main() {
 
     // 解析出的式子本身就是合理的函数
     CHECK_OK(RealFunction::make(radicalOf("x")));
+
+    // 化简丢掉的定义域约束也要算进定义域：x/x 化简成 1，但 x = 0 处原本无定义。
+    // 不把这层算进来，函数会在 x = 0 上给出 1 —— 那是静默给错。
+    const RealFunction cancelled = functionOf("x/x");
+    CHECK_TRUE(!cancelled.domain().contains(number(0)));
+    CHECK_TRUE(cancelled.domain().contains(number(3)));
+    CHECK_ERR(cancelled.at(number(0)), MathsError::OutsideDomain);
+    CHECK_TRUE((functionOf("x^2/x")).at(number(0)).isErr()); // 约掉一个 x，同样留下 x ≠ 0
   }
 
   // ---------- 求值：定义域外明确报错 ----------

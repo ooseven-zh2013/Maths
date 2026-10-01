@@ -89,7 +89,7 @@ public:
     if (variable.isErr()) {
       return std::unexpected(variable.unwrapErr());
     }
-    const Result<RealSet> natural = domainOf(rule);
+    const Result<RealSet> natural = definitionDomainOf(rule, variable.unwrap());
     if (natural.isErr()) {
       return std::unexpected(natural.unwrapErr());
     }
@@ -200,7 +200,7 @@ public:
 
     const Result<RealSet> pulled = inner.preimage(domain_);
     if (pulled.isErr()) {
-      const Result<RealSet> natural = domainOf(rule_);
+      const Result<RealSet> natural = definitionDomainOf(rule_, variable_);
       if (natural.isErr() || !(natural.unwrap() == domain_)) {
         return std::unexpected(pulled.unwrapErr());
       }
@@ -375,6 +375,45 @@ private:
       return Variable("x");
     }
     return *variables.begin();
+  }
+
+  // 规则自带的定义域（分母零点、被开方数 ≥ 0），**再加上化简时丢掉的那些约束**。
+  //
+  // `x/x` 会被化简成 `1`，但 `discardedConstraints` 记着「约掉过 x」—— 也就是 x ≠ 0。
+  // 不把它算进来，函数就会在 x = 0 上给出 1：那是静默给错，本库最不能接受的一类错误。
+  // 只收**与自变量同名**的约束；不同名说明那个变量已经被约得不再是自变量
+  // （如 `√x·(y/y)` 在 x 上看），那种参数上的条件留给调用方按约束处理。
+  static Result<RealSet> definitionDomainOf(const RadicalExtension &rule, const Variable &variable) {
+    const Result<RealSet> natural = domainOf(rule);
+    if (natural.isErr()) {
+      return std::unexpected(natural.unwrapErr());
+    }
+    if (!dropsVariable(rule, variable)) {
+      return natural;
+    }
+    const Result<RealSet> atZero = RealSet::point(RealAlgebraicNumber(Fraction(0, 1)));
+    if (atZero.isErr()) {
+      return std::unexpected(atZero.unwrapErr());
+    }
+    const Result<RealSet> punctured = atZero.unwrap().complement();
+    if (punctured.isErr()) {
+      return std::unexpected(punctured.unwrapErr());
+    }
+    return natural.unwrap().intersect(punctured.unwrap());
+  }
+
+  static bool dropsVariable(const RadicalExtension &rule, const Variable &variable) {
+    for (const RationalFunction &coefficient : rule.coefficients()) {
+      if (coefficient.discardedConstraints().count(variable) != 0) {
+        return true;
+      }
+    }
+    for (const RationalFunction &radicand : rule.radicands()) {
+      if (radicand.discardedConstraints().count(variable) != 0) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // 四则的公共骨架：定义域取交，规则由调用方合好。

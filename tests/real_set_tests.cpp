@@ -251,5 +251,37 @@ int main() {
     CHECK_TRUE(clipped.contains(two));
   }
 
+  // ---------- 相接区间的合并：只看接触点有没有被覆盖 ----------
+  {
+    const RealAlgebraicNumber zero(Fraction(0, 1));
+    const RealAlgebraicNumber one(Fraction(1, 1));
+
+    // (−∞,0) ∪ [0,+∞) 就是整条实轴：接触点 0 被后一侧取到，中间没有洞。
+    // 这里曾经因为「要求两侧都取到」而过强地拒绝合并，于是同一个集合与 ℝ 判不等。
+    const RealSet negativeOpen =
+        RealSet::make({Interval{Bound::negativeInfinity(), Bound::finite(zero, false)}}).unwrap();
+    const RealSet positiveClosed =
+        RealSet::make({Interval{Bound::finite(zero, true), Bound::positiveInfinity()}}).unwrap();
+    CHECK_TRUE(negativeOpen.unite(positiveClosed).isRealLine());
+    CHECK_TRUE(negativeOpen.unite(positiveClosed) == RealSet::realLine());
+
+    // (0,1) ∪ (1,2)：1 两侧都不取 → 中间有个洞，**不能**并成 (0,2)
+    const RealSet leftOpen = RealSet::make({Interval{Bound::finite(zero, false), Bound::finite(one, false)}}).unwrap();
+    const RealSet rightOpen =
+        RealSet::make({Interval{Bound::finite(one, false), Bound::finite(RealAlgebraicNumber(Fraction(2, 1)), false)}})
+            .unwrap();
+    CHECK_EQ(leftOpen.unite(rightOpen).latex(), std::string("(0, 1) \\cup (1, 2)"));
+
+    // (0,1] ∪ (1,2)：1 被前一侧取到 → 并成 (0,2)
+    const RealSet leftClosed = RealSet::make({Interval{Bound::finite(zero, false), Bound::finite(one, true)}}).unwrap();
+    CHECK_EQ(leftClosed.unite(rightOpen).latex(), std::string("(0, 2)"));
+
+    // (0,1) ∪ [1,2]：1 被后一侧取到 → 并成 (0,2]（下端仍继承左区间的不取到）
+    const RealSet rightClosed =
+        RealSet::make({Interval{Bound::finite(one, true), Bound::finite(RealAlgebraicNumber(Fraction(2, 1)), true)}})
+            .unwrap();
+    CHECK_EQ(leftOpen.unite(rightClosed).latex(), std::string("(0, 2]"));
+  }
+
   TEST_SUMMARY();
 }

@@ -198,15 +198,25 @@ public:
       }
       Interval &last = merged.back();
       const std::strong_ordering order = interval.lower.compareTo(last.upper);
-      // 重叠，或恰好相接且两侧都取到（如 [0,1] 与 [1,2]）才合并；
-      // (0,1) 与 (1,2) 不能并成 (0,2) —— 那样会把 1 也算进去
-      const bool overlaps = order == std::strong_ordering::less || (order == std::strong_ordering::equal &&
-                                                                    last.upper.isClosed() && interval.lower.isClosed());
+      // 重叠，或恰好相接**且接触点至少被一侧取到**才合并：
+      //   [0,1] 与 [1,2]   → [0,2]    （1 被两侧取到）
+      //   (−∞,0) 与 [0,+∞) → ℝ       （0 被后侧取到，中间没有洞）
+      //   (0,1] 与 (1,2)   → (0,2)    （1 被前侧取到）
+      //   (0,1) 与 (1,2)   → 不并     （1 两侧都不取，并了会把 1 也算进去）
+      // 「两侧都取到」是过强的条件：它会把 (−∞,0) ∪ [0,+∞) 这种本来就是整条实轴的
+      // 集合留成两段，于是 isRealLine() 为假、判等也对不上 —— 并集有没有洞，
+      // 只看接触点被不被覆盖，与「是不是两侧都被覆盖」无关。
+      const bool touches = order == std::strong_ordering::equal;
+      const bool overlaps =
+          order == std::strong_ordering::less || (touches && (last.upper.isClosed() || interval.lower.isClosed()));
       if (!overlaps) {
         merged.push_back(interval);
         continue;
       }
-      if (interval.upper.compareTo(last.upper) == std::strong_ordering::greater) {
+      const std::strong_ordering top = interval.upper.compareTo(last.upper);
+      // 上端取更远的那个；齐平时按并集取「取到」（有一侧取到就取到）
+      if (top == std::strong_ordering::greater ||
+          (top == std::strong_ordering::equal && interval.upper.isClosed() && !last.upper.isClosed())) {
         last.upper = interval.upper;
       }
     }
