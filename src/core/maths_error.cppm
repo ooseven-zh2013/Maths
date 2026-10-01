@@ -50,6 +50,10 @@ enum class MathsError {
   // 多元函数：本库的一元函数类型装不下多个自变量。
   // 多维定义域请用点集（AtomConstraint / ConstraintSystem）
   NotUnivariate,
+  // 空样本（或观测数不够，如样本方差至少要 2 个观测）：没有该统计量
+  EmptyCollection,
+  // 不是有限点集（集合里含区间块）：连续集合上的「求和」是积分，不是求和，本库不做
+  NotFiniteSet,
 };
 
 inline std::string_view describe(MathsError error) {
@@ -96,6 +100,10 @@ inline std::string_view describe(MathsError error) {
     return "该点不在函数定义域内";
   case MathsError::NotUnivariate:
     return "不是一元函数（含多个自变量）";
+  case MathsError::EmptyCollection:
+    return "样本为空或观测数不够，没有该统计量";
+  case MathsError::NotFiniteSet:
+    return "不是有限点集（含区间块）—— 连续集合上的求和是积分，不是求和";
   }
   return "未知错误";
 }

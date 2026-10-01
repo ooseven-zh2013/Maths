@@ -86,7 +86,9 @@ const Fraction value = (a / Fraction(1, 2)).unwrap();  // 失败则抛 MathsExce
 | 变量绑定 | `maths.algebra:scope` | `Scope` 与 `substitute` / `evaluate` | [文档](docs/src/algebra/scope.md) |
 | 代数系数代数式 | `maths.algebra:algebraic` | 系数取实代数数的多项式与分式、代数作用域 | [文档](docs/src/algebra/algebraic.md) |
 | 根式扩张 | `maths.algebra:radical` | `√x`、`√(x²+1) + √(x²+2)` 这类含变量根号的精确表示与运算 | [文档](docs/src/algebra/radical.md) |
-| 一元函数 | `maths.algebra:function` | 一元实函数 `RealFunction`：规则 + `RealSet` 定义域，求值、四则、复合、集合拉回 | [文档](docs/src/algebra/function.md) |
+| 一元函数 | `maths.algebra:function` | 一元实函数 `RealFunction`：规则 + `RealSet` 定义域，求值、四则、复合、集合拉回、像集 | [文档](docs/src/algebra/function.md) |
+| 分段函数 | `maths.algebra:piecewise` | 分段函数：绝对值、逐点取大取小（规则装不下拐弯的函数，这类要靠分支装）| [文档](docs/src/algebra/piecewise.md) |
+| 聚合 | `maths.algebra:aggregate` | 集合 → 数：求和 / 求积 / 最值 / 平均 / 方差 / 标准差、上确界与下确界 | [文档](docs/src/algebra/aggregate.md) |
 | 表达式解析 | `maths.parser` | 文本与 LaTeX → 式子、代入条件解析、代数版入口 | [文档](docs/src/parser/expression_parser.md) |
 | 错误码 | `maths.error` | `MathsError`、`MathsException` | [文档](docs/src/core/maths_error.md) |
 | 结果类型 | `maths.result` | `Result<T>` | [文档](docs/src/core/result.md) |
@@ -134,6 +136,8 @@ src/                            模块接口单元（.cppm）
     groebner.cppm                   :groebner —— Gröbner 基（Buchberger）
     radical.cppm                    :radical —— 根式扩张（√ 里有变量）
     function.cppm                   :function —— 一元实函数（规则 + 定义域）
+    piecewise.cppm                  :piecewise —— 分段函数（绝对值等）
+    aggregate.cppm                  :aggregate —— 聚合（集合 → 数）
   parser/parser.cppm               maths.parser —— 表达式与代入条件的解析
 tests/                          测试（mcpp test 自动发现，一文件一可执行文件）
   check.hpp                       断言宏

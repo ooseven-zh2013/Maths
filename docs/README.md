@@ -33,7 +33,9 @@
 | [constraint.md](src/algebra/constraint.md) | `src/algebra/constraint.cppm` | 取值范围约束 `RangeConstraint`、解不等式、定义域、`Scope` 的集合约束 |
 | [constraint_system.md](src/algebra/constraint_system.md) | `src/algebra/constraint_system.cppm` | 多维点集：原子约束 `AtomConstraint` 与合取 `ConstraintSystem`、成员判定、可分离情形 |
 | [groebner.md](src/algebra/groebner.md) | `src/algebra/groebner.cppm` | Gröbner 基：等式组的一致性、消元 / 参数化 / 投影（Buchberger）|
-| [function.md](src/algebra/function.md) | `src/algebra/function.cppm` | 一元实函数 `RealFunction`（规则 + `RealSet` 定义域）：求值、四则、复合、集合拉回 |
+| [function.md](src/algebra/function.md) | `src/algebra/function.cppm` | 一元实函数 `RealFunction`（规则 + `RealSet` 定义域）：求值、四则、复合、集合拉回、像集 |
+| [piecewise.md](src/algebra/piecewise.md) | `src/algebra/piecewise.cppm` | 分段函数 `PiecewiseFunction`：绝对值 `|x|`、逐点取大取小、分支归一化与四则 |
+| [aggregate.md](src/algebra/aggregate.md) | `src/algebra/aggregate.cppm` | 集合 → 数：求和 / 求积 / 最值 / 平均 / 方差 / 标准差、上确界与下确界 |
 
 ### parser — 文本 → 式子
 
