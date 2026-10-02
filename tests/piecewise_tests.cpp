@@ -92,8 +92,86 @@ int main() {
     CHECK_TRUE(bigger.at(number(7)).unwrap() == number(7));
     CHECK_TRUE(bigger.domain() == absoluteValue().unwrap().domain());
 
-    // 含根号的规则要解含根号的不等式，不做
-    CHECK_ERR(maximumOf(functionOf("x"), RealFunction::make(radicalOf("x")).unwrap()), MathsError::NotARational);
+    // 含两个以上生成元的差要解代数数不等式，不做
+    CHECK_ERR(maximumOf(RealFunction::make(radicalOf("x")).unwrap(), RealFunction::make(radicalOf("x+1")).unwrap()),
+              MathsError::NotARational);
+  }
+
+  // ---------- 逐点取大 / 取小：一边带**一个**根号 ----------
+  {
+    // √x ≥ x ⟺ x ≤ 1（在 x ≥ 0 上），所以 max 在 [0,1] 上取 √x，之后取 x
+    const RealFunction root = RealFunction::make(radicalOf("x")).unwrap();
+    const RealFunction ramp = functionOf("x");
+
+    const PiecewiseFunction upper = maximumOf(root, ramp).unwrap();
+    CHECK_TRUE(upper.branchCount() == std::size_t(2));
+    CHECK_TRUE(upper.at(number(1, 4)).unwrap() == number(1, 2)); // √0.25 = 0.5 > 0.25
+    CHECK_TRUE(upper.at(number(4)).unwrap() == number(4));       // 4 > 2
+    CHECK_TRUE(upper.at(number(0)).unwrap() == number(0));
+
+    // 两边都有定义才成立：x < 0 时 √x 没定义，max 也没有
+    CHECK_ERR(upper.at(number(-1)), MathsError::OutsideDomain);
+    CHECK_TRUE(!upper.domain().contains(number(-1)));
+
+    // 取小则反过来
+    const PiecewiseFunction lower = minimumOf(root, ramp).unwrap();
+    CHECK_TRUE(lower.at(number(1, 4)).unwrap() == number(1, 4)); // 0.25 < 0.5
+    CHECK_TRUE(lower.at(number(4)).unwrap() == number(2));
+    CHECK_ERR(lower.at(number(-1)), MathsError::OutsideDomain);
+
+    // max(√x, x) · 它自己 = (max)²，顺手验证两支拼得上
+    CHECK_TRUE((upper * upper).unwrap().at(number(4)).unwrap() == number(16));
+  }
+
+  // ---------- 回归：第二支必须落在「两边都有定义」的地方 ----------
+  {
+    // max(1/x, x)：x 自己的定义域是整条实轴，但 1/x 在 0 上没有定义 ——
+    // 不拦住的话 x = 0 会冒出一个值来
+    const PiecewiseFunction hyperbolaMax = maximumOf(functionOf("1/x"), functionOf("x")).unwrap();
+    CHECK_ERR(hyperbolaMax.at(number(0)), MathsError::OutsideDomain);
+    CHECK_TRUE(!hyperbolaMax.domain().contains(number(0)));
+    CHECK_TRUE(hyperbolaMax.domain().contains(number(2)));
+    CHECK_TRUE(hyperbolaMax.domain().contains(number(-2)));
+  }
+
+  // ---------- 复合 ----------
+  {
+    const PiecewiseFunction absolute = absoluteValue().unwrap();
+
+    // √|x|：外层带根号也可以，因为 |x| 的两支都是有理函数
+    const RealFunction outerRoot = RealFunction::make(radicalOf("y")).unwrap();
+    const PiecewiseFunction rootOfAbsolute = compose(outerRoot, absolute).unwrap();
+    CHECK_TRUE(rootOfAbsolute.branchCount() == std::size_t(2));
+    CHECK_TRUE(rootOfAbsolute.at(number(9)).unwrap() == number(3));
+    CHECK_TRUE(rootOfAbsolute.at(number(-9)).unwrap() == number(3));
+    CHECK_TRUE(rootOfAbsolute.at(number(0)).unwrap() == number(0));
+    // 像集只支持有理规则（√x 的像要逐根号做单调性推理），所以这里明确报错而不是猜
+    CHECK_ERR(rootOfAbsolute.range(), MathsError::NotARational);
+
+    // x² ∘ |x| = x²：两支算出来是同一条规则
+    const PiecewiseFunction squareOfAbsolute = compose(functionOf("x^2"), absolute).unwrap();
+    CHECK_TRUE(squareOfAbsolute.at(number(-3)).unwrap() == number(9));
+
+    // |x| ∘ (x−1) = |x−1|：内层是单规则函数
+    const PiecewiseFunction shiftedAbsolute = absolute.compose(functionOf("x-1")).unwrap();
+    CHECK_TRUE(shiftedAbsolute.at(number(4)).unwrap() == number(3));
+    CHECK_TRUE(shiftedAbsolute.at(number(-2)).unwrap() == number(3));
+    CHECK_TRUE(shiftedAbsolute.at(number(1)).unwrap() == number(0));
+
+    // |x| ∘ |x| = |x|
+    const PiecewiseFunction nestedAbsolute = absolute.compose(absolute).unwrap();
+    CHECK_TRUE(nestedAbsolute.at(number(-7)).unwrap() == number(7));
+
+    // 逐支复合：√(y+1) ∘ |x| = √(|x|+1)，两支分别给 √(x+1) 与 √(−x+1)
+    const RealFunction outerShifted = RealFunction::make(radicalOf("y+1")).unwrap();
+    const PiecewiseFunction shiftedRoot = compose(outerShifted, absolute).unwrap();
+    CHECK_TRUE(shiftedRoot.branchCount() == std::size_t(2));
+    CHECK_EQ(shiftedRoot.at(number(3)).unwrap().latex(), std::string("2"));
+    CHECK_EQ(shiftedRoot.at(number(-3)).unwrap().latex(), std::string("2"));
+
+    // 根式套根式：内层含根号，不做
+    CHECK_ERR(compose(outerRoot, PiecewiseFunction::make({RealFunction::make(radicalOf("x")).unwrap()}).unwrap()),
+              MathsError::NotARational);
   }
 
   // ---------- 四则：分支两两配对 ----------

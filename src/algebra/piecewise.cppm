@@ -44,15 +44,6 @@ export namespace maths {
 //
 // 与 `RealFunction` 的关系：只有一个分支时可以用 `toRealFunction()` 降回去。
 
-namespace piecewise_detail {
-
-// 自变量本身作为一个多项式（`x`）。用来搭 |x| 这类分段函数。
-inline Polynomial variablePolynomial(const Variable &variable) {
-  return Polynomial(Monomial(Fraction(1, 1), VarPowers{{variable, 1ULL}}));
-}
-
-} // namespace piecewise_detail
-
 class PiecewiseFunction {
 public:
   // ==================== 构造 ====================
@@ -218,6 +209,42 @@ public:
     return make(std::move(scaled));
   }
 
+  // ==================== 复合 ====================
+  // `this ∘ inner`：外层逐支去复合内层。
+  //
+  // `RealFunction::compose` 会把每支的定义域算成 `inner⁻¹(E_j) ∩ dom(inner)` ——
+  // 外层各支不交，复出来的定义域自然也不交，`make` 直接收下。
+  // 内层是分段时就是「外层各支 × 内层各支」。
+  //
+  // 内层含根号会失败（`NotARational`）：那是「根式套根式」，本库不做。
+  // 所以 `√|x|` 可以（|x| 的两支都是有理函数），`√(√x)` 不行。
+
+  Result<PiecewiseFunction> compose(const RealFunction &inner) const {
+    std::vector<RealFunction> branches;
+    for (const RealFunction &outer : cases_) {
+      const Result<RealFunction> composed = outer.compose(inner);
+      if (composed.isErr()) {
+        return std::unexpected(composed.unwrapErr());
+      }
+      branches.push_back(composed.unwrap());
+    }
+    return make(std::move(branches));
+  }
+
+  Result<PiecewiseFunction> compose(const PiecewiseFunction &inner) const {
+    std::vector<RealFunction> branches;
+    for (const RealFunction &outer : cases_) {
+      for (const RealFunction &innerBranch : inner.cases_) {
+        const Result<RealFunction> composed = outer.compose(innerBranch);
+        if (composed.isErr()) {
+          return std::unexpected(composed.unwrapErr());
+        }
+        branches.push_back(composed.unwrap());
+      }
+    }
+    return make(std::move(branches));
+  }
+
   // ==================== 输出 ====================
 
   // 终端用一行表示，分支之间用 `;` 隔开
@@ -276,7 +303,7 @@ inline std::ostream &operator<<(std::ostream &os, const PiecewiseFunction &value
 
 // 自变量本身的函数（`f(x) = x`）
 inline Result<RealFunction> identityFunction(const Variable &variable = Variable("x")) {
-  return RealFunction::make(RationalFunction(piecewise_detail::variablePolynomial(variable)));
+  return RealFunction::make(RationalFunction(variablePolynomial(variable)));
 }
 
 // 绝对值 `|x|`：x ≥ 0 时是 x，x < 0 时是 −x。
@@ -287,55 +314,167 @@ inline Result<PiecewiseFunction> absoluteValue(const Variable &variable = Variab
 
 // 逐点取大 / 取小。
 //
-// `max(f, g) = f 在 f ≥ g 的地方，g 在其余地方` —— 分界点就是 `f − g = 0` 的根，
-// 交给 `solveInequality` 精确解出。所以**要求两条规则都是有理函数**：
-// 含根号时要解含根号的不等式，那是另一套推理，本库不做。
+// `max(f, g) = f 在 f ≥ g 的地方，g 在其余地方`，所以只要能把 `f − g ≥ 0` 的解集
+// 精确解出来就成立。**差的生成元个数 ≤ 1** 时做得到：
+//
+//   0 个（纯有理函数）→ `solveInequality` 直接给
+//   1 个（`a + b√f`） → 见下面 `whereNonNegative` 的三情形化归
+//
+// 再多就不做了（报 `NotARational`）：那要更深的代数数不等式推理。
 inline Result<PiecewiseFunction> maximumOf(const RealFunction &lhs, const RealFunction &rhs);
 inline Result<PiecewiseFunction> minimumOf(const RealFunction &lhs, const RealFunction &rhs);
 
 namespace piecewise_detail {
 
-// max / min 的共同部分：解出 `lhs ⋈ rhs` 成立的那半边，两边各自取一支
-inline Result<PiecewiseFunction> splitBy(const RealFunction &lhs, const RealFunction &rhs, Relation relation) {
-  if (!lhs.isRational() || !rhs.isRational()) {
-    return std::unexpected(MathsError::NotARational); // 含根号的不等式：不做
+// 「差 ≥ 0」的解集。三种情形，全程精确，没有一处近似。
+inline Result<RealSet> whereNonNegative(const RealFunction &difference) {
+  const RadicalExtension &rule = difference.rule();
+  const Result<RealSet> domain = Result<RealSet>(difference.domain()); // 差本身有定义的地方
+
+  // ---- 纯有理函数：直接解不等式 ----
+  if (rule.isRadicalFree()) {
+    const Result<RationalFunction> rational = rule.toRationalFunction();
+    if (rational.isErr()) {
+      return std::unexpected(rational.unwrapErr());
+    }
+    const Result<RealSet> solved = solveInequality(rational.unwrap(), Relation::GreaterEqual);
+    if (solved.isErr()) {
+      return std::unexpected(solved.unwrapErr());
+    }
+    return solved.unwrap().intersect(domain.unwrap());
   }
+
+  // ---- 一个生成元：差 = a + b√f ----
+  if (rule.radicands().size() != 1) {
+    return std::unexpected(MathsError::NotARational); // 两个以上根号：不做
+  }
+  const RationalFunction &a = rule.coefficient(0);
+  const RationalFunction &b = rule.coefficient(1);
+  const RationalFunction &radicand = rule.radicands().front();
+
+  const Result<RationalFunction> quotient = a / b; // a / b，也就是 −h 里的 h 取反
+  if (quotient.isErr()) {
+    return std::unexpected(quotient.unwrapErr());
+  }
+  const RationalFunction &ratio = quotient.unwrap();
+  const RationalFunction comparison = radicand - ratio * ratio; // f − (a/b)²
+
+  // √f ≥ h ⟺ h ≤ 0 ∨ f ≥ h²；√f ≤ h ⟺ h ≥ 0 ∧ f ≤ h²（h = −a/b）
+  const auto atLeastRatio = [&ratio, &comparison]() -> Result<RealSet> {
+    const Result<RealSet> ratioNonNegative = solveInequality(ratio, Relation::GreaterEqual); // −(a/b) ≤ 0
+    const Result<RealSet> squared = solveInequality(comparison, Relation::GreaterEqual);     // f ≥ (a/b)²
+    if (ratioNonNegative.isErr()) {
+      return std::unexpected(ratioNonNegative.unwrapErr());
+    }
+    if (squared.isErr()) {
+      return std::unexpected(squared.unwrapErr());
+    }
+    return RealSet(ratioNonNegative.unwrap().unite(squared.unwrap()));
+  };
+  const auto atMostRatio = [&ratio, &comparison]() -> Result<RealSet> {
+    const Result<RealSet> ratioNonPositive = solveInequality(ratio, Relation::LessEqual);
+    const Result<RealSet> squared = solveInequality(comparison, Relation::LessEqual);
+    if (ratioNonPositive.isErr()) {
+      return std::unexpected(ratioNonPositive.unwrapErr());
+    }
+    if (squared.isErr()) {
+      return std::unexpected(squared.unwrapErr());
+    }
+    return ratioNonPositive.unwrap().intersect(squared.unwrap());
+  };
+
+  // b 是 x 的函数，符号随 x 变 —— 三种情形都要留着，最后取并
+  const Result<RealSet> bPositive = solveInequality(b, Relation::Greater);
+  const Result<RealSet> bNegative = solveInequality(b, Relation::Less);
+  const Result<RealSet> bZero = solveInequality(b, Relation::Equal);
+  const Result<RealSet> bNonNegative = solveInequality(a, Relation::GreaterEqual); // b = 0 时退化成 a ≥ 0
+  for (const Result<RealSet> *step : {&bPositive, &bNegative, &bZero, &bNonNegative}) {
+    if (step->isErr()) {
+      return std::unexpected(step->unwrapErr());
+    }
+  }
+
+  const Result<RealSet> first = atLeastRatio();
+  const Result<RealSet> second = atMostRatio();
+  if (first.isErr()) {
+    return std::unexpected(first.unwrapErr());
+  }
+  if (second.isErr()) {
+    return std::unexpected(second.unwrapErr());
+  }
+  const Result<RealSet> positiveBranch = bPositive.unwrap().intersect(first.unwrap());
+  const Result<RealSet> negativeBranch = bNegative.unwrap().intersect(second.unwrap());
+  const Result<RealSet> zeroBranch = bZero.unwrap().intersect(bNonNegative.unwrap());
+  for (const Result<RealSet> *step : {&positiveBranch, &negativeBranch, &zeroBranch}) {
+    if (step->isErr()) {
+      return std::unexpected(step->unwrapErr());
+    }
+  }
+
+  const RealSet combined = positiveBranch.unwrap().unite(negativeBranch.unwrap()).unite(zeroBranch.unwrap());
+  return combined.intersect(domain.unwrap());
+}
+
+// max / min 的共同部分：解出「lhs ⋈ rhs 成立」的那半边，两边各自取一支。
+//
+// ⚠️ 两支都必须落在 `difference.domain()` 里 —— max 只在**两边都有定义**的地方有意义。
+// 只与 `lhs.domain()` / `rhs.domain()` 取交是不够的：`max(1/x, x)` 的两支分别是
+// `1/x` 与 `x`，而 `x` 自己的定义域是整条实轴，不拦住的话 x = 0 上会冒出一个值。
+inline Result<PiecewiseFunction> splitBy(const RealFunction &lhs, const RealFunction &rhs, bool takeLhsWhenGreater) {
   const Result<RealFunction> difference = lhs - rhs;
   if (difference.isErr()) {
     return std::unexpected(difference.unwrapErr());
   }
-  const Result<RationalFunction> rule = difference.unwrap().rule().toRationalFunction();
-  if (rule.isErr()) {
-    return std::unexpected(rule.unwrapErr());
-  }
-  const Result<RealSet> first = solveInequality(rule.unwrap(), relation);
+  const RealSet both = difference.unwrap().domain();
+  const Result<RealSet> first = whereNonNegative(difference.unwrap());
   if (first.isErr()) {
     return std::unexpected(first.unwrapErr());
   }
-  const Result<RealSet> second = first.unwrap().complement();
+  const Result<RealSet> outside = first.unwrap().complement();
+  if (outside.isErr()) {
+    return std::unexpected(outside.unwrapErr());
+  }
+  const Result<RealSet> second = both.intersect(outside.unwrap());
   if (second.isErr()) {
     return std::unexpected(second.unwrapErr());
   }
 
-  const Result<RealFunction> firstCase = lhs.restrict(first.unwrap());
-  if (firstCase.isErr()) {
-    return std::unexpected(firstCase.unwrapErr());
+  const Result<RealSet> main = takeLhsWhenGreater ? first : second;
+  const Result<RealSet> other = takeLhsWhenGreater ? second : first;
+  const Result<RealFunction> mainCase = lhs.restrict(main.unwrap());
+  if (mainCase.isErr()) {
+    return std::unexpected(mainCase.unwrapErr());
   }
-  const Result<RealFunction> secondCase = rhs.restrict(second.unwrap());
-  if (secondCase.isErr()) {
-    return std::unexpected(secondCase.unwrapErr());
+  const Result<RealFunction> otherCase = rhs.restrict(other.unwrap());
+  if (otherCase.isErr()) {
+    return std::unexpected(otherCase.unwrapErr());
   }
-  return PiecewiseFunction::make({firstCase.unwrap(), secondCase.unwrap()});
+  return PiecewiseFunction::make({mainCase.unwrap(), otherCase.unwrap()});
 }
 
 } // namespace piecewise_detail
 
 inline Result<PiecewiseFunction> maximumOf(const RealFunction &lhs, const RealFunction &rhs) {
-  return piecewise_detail::splitBy(lhs, rhs, Relation::GreaterEqual); // 取 lhs 的地方：lhs ≥ rhs
+  return piecewise_detail::splitBy(lhs, rhs, true); // 取 lhs 的地方：lhs ≥ rhs
 }
 
 inline Result<PiecewiseFunction> minimumOf(const RealFunction &lhs, const RealFunction &rhs) {
-  return piecewise_detail::splitBy(lhs, rhs, Relation::LessEqual); // 取 lhs 的地方：lhs ≤ rhs
+  return piecewise_detail::splitBy(lhs, rhs, false); // 取 lhs 的地方：lhs ≤ rhs
+}
+
+// f ∘ g：外层是单规则函数，内层是分段函数。逐支复合即可 ——
+// 内层第 i 支的定义域就是外层的取值区间，复出来的定义域 `g⁻¹(dom f) ∩ D_i` 由
+// `RealFunction::compose` 自己算，分支之间天然不交。
+inline Result<PiecewiseFunction> compose(const RealFunction &outer, const PiecewiseFunction &inner) {
+  std::vector<RealFunction> branches;
+  for (const RealFunction &innerBranch : inner.cases()) {
+    const Result<RealFunction> composed = outer.compose(innerBranch);
+    if (composed.isErr()) {
+      return std::unexpected(composed.unwrapErr());
+    }
+    branches.push_back(composed.unwrap());
+  }
+  return PiecewiseFunction::make(std::move(branches));
 }
 
 inline Result<PiecewiseFunction> absoluteValue(const Variable &variable) {
