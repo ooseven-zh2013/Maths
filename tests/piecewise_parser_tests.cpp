@@ -99,6 +99,46 @@ int main() {
     CHECK_TRUE(parsePiecewiseExpression("x^2-1").unwrap().at(number(3)).unwrap() == number(8));
   }
 
+  // ---------- 直接写 |x|：与 √(x²) 是同一个东西 ----------
+  {
+    // 内部形式统一是 √(g²)，所以 |x| 与 \sqrt{x^2} 必须得到**完全一样**的分段
+    const PiecewiseFunction typed = parsePiecewiseExpression("|x|").unwrap();
+    const PiecewiseFunction rooted = parsePiecewiseExpression("\\sqrt{x^2}").unwrap();
+    CHECK_TRUE(typed.branch(0).domain() == rooted.branch(0).domain());
+    CHECK_TRUE(typed.branch(1).domain() == rooted.branch(1).domain());
+    CHECK_TRUE(typed.branch(0).ruleLatex() == rooted.branch(0).ruleLatex());
+
+    // 输出时还原成 |x|：这才是「最终输出把 √(x²) 化简为 |x|」那一步
+    CHECK_TRUE(typed.asAbsoluteValue().has_value());
+    CHECK_EQ(typed.asAbsoluteValue().value().latex(), std::string("x"));
+    CHECK_TRUE(rooted.asAbsoluteValue().has_value());
+
+    // g 可以是任意有理式，不只是变量
+    CHECK_EQ(parsePiecewiseExpression("|x+1|").unwrap().asAbsoluteValue().value().latex(), std::string("x + 1"));
+    CHECK_EQ(parsePiecewiseExpression("|2x-1|").unwrap().asAbsoluteValue().value().latex(), std::string("2x - 1"));
+
+    // ⚠️ g 自带极点时两支定义域**不是互补**：x = 1 两边都不在（g 那里无定义）。
+    //    所以判定必须各自解一次 {g≥0} / {g<0}，不能拿一支的补集去凑 ——
+    //    那样 x = 1 会凭空冒进负的那支，绝对值就认不出来了。
+    const PiecewiseFunction pole = parsePiecewiseExpression("|\\frac{x}{x-1}|").unwrap();
+    CHECK_TRUE(pole.asAbsoluteValue().has_value());
+    CHECK_EQ(pole.asAbsoluteValue().value().latex(), std::string("\\frac{x}{x - 1}"));
+    CHECK_TRUE(pole.at(number(3)).unwrap() == number(3, 2)); // |3/2|
+    CHECK_TRUE(pole.at(number(1, 2)).unwrap() == number(1)); // |(1/2)/(−1/2)| = 1
+
+    // 不是 |g| 形状的就别硬套
+    CHECK_TRUE(!parsePiecewiseExpression("\\sqrt{x^2}+1").unwrap().asAbsoluteValue().has_value());
+    CHECK_TRUE(!parsePiecewiseExpression("\\sqrt{x^2}*\\sqrt{(x-1)^2}").unwrap().asAbsoluteValue().has_value());
+    CHECK_TRUE(!parsePiecewiseExpression("\\sqrt{x^2+1}").unwrap().asAbsoluteValue().has_value());
+
+    // 代入求值：|x| 与手写的绝对值函数给同一个值
+    CHECK_TRUE(parsePiecewiseExpression("|x|").unwrap().at(number(-3)).unwrap() == number(3));
+    CHECK_TRUE(parsePiecewiseExpression("|x+1|").unwrap().at(number(-3)).unwrap() == number(2));
+
+    // 落单的竖线原样留给解析器报错
+    CHECK_ERR(parsePiecewiseExpression("|x"), MathsError::InvalidExpression);
+  }
+
   // ---------- 拒绝的输入 ----------
   {
     // 多元：分段函数是一元的，装不下

@@ -209,6 +209,44 @@ public:
     return make(std::move(scaled));
   }
 
+  // 若本函数恰好是 `|g|`，返回 g；否则 nullopt。
+  //
+  // 这是「输出时把 √(g²) 还原成 |g|」那一步。内部一律按符号分段计算 ——
+  // 代数函数域装不下 `√(g²)`，那是域论限制，不是表示能力不足 —— 但**外部该显示
+  // `|g|` 就显示 `|g|`**，别让一个绝对值在结果里躺成两行 cases。
+  std::optional<RationalFunction> asAbsoluteValue() const {
+    if (cases_.size() != 2) {
+      return std::nullopt;
+    }
+    for (std::size_t index = 0; index < 2; ++index) { // 两支谁在前都行
+      const RealFunction &head = cases_[index];
+      const RealFunction &tail = cases_[1 - index];
+      if (!head.isRational() || !tail.isRational()) {
+        continue; // 规则里带根号：不是 |g| 这种形状
+      }
+      const Result<RationalFunction> magnitude = head.rule().toRationalFunction();
+      if (magnitude.isErr()) {
+        continue;
+      }
+      // 正的那支必须恰好落在「g ≥ 0」上，负的那支恰好落在「g < 0」上。
+      //
+      // ⚠️ 这里必须**各自解一次**而不是拿互补来凑：`|x/(x−1)|` 的两支定义域是
+      // (−∞,0]∪(1,+∞) 与 (0,1)，x = 1 两边都不在（g 那里是极点）——
+      // 所以「一支的补集」并不等于另一支，x = 1 会凭空冒出来。
+      const Result<RealSet> positive = solveInequality(magnitude.unwrap(), Relation::GreaterEqual);
+      const Result<RealSet> negative = solveInequality(magnitude.unwrap(), Relation::Less);
+      if (positive.isErr() || negative.isErr() || !(positive.unwrap() == head.domain()) ||
+          !(negative.unwrap() == tail.domain())) {
+        continue;
+      }
+      if (!(tail.rule() == RadicalExtension(-magnitude.unwrap()))) {
+        continue;
+      }
+      return magnitude.unwrap();
+    }
+    return std::nullopt;
+  }
+
   // ==================== 复合 ====================
   // `this ∘ inner`：外层逐支去复合内层。
   //

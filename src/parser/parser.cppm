@@ -863,6 +863,38 @@ inline Result<AlgebraicRationalFunction> parseAlgebraicExpression(std::string_vi
 
 namespace radical_branch_detail {
 
+// 把 `|g|` 改写成 `\sqrt{(g)^2}`。
+//
+// 绝对值的**内部形式就是 √(g²)** —— 代数函数域装不下它（y² − g² 可约、y 是零因子），
+// 所以统一先改写成根号，再交给下面那套「占位符 + 分支」的流程。
+//
+// ⚠️ g 外面要加**圆括号**而不是花括号：本库的花括号表示「多字母长变量名」
+// （`{node}`），不是分组 —— `\sqrt{{x+1}^2}` 会被当成变量名 `x+1` 而解析失败。
+//
+// 竖线在本库的语法里没有别的用处（变量名只含字母数字下标），所以按成对扫即可；
+// 落单的 `|` 原样留着，让解析器去报语法错。
+inline std::string rewriteAbsoluteValues(std::string_view text) {
+  std::string result;
+  std::size_t cursor = 0;
+  while (true) {
+    const std::size_t open = text.find('|', cursor);
+    if (open == std::string_view::npos) {
+      result.append(text.substr(cursor));
+      return result;
+    }
+    const std::size_t close = text.find('|', open + 1);
+    if (close == std::string_view::npos) {
+      result.append(text.substr(cursor));
+      return result;
+    }
+    result.append(text.substr(cursor, open - cursor));
+    result += "\\sqrt{(";
+    result.append(text.substr(open + 1, close - open - 1));
+    result += ")^2}";
+    cursor = close + 1;
+  }
+}
+
 // 一个「被开方数是完全平方」的根号：g² 里的 g，以及它在改写后的文本里占的那一位
 struct SquareRadical {
   std::string placeholder; // 占位变量名（纯字母，不含花括号）
@@ -914,8 +946,11 @@ constexpr std::size_t kMaxSquareRadicals = 4;
 // 这样语法、优先级、报错全都与 `parseRadicalExpression` 一致，不必把解析器写第二遍。
 //
 // 只支持**一元**：分段函数这个类型本身就是一元的（多元的定义域是多维点集）。
+//
+// `|g|` 与 `√(g²)` 走的是**同一条路**（`|g|` 先被改写成 `\sqrt{{g}^2}`），
+// 所以两者得到的是同一个分段函数，输出时再一起还原成 `|g|`。
 inline Result<PiecewiseFunction> parsePiecewiseExpression(std::string_view text) {
-  const std::string normalized = expression_detail::normalizeLatex(text);
+  const std::string normalized = expression_detail::normalizeLatex(radical_branch_detail::rewriteAbsoluteValues(text));
 
   // 先按常规路径试一次：没有完全平方的根号时直接成功，旧行为原封不动地保留
   const Result<RadicalExtension> direct = parseRadicalExpression(normalized);

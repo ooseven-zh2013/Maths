@@ -40,6 +40,7 @@ absolute.latex();                                            // \begin{cases} ..
 | 构造 | `make(cases)`（归一化：丢空分支、按顺序去重）、`absoluteValue(variable)` |
 | 查询 | `cases()`、`branchCount()`、`branch(i)`、`variable()`、`domain()`、`isSingleBranch()` |
 | 降阶 | `toRealFunction()` —— 只有一个分支时降回 `RealFunction` |
+| 判形状 | `asAbsoluteValue()` —— 恰好是 `\|g\|` 时返回 g，否则 nullopt（输出还原用）|
 | 求值 | `at(点)` —— 命中哪个分支就交给它；一个都不命中是 `OutsideDomain` |
 | 定义域 | `restrict(RealSet)` |
 | 像集 | `image(S)` / `range()` —— **各分支像之并** |

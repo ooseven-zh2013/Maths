@@ -240,6 +240,19 @@ parsePiecewiseExpression("\\sqrt{x}");               // 单支，等价于 parse
 （此时没有完全平方的根号了，一定通过），再把占位变量代成 `±g` 并按符号分成
 2<sup>k</sup> 支（k 上限 4）。语法、优先级、报错因此与 `parseRadicalExpression` 完全一致。
 
+也可以直接写绝对值 —— `\|g\|` 先被改写成 `\sqrt{(g)^2}`，所以**与 `\sqrt{x^2}` 得到
+完全一样的分段**（`g` 外面必须加**圆括号**：本库的花括号表示「多字母长变量名」，不是分组）：
+
+```cpp
+parsePiecewiseExpression("|x|");                    // 与 \sqrt{x^2} 一致
+parsePiecewiseExpression("|x+1|");                 // |x+1|
+parsePiecewiseExpression("|\\frac{x}{x-1}|");    // 分母有洞，两支不是互补
+```
+
+输出时用 `PiecewiseFunction::asAbsoluteValue()` 判形状：是 `\|g\|` 就还原成 `\|g\|`。
+⚠️ 判形状时**两支的定义域必须各自解一次** `{g ≥ 0}` / `{g < 0}`，不能拿一支的补集去凑 ——
+`g` 自带极点时（例如 `x/(x−1)`）那个极点两边都不在，补集会把它凭空放回来。
+
 - **只支持一元**：`PiecewiseFunction` 本身就是一元的（多元的定义域是多维点集）
 - 老入口对这类输入**仍然拒收**（`RadicandIsSquare`）—— 域论上的限制没变，
   变的是「函数层能装下它」

@@ -199,15 +199,19 @@ std::optional<InputExpression> readExpression() {
       return InputExpression{radicalExpression.unwrap(), trim(line)};
     }
 
-    // 第五档：被开方数是**完全平方**的根号 —— `\sqrt{x^2}`（也就是 |x|）。
+    // 第五档：被开方数是**完全平方**的根号（`\sqrt{x^2}`）与直接写的绝对值（`|x|`）——
+    // 两者是同一个东西，`|g|` 先被改写成 `\sqrt{{g}^2}` 再走同一条路。
     //
     // 它装不进上面任何一档：代数函数域里 `√(g²)` 不是单值元素（`ℚ(x)[y]/(y²−g²)` 可约、
-    // y 是零因子），但作为 **ℝ → ℝ 的函数**完全合法，只是需要**分段**才表示得出来。
+    // y 是零因子），但作为 **ℝ → ℝ 的函数**完全合法，只需要分段才表示得出来。
     // 分段不是「化简得不好」，而是这类函数的本来面目 —— 所以单独走一条路、单独报结果。
     const Result<PiecewiseFunction> piecewise = parsePiecewiseExpression(line);
     if (piecewise.isOk()) {
-      printField("解析为", piecewise.unwrap().latex(), true);
-      printFeedback("提示", "被开方数是完全平方（如 √(x²) = |x|），分段才装得下；结果给的是分段函数");
+      // 是 |g| 形状的就直接显示 |g|，别让一个绝对值在「解析为」里躺成两行 cases
+      const std::optional<RationalFunction> magnitude = piecewise.unwrap().asAbsoluteValue();
+      printField("解析为", magnitude.has_value() ? "|" + magnitude->latex() + "|" : piecewise.unwrap().latex(), true);
+      printFeedback("提示", magnitude.has_value() ? "绝对值：内部按符号分段计算，结果按 |…| 显示"
+                                                  : "被开方数是完全平方，分段才装得下；结果给的是分段函数");
       return InputExpression{piecewise.unwrap(), trim(line)};
     }
 
@@ -251,9 +255,10 @@ void printSyntax() {
   printField("变量", "单个字母可带下标 —— x、a_1、x_{i,j}", true);
   printField("长名", "多字母变量加花括号 —— {node}、{node}_{car}", true);
   printField("乘法", "可省略 —— xy 即 x*y，2x 即 2*x（所以 {node} 不写花括号会变成 n*o*d*e）", true);
-  printField("根号",
-             "只认 LaTeX 写法 —— \\sqrt{2}、\\sqrt{x}、\\sqrt{x^2+1}；根号内既可以是常数也可以是变量，"
-             "但被开方数不能是完全平方（\\sqrt{x^2} 是 |x|，不收）",
+  printField("根号", "只认 LaTeX 写法 —— \\sqrt{2}、\\sqrt{x}、\\sqrt{x^2+1}；根号内既可以是常数也可以是变量", true);
+  printField("绝对值",
+             "|x|、|x+1|、|\\frac{x}{x-1}| 与 \\sqrt{x^2} 是同一件事：内部按符号分段算，"
+             "结果按 |…| 显示，也能代入条件求值",
              true);
   printField("写法", "普通写法与 LaTeX 写法都接受 —— \\frac{a}{b}、\\cdot、\\times、\\div、x^{2}", true);
 }
@@ -486,6 +491,23 @@ void readConstraints(const ExpressionType &expression, Scope &scope, std::vector
 //
 // 这里先拿 `toFraction()`（有理根定理）问一句「你其实是有理数吧」，答是就按分数渲染。
 // **别用 `isRational()` 代替它** —— 那个是「表示」属性（端点是否重合），不是数学判断。
+// 代入分段函数要的是一个**实数**：条件右边是纯数值（整数/分数/根号）时给得出，
+// 右边还含变量时无从谈起 —— 分段函数是一元的，没有「再代一层」这回事。
+Result<RealAlgebraicNumber> constraintPointValue(const Constraint &entry) {
+  if (const RealAlgebraicNumber *number = std::get_if<RealAlgebraicNumber>(&entry.value)) {
+    return *number;
+  }
+  const RationalFunction &rational = std::get<RationalFunction>(entry.value);
+  if (!rational.variables().empty()) {
+    return Result<RealAlgebraicNumber>::err(MathsError::UndefinedVariable);
+  }
+  const Result<Fraction> value = rational.evaluate(Scope());
+  if (value.isErr()) {
+    return Result<RealAlgebraicNumber>::err(value.unwrapErr());
+  }
+  return RealAlgebraicNumber(value.unwrap());
+}
+
 std::string exactValueLatex(const RealAlgebraicNumber &value) {
   const Result<Fraction> rational = value.toFraction();
   if (rational.isErr()) {
@@ -677,12 +699,27 @@ int main() {
     printExpressionAndCollectConstraints(*radical, scope, constraints);
     printRadicalResult(*radical, constraints);
   } else if (const PiecewiseFunction *piecewise = std::get_if<PiecewiseFunction>(&input->value)) {
-    // √(x²) 这类：开方结果是绝对值，分段才是它的本来面目。
-    // 不走「代入条件」那一套 —— 那套是给「单个式子代入求值」用的，分段函数直接把分支摆出来。
+    // √(x²) 与 |x| 是同一个东西：内部按符号分段算，输出还原成 |x|。
+    // 条件照读 —— 分段函数一样能代入求值，只是取的是「命中哪一支」。
+    Scope scope;
+    std::vector<Constraint> constraints;
+    // 条件读取借「只含自变量的那个有理函数」当壳 —— 相关性判定要靠它，
+    // 别的变量的条件会被判成「与式子无关」而跳过（分段函数本来就只认一个变量）。
+    // 打印式子那几行不能走公共函数：它打的是壳（只有 x），这里要打用户写的原文。
+    printConstraintHelp();
+    readConstraints(RationalFunction(variablePolynomial(piecewise->variable())), scope, constraints);
     std::cout << "\n--- 结果 ---\n";
     printField("式子", input->text);
-    printSection("分段结果");
-    printListItem(piecewise->latex());
+    printConstraintList(constraints);
+
+    // |g| 形状的直接给 |g|，其余给完整的 cases
+    const std::optional<RationalFunction> magnitude = piecewise->asAbsoluteValue();
+    if (magnitude.has_value()) {
+      printField("分段结果", "|" + magnitude->latex() + "|");
+    } else {
+      printSection("分段结果");
+      printListItem(piecewise->latex());
+    }
     if (!piecewise->domain().isRealLine()) {
       printField("定义域", piecewise->domain().latex());
     }
@@ -690,6 +727,23 @@ int main() {
     for (std::size_t index = 0; index < piecewise->branchCount(); ++index) {
       const RealFunction &branch = piecewise->branch(index);
       printListItem(branch.ruleLatex() + "   当 " + branch.domainLatex());
+    }
+
+    // 代入求值：分段函数是一元的，所以只认它自己那个变量的条件
+    if (!constraints.empty()) {
+      const Constraint &entry = constraints.front();
+      if (!(entry.variable == piecewise->variable())) {
+        printField("无法代入", "分段函数只认 " + piecewise->variable().str() + "，其余条件与它无关");
+      } else if (const Result<RealAlgebraicNumber> point = constraintPointValue(entry); point.isErr()) {
+        printField("无法代入", std::string(describe(point.unwrapErr())) + "（该处没有实数值）");
+      } else if (!piecewise->domain().contains(point.unwrap())) {
+        printField("无法代入", piecewise->variable().str() + " = " + point.unwrap().str() + " 不在定义域 " +
+                                   piecewise->domain().str() + " 内");
+      } else if (const Result<RealAlgebraicNumber> value = piecewise->at(point.unwrap()); value.isErr()) {
+        printField("无法代入", std::string(describe(value.unwrapErr())));
+      } else {
+        printField("精确值", exactValueLatex(value.unwrap()));
+      }
     }
   } else {
     const RationalFunction &expression = std::get<RationalFunction>(input->value);
