@@ -57,3 +57,4 @@ TAGS
 .DS_Store
 Thumbs.db
 desktop.ini
+_*.py
