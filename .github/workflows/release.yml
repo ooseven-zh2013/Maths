@@ -1,0 +1,140 @@
+name: Release
+
+# 发布 = 打一个 v 开头的标签。这个 workflow 会：
+#   1. 在 Ubuntu 上把标签指向的提交构建 + 测试一遍（标签可能指在任何提交上，先验）
+#   2. 三个平台各自打包，并把产物按平台改名后上传为 artifact
+#   3. 三份都齐了才创建 / 更新 GitHub Release，把附件挂上去
+#
+# 所以**发布出去的产物一定是从这个标签的提交现打的**，不存在「改了代码忘了重新打包」。
+on:
+  push:
+    tags: ['v*']
+  # 手动重跑：标签已经打过了、只想重传附件（比如补传某个平台）时用
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的版本标签（如 v0.1.0）'
+        required: true
+
+jobs:
+  # 标签可能指在任何提交上 —— 先在 Ubuntu 上验一遍再谈发布
+  verify:
+    name: build & test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install mcpp
+        run: pip install --upgrade mcpp-bin
+
+      - name: Build
+        run: mcpp build
+
+      - name: Run tests
+        run: mcpp test
+
+  package:
+    name: package (${{ matrix.os }})
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install mcpp
+        run: pip install --upgrade mcpp-bin
+
+      # 与 ci.yml 的 packaging job 同一套脚本：Linux / macOS 走 sh，Windows 走 ps1
+      - name: 打包（Linux / macOS）
+        if: runner.os != 'Windows'
+        run: sh scripts/pack-releases.sh
+
+      - name: 打包（Windows）
+        if: runner.os == 'Windows'
+        run: powershell -ExecutionPolicy Bypass -File scripts\pack-releases.ps1
+
+      - name: 跑一遍产物
+        shell: bash
+        run: |
+          set -e
+          exe="releases/simplify/simplify.exe"
+          [ -f "$exe" ] || exe="releases/simplify/simplify"
+          test -x "$exe" || { echo "产物不可执行: $exe"; exit 1; }
+          printf '2x + 3x\nx = 5\n0=0\n' | "$exe" | tee out.txt
+          grep -q '化简结果: 25' out.txt || { echo "FAIL: 产物输出不对"; exit 1; }
+
+      # 三个平台的可执行文件同名（都叫 simplify），挂到同一个 release 上会互相覆盖 ——
+      # 所以先按平台与架构改名。
+      - name: 按平台改名
+        shell: bash
+        run: |
+          set -e
+          case "${{ matrix.os }}" in
+            ubuntu-latest)  name=simplify-linux-x86_64 ;;
+            macos-latest)   name=simplify-macos-arm64 ;;
+            windows-latest) name=simplify-windows-x86_64.exe ;;
+          esac
+          src="releases/simplify/simplify.exe"
+          [ -f "$src" ] || src="releases/simplify/simplify"
+          cp "$src" "releases/$name"
+          echo "BUNDLE_NAME=$name" >> "$GITHUB_ENV"
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.os }}
+          path: releases/${{ env.BUNDLE_NAME }}
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      # 发 Release 需要写权限
+      contents: write
+    steps:
+      - name: 下载三个平台的产物
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bundle-*
+          path: artifacts
+
+      - name: 创建 / 更新 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -e
+          tag="$TAG"
+          assets=(
+            artifacts/bundle-ubuntu-latest/simplify-linux-x86_64
+            artifacts/bundle-macos-latest/simplify-macos-arm64
+            artifacts/bundle-windows-latest/simplify-windows-x86_64.exe
+          )
+          for asset in "${assets[@]}"; do
+            test -f "$asset" || { echo "缺少产物: $asset"; exit 1; }
+          done
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${assets[@]}" --clobber
+            echo "已更新 $tag 的附件"
+          else
+            gh release create "$tag" "${assets[@]}" --title "$tag" --generate-notes --verify-tag
+            echo "已创建 $tag"
+          fi

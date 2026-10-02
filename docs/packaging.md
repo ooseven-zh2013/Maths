@@ -49,10 +49,27 @@ cp -r target/dist/simplify releases/simplify
 
 ## 发布
 
-正式版本在仓库的 **GitHub Releases** 页面发布，把打包产物作为附件上传。
+**打一个 `v` 开头的标签就够了** —— 剩下的由 `.github/workflows/release.yml` 做：
 
-产物**不提交进仓库**（`target/` 与 `releases/` 都在 `.gitignore` 里）。
+```
+git tag v0.1.0
+git push origin v0.1.0
+```
 
-## 改完 apps/ 记得重新打包
+它依次做三件事：
 
-改了 `apps/` 下的代码而没重新打包，发布出去的就还是旧产物。
+| 步骤 | 做什么 |
+| --- | --- |
+| `verify` | 在 Ubuntu 上把这个标签指向的提交构建 + 测试一遍（标签可能指在任何提交上）|
+| `package` | 三个平台各自跑上面的打包脚本，跑一遍产物确认能算对，按平台与架构改名后上传 |
+| `publish` | 三份产物齐了才创建（已存在就更新）GitHub Release，把附件挂上去 |
+
+所以**发布出去的产物一定是从这个标签的提交现打的**，不会夹带旧构建。
+三个平台的可执行文件都叫 `simplify`，脚本会先改成 `simplify-linux-x86_64` /
+`simplify-macos-arm64` / `simplify-windows-x86_64.exe` 再挂，避免互相覆盖。
+
+附件传错了想重来：在 Actions 页面手动重跑 Release workflow、填同一个标签即可
+（已存在的 Release 会用新产物覆盖附件）。
+
+产物**不提交进仓库**（`target/` 与 `releases/` 都在 `.gitignore` 里）——
+本地的 `releases/` 只是脚本跑完顺手留下的中间产物，发布走的是上面那条流水线。
