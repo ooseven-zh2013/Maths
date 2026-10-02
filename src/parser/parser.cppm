@@ -15,8 +15,8 @@ export namespace maths {
 // 支持的语法：
 //   expr    := term (('+' | '-') term)*
 //   term    := power (('*' | '/') power)*
-//   power   := unary ('^' 非负整数)?
-//   unary   := ('-' | '+')? primary
+//   power   := primary ('^' 非负整数)?     ← 幂从 primary 起，一元负号在外层
+//   unary   := ('-' | '+')? power         ← 所以 -x^2 = -(x^2)，不是 (-x)^2
 //   primary := 整数 | 变量名 | '(' expr ')'
 //
 // 结果统一用 RationalFunction 承载：除法必然引入分式，用统一类型可以省掉
@@ -237,7 +237,7 @@ private:
   }
 
   Result<RationalFunctionOf<Coefficient>> parseMultiplicative() {
-    Result<RationalFunctionOf<Coefficient>> left = parsePower();
+    Result<RationalFunctionOf<Coefficient>> left = parseUnary();
     if (left.isErr()) {
       return left;
     }
@@ -254,7 +254,7 @@ private:
         ++position;
       }
 
-      Result<RationalFunctionOf<Coefficient>> right = parsePower();
+      Result<RationalFunctionOf<Coefficient>> right = parseUnary();
       if (right.isErr()) {
         return right;
       }
@@ -270,8 +270,13 @@ private:
     }
   }
 
+  // 幂比一元负号**紧**：`-x^2` 是 `-(x^2)`，不是 `(-x)^2`（与 C / Python 一致）。
+  // 所以一元负号在外、幂在内；反过来（power 先调 unary）会把 `-x^2` 算成 `x^2` ——
+  // 那个负号被 `^` 吃掉了。
+  //
+  // 只吃**一个** `^`：`x^2^3` 仍然报「无法解析的残留」，不悄悄按左结合算成 (x²)³。
   Result<RationalFunctionOf<Coefficient>> parsePower() {
-    Result<RationalFunctionOf<Coefficient>> base = parseUnary();
+    Result<RationalFunctionOf<Coefficient>> base = parsePrimary();
     if (base.isErr()) {
       return base;
     }
@@ -301,7 +306,7 @@ private:
       ++position;
       return parseUnary();
     }
-    return parsePrimary();
+    return parsePower();
   }
 
   Result<RationalFunctionOf<Coefficient>> parsePrimary() {
@@ -657,7 +662,7 @@ private:
   }
 
   Result<RadicalExtension> parseMultiplicative() {
-    Result<RadicalExtension> left = parsePower();
+    Result<RadicalExtension> left = parseUnary();
     if (left.isErr()) {
       return left;
     }
@@ -671,7 +676,7 @@ private:
       } else {
         return left;
       }
-      Result<RadicalExtension> right = parsePower();
+      Result<RadicalExtension> right = parseUnary();
       if (right.isErr()) {
         return right;
       }
@@ -684,8 +689,9 @@ private:
     }
   }
 
+  // 与通用解析器同一件事：一元负号在外、幂在内，`-x^2` 才是 -(x^2)
   Result<RadicalExtension> parsePower() {
-    Result<RadicalExtension> base = parseUnary();
+    Result<RadicalExtension> base = parseAtom();
     if (base.isErr()) {
       return base;
     }
@@ -745,7 +751,7 @@ private:
       ++position_;
       return parseUnary();
     }
-    return parseAtom();
+    return parsePower();
   }
 
   Result<RadicalExtension> parseAtom() {
@@ -765,7 +771,7 @@ private:
         return std::unexpected(MathsError::InvalidExpression);
       }
       if (radicandText.find("\\sqrt") != std::string::npos) {
-        return std::unexpected(MathsError::InvalidExpression); // 嵌套根号暂不支持
+        return std::unexpected(MathsError::NestedRadical); // 根式套根式：代数函数域装不下
       }
       const Result<RationalFunction> radicand = ParserOf<Fraction>(radicandText).parse();
       if (radicand.isErr()) {
@@ -950,6 +956,14 @@ constexpr std::size_t kMaxSquareRadicals = 4;
 // `|g|` 与 `√(g²)` 走的是**同一条路**（`|g|` 先被改写成 `\sqrt{{g}^2}`），
 // 所以两者得到的是同一个分段函数，输出时再一起还原成 `|g|`。
 inline Result<PiecewiseFunction> parsePiecewiseExpression(std::string_view text) {
+  // 原文里有没有根号 —— 用来把「根号里含多个变量」翻译成「绝对值这边只支持一元」：
+  // `|a+b|` 走的是内部形式 `√((a+b)²)`，用户压根没打根号，报「根号里含多个变量」
+  // 会让人莫名其妙。查的是**原文**，不是改写后那份。
+  const bool typedRadical = text.find("\\sqrt") != std::string_view::npos;
+  const auto reported = [typedRadical](MathsError error) {
+    return (!typedRadical && error == MathsError::MultiVariableRadical) ? MathsError::NotUnivariate : error;
+  };
+
   const std::string normalized = expression_detail::normalizeLatex(radical_branch_detail::rewriteAbsoluteValues(text));
 
   // 先按常规路径试一次：没有完全平方的根号时直接成功，旧行为原封不动地保留
@@ -957,12 +971,12 @@ inline Result<PiecewiseFunction> parsePiecewiseExpression(std::string_view text)
   if (direct.isOk()) {
     const Result<RealFunction> single = RealFunction::make(direct.unwrap());
     if (single.isErr()) {
-      return std::unexpected(single.unwrapErr());
+      return std::unexpected(reported(single.unwrapErr()));
     }
     return PiecewiseFunction::make({single.unwrap()});
   }
   if (direct.unwrapErr() != MathsError::RadicandIsSquare) {
-    return std::unexpected(direct.unwrapErr());
+    return std::unexpected(reported(direct.unwrapErr()));
   }
 
   // 扫出所有 `\sqrt{...}`，把「被开方数是完全平方」的那些换成占位变量
@@ -1016,7 +1030,7 @@ inline Result<PiecewiseFunction> parsePiecewiseExpression(std::string_view text)
 
   const Result<RadicalExtension> parsed = parseRadicalExpression(rewritten);
   if (parsed.isErr()) {
-    return std::unexpected(parsed.unwrapErr());
+    return std::unexpected(reported(parsed.unwrapErr()));
   }
 
   // 每个「完全平方的根号」两种取法：+g 要求 g ≥ 0，−g 要求 g < 0

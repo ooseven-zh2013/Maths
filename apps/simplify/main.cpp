@@ -229,6 +229,7 @@ std::optional<InputExpression> readExpression() {
     //   「不支持的表达式」，用户看不到真正的原因。）
     const MathsError algebraicError = algebraic.unwrapErr();
     const MathsError radicalError = radicalExpression.unwrapErr();
+    const MathsError piecewiseError = piecewise.unwrapErr();
     MathsError reported = rational.unwrapErr();
     if (algebraicError != MathsError::InvalidExpression) {
       reported = algebraicError;
@@ -236,10 +237,20 @@ std::optional<InputExpression> readExpression() {
     if (radicalError != MathsError::InvalidExpression) {
       reported = radicalError;
     }
+    // 第五档（分段）排在最后压轴：它认得「绝对值内部是 √(g²)���所以 `|x-2√x|` 是套嵌、
+    // `|a+b|` 是多元」这些**只有它看得出**的原因。只看第四档的话这两种都只剩
+    // 「不支持的表达式」。
+    if (piecewiseError != MathsError::InvalidExpression) {
+      reported = piecewiseError;
+    }
     printFeedback("不接受", describe(reported));
     if (reported == MathsError::RadicandIsSquare) {
-      // 光看「本库不引入 |x|」还不知道该怎么办，补一句可执行的
+      // 光看「装不进代数函数域」还不知道该怎么办，补一句可执行的
       printFeedback("提示", "如果题目里 x 恒非负，直接写 x 就行");
+    } else if (reported == MathsError::NestedRadical) {
+      printFeedback("提示", "根号里不能再套根号；绝对值内部是 \\sqrt{g^2}，g 自带根号时就套上了");
+    } else if (reported == MathsError::MultiVariableRadical) {
+      printFeedback("提示", "根号里只能有一个变量；a、b 都非负时 \\sqrt{ab} 可写成 \\sqrt{a}*\\sqrt{b}");
     } else if (const std::optional<std::string> hint = radicalHint(line)) {
       printFeedback("提示", *hint);
     } else {

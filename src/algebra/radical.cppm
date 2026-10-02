@@ -411,13 +411,13 @@ private:
         return Result<void>::err(MathsError::InvalidExpression); // 常数被开方数请走实代数数
       }
       if (variables.size() > 1) {
-        return Result<void>::err(MathsError::InvalidExpression); // 多变量根号暂不支持
+        return Result<void>::err(MathsError::MultiVariableRadical); // 根号里跨变量：域是单变量扩张
       }
       const auto variable = *variables.begin();
       if (!common.has_value()) {
         common = variable;
       } else if (!(*common == variable)) {
-        return Result<void>::err(MathsError::InvalidExpression); // 所有被开方数必须同一个变量
+        return Result<void>::err(MathsError::MultiVariableRadical); // 所有被开方数必须同一个变量
       }
 
       const std::optional<UnivariatePolynomial> numerator = toUnivariatePolynomial(radicand.getNumerator(), variable);
@@ -635,14 +635,25 @@ private:
       }
       const bool negative = coefficientIsNegative(coefficient);
       if (first) {
-        if (negative) {
-          result += '-';
+        // 首项**原样渲染** —— 它自己的 latex 已经带上了首项的负号。
+        //
+        // 原来这里是「先取负、再补一个 '-'」，那只对**单项式**成立：多项式取负会翻掉
+        // **每一项**的符号，补一个 '-' 只翻首项。于是 -(x²−2x) 被渲染成 `-x^2 - 2x`
+        // （值是对的、显示是错的），`|x^2-2x|` 的第二支就这样印错了。
+        //
+        // 单位负系数是唯一的例外：`-1\sqrt{x}` 里那个 `-1` 要化成孤零零一个负号，
+        // 否则会印成 `-1\sqrt{x}`。
+        if (negative && isUnit(-coefficient)) { // 单位负系数：-1 只贡献一个负号
+          result += "-";
+          result += renderTerm(RationalFunction(Fraction(1, 1)), mask, useLatex);
+        } else {
+          result += renderTerm(coefficient, mask, useLatex);
         }
       } else {
         result += negative ? " - " : " + ";
+        result += renderTerm(negative ? -coefficient : coefficient, mask, useLatex);
       }
       first = false;
-      result += renderTerm(negative ? -coefficient : coefficient, mask, useLatex);
     }
     return result;
   }

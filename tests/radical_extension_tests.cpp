@@ -46,7 +46,7 @@ int main() {
 
     // 常数被开方数 / 多变量 / 零
     CHECK_ERR(RadicalExtension::make(expression("2")), MathsError::InvalidExpression);
-    CHECK_ERR(RadicalExtension::make(expression("x*y")), MathsError::InvalidExpression);
+    CHECK_ERR(RadicalExtension::make(expression("x*y")), MathsError::MultiVariableRadical);
     CHECK_ERR(RadicalExtension::make(expression("0")), MathsError::InvalidExpression);
 
     // 两个根号：基是 {1, √f₁, √f₂, √f₁√f₂}
@@ -65,7 +65,7 @@ int main() {
               MathsError::RadicandsNotIndependent);
 
     // 被开方数必须在同一个变量里；√x + √y 是两个变量，不支持
-    CHECK_ERR(RadicalExtension::sumOfRadicals({expression("x"), expression("y")}), MathsError::InvalidExpression);
+    CHECK_ERR(RadicalExtension::sumOfRadicals({expression("x"), expression("y")}), MathsError::MultiVariableRadical);
 
     // 生成元个数有上限（维度 2^k）
     CHECK_ERR(RadicalExtension::sumOfRadicals(
@@ -236,7 +236,7 @@ int main() {
     CHECK_ERR(rootX * rootFourX, MathsError::RadicandsNotIndependent);
 
     // 不同变量：并集里出现两个变量，同样拒收
-    CHECK_ERR(rootX + RadicalExtension::make(expression("y")).unwrap(), MathsError::InvalidExpression);
+    CHECK_ERR(rootX + RadicalExtension::make(expression("y")).unwrap(), MathsError::MultiVariableRadical);
   }
 
   // ---------- 纯有理元素（零生成元）：为「当系数类型用」做准备 ----------
@@ -314,6 +314,21 @@ int main() {
 
     // 边界二：替换后被开方数变成完全平方 → 主根是 |w|，按规矩拒收
     CHECK_ERR(radicalX().substitute(scope), MathsError::RadicandIsSquare);
+  }
+
+  // ---------- 首项的负号：多项式取负要翻每一项，不能只翻首项 ----------
+  {
+    // -(x^2 - 2x) = -x^2 + 2x。原来首项「先取负再补一个 '-'」，只翻掉了首项，
+    // 于是印成 `-x^2 - 2x` —— 值对、显示错，|x^2-2x| 的第二支就这么印歪的。
+    const RadicalExtension negated = RadicalExtension(-expression("x^2-2x"));
+    CHECK_EQ(negated.latex(), std::string("-x^2 + 2x"));
+    CHECK_EQ(negated.str(), std::string("-x^2 + 2 x"));
+
+    // 单位负系数仍然是 -\sqrt{x}，不是 -1\sqrt{x}
+    CHECK_EQ((-radicalX()).latex(), std::string("-\\sqrt{x}"));
+
+    // 首项为正、后面带负项的那种也不能被前缀带歪
+    CHECK_EQ(RadicalExtension(expression("x^2-2x")).latex(), std::string("x^2 - 2x"));
   }
 
   // ---------- 零生成元相除（曾经的越界 bug）----------

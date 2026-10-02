@@ -135,6 +135,16 @@ int main() {
     CHECK_TRUE(parsePiecewiseExpression("|x|").unwrap().at(number(-3)).unwrap() == number(3));
     CHECK_TRUE(parsePiecewiseExpression("|x+1|").unwrap().at(number(-3)).unwrap() == number(2));
 
+    // 多元：绝对值这一档是一元的。没有根号的那条报 NotUnivariate ——
+    // 用户压根没打根号，报「根号里含多个变量」会让人莫名其妙（内部形式是改写出来的）。
+    CHECK_ERR(parsePiecewiseExpression("|a+b|"), MathsError::NotUnivariate);
+    // 自己带了根号就照实说根号的事
+    CHECK_ERR(parsePiecewiseExpression("\\sqrt{ab}"), MathsError::MultiVariableRadical);
+    // 先撞上的是套嵌：内部形式是 \sqrt{((a+b)-2\sqrt{ab})^2}，外层根号里已经有根号了
+    CHECK_ERR(parsePiecewiseExpression("|a+b-2\\sqrt{ab}|"), MathsError::NestedRadical);
+    // 根式套根式：|x-2\sqrt{x}| 的内部形式 √((x-2√x)²) 就套上了
+    CHECK_ERR(parsePiecewiseExpression("|x-2\\sqrt{x}|"), MathsError::NestedRadical);
+
     // 落单的竖线原样留给解析器报错
     CHECK_ERR(parsePiecewiseExpression("|x"), MathsError::InvalidExpression);
   }

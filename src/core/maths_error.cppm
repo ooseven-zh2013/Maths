@@ -30,6 +30,13 @@ enum class MathsError {
   // 多个根号落在同一平方类（如 √x 与 √(4x)，后者等于 2√x）：这时它们不是独立的
   // 生成元，必须先折叠成最简根式。本库不做最简根式化，所以明确拒收
   RadicandsNotIndependent,
+  // 根式套根式：内层根号里还有根号。代数函数域是单变量扩张，套不进去。
+  // 典型来源是绝对值的内部形式 √(g²) —— g 自带根号时就成了套嵌
+  NestedRadical,
+  // 根号里含多个变量（√(ab)）：代数函数域是**单变量**扩张 ℚ(x)[y]/(y²−f)，
+  // 被开方数跨变量就没法说清「在哪个变量上开方」。这条以前报的是笼统的
+  // InvalidExpression，用户只能看到「不支持的表达式」，猜不出真因
+  MultiVariableRadical,
   NotAMonomial,
   NotAPolynomial,
   // 解析
@@ -80,6 +87,10 @@ inline std::string_view describe(MathsError error) {
     return "被开方数是完全平方（如 √(x²)），开方结果是 |x| —— 装不进代数函数域，要表示它得用分段函数";
   case MathsError::RadicandsNotIndependent:
     return "多个根号落在同一平方类（如 √x 与 √(4x)），请先化成最简根式再写";
+  case MathsError::NestedRadical:
+    return "根号里不能再套根号（根式套根式本库不做）";
+  case MathsError::MultiVariableRadical:
+    return "根号里含多个变量（本库的根号只支持单变量）";
   case MathsError::NotAMonomial:
     return "多项式无法化简为单项式";
   case MathsError::NotAPolynomial:

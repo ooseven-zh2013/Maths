@@ -490,12 +490,32 @@ int main() {
     CHECK_ERR(parseRadicalExpression("\\sqrt{x}").unwrap().evaluate(scope), MathsError::NegativeEvenRoot);
 
     // 拒收的情形
-    CHECK_ERR(parseRadicalExpression("\\sqrt{x} + \\sqrt{y}"), MathsError::InvalidExpression); // 两个变量
+    CHECK_ERR(parseRadicalExpression("\\sqrt{x} + \\sqrt{y}"), MathsError::MultiVariableRadical); // 两个变量
     CHECK_ERR(parseRadicalExpression("\\sqrt{x} + \\sqrt{4x}"), MathsError::RadicandsNotIndependent);
-    CHECK_ERR(parseRadicalExpression("\\sqrt[3]{x}"), MathsError::InvalidExpression);      // 高次根
-    CHECK_ERR(parseRadicalExpression("\\sqrt{\\sqrt{x}}"), MathsError::InvalidExpression); // 嵌套
-    CHECK_ERR(parseRadicalExpression("\\sqrt{2}"), MathsError::InvalidExpression);         // 常数根号
-    CHECK_ERR(parseRadicalExpression("\\sqrt{x"), MathsError::InvalidExpression);          // 括号不配平
+    CHECK_ERR(parseRadicalExpression("\\sqrt[3]{x}"), MathsError::InvalidExpression);  // 高次根
+    CHECK_ERR(parseRadicalExpression("\\sqrt{\\sqrt{x}}"), MathsError::NestedRadical); // 嵌套
+    CHECK_ERR(parseRadicalExpression("\\sqrt{2}"), MathsError::InvalidExpression);     // 常数根号
+    CHECK_ERR(parseRadicalExpression("\\sqrt{x"), MathsError::InvalidExpression);      // 括号不配平
+  }
+
+  // ---------- 一元负号 vs 幂的优先级 ----------
+  {
+    // `-x^2` 是 -(x^2)，不是 (-x)^2。原来 power 先调 unary，负号被 ^ 吃掉了。
+    CHECK_EQ(parseExpression("-x^2").unwrap().str(), std::string("-x^2"));
+    CHECK_EQ(parseExpression("-x^2").unwrap().latex(), std::string("-x^2"));
+    CHECK_EQ(parseExpression("(-x)^2").unwrap().str(), std::string("x^2"));
+    CHECK_EQ(parseExpression("-x^2+2x").unwrap().str(), std::string("-x^2 + 2 x"));
+
+    // 数值那一路：-4^{1/2} 之前会落到 (-4)^{1/2} 上（报「负数不能开偶次根」），
+    // 正确答案是 -2。
+    CHECK_TRUE(RealAlgebraicNumber::parse("-4^{1/2}").unwrap() == RealAlgebraicNumber(Fraction(-2, 1)));
+    CHECK_TRUE(RealAlgebraicNumber::parse("(-4)^{1/2}").isErr()); // 加了括号才是负数开偶次根
+    CHECK_TRUE(RealAlgebraicNumber::parse("-2^{1/2}").unwrap() ==
+               -RealAlgebraicNumber::nthRootOf(Fraction(2, 1), 2).unwrap());
+
+    // 根式那一路同样：-x^2 的被开方数是 -x^2，负数开偶次根
+    CHECK_ERR(parseRadicalExpression("-\\sqrt{x^2}"), MathsError::RadicandIsSquare);
+    CHECK_OK(parseRadicalExpression("-\\sqrt{x+1}"));
   }
 
   TEST_SUMMARY();

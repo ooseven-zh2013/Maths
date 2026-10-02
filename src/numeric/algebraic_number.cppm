@@ -1875,7 +1875,7 @@ private:
   }
 
   Result<RealAlgebraicNumber> parseMultiplicative() {
-    Result<RealAlgebraicNumber> left = parsePower();
+    Result<RealAlgebraicNumber> left = parseUnary();
     if (left.isErr()) {
       return left;
     }
@@ -1894,7 +1894,7 @@ private:
         return left;
       }
 
-      Result<RealAlgebraicNumber> right = parsePower();
+      Result<RealAlgebraicNumber> right = parseUnary();
       if (right.isErr()) {
         return right;
       }
@@ -1910,8 +1910,11 @@ private:
     }
   }
 
+  // 一元负号在外、幂在内 —— `-x^2` 是 -(x^2)，不是 (-x)^2。
+  // 反过来（power 先调 unary）会让 `-4^{1/2}` 落到 (-4)^{1/2} 上，
+  // 报「负数不能开偶次根」，而正确答案是 -2。
   Result<RealAlgebraicNumber> parsePower() {
-    Result<RealAlgebraicNumber> base = parseUnary();
+    Result<RealAlgebraicNumber> base = parsePrimary();
     if (base.isErr()) {
       return base;
     }
@@ -1978,7 +1981,7 @@ private:
       ++position_;
       return parseUnary();
     }
-    return parsePrimary();
+    return parsePower();
   }
 
   Result<RealAlgebraicNumber> parsePrimary() {
