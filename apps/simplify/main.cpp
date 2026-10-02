@@ -720,13 +720,15 @@ int main() {
       printSection("分段结果");
       printListItem(piecewise->latex());
     }
-    if (!piecewise->domain().isRealLine()) {
-      printField("定义域", piecewise->domain().latex());
-    }
+    // 自变量与定义域都要写出来 —— 各支的区间是「在哪个变量上」的范围，
+    // 光给一串区间读者得自己猜（`|2x-1|` 猜得到，`|2t-1|` 也猜得到，
+    // 但规则里没出现变量时就完全没辙了），所以这里明确写死。
+    printField("自变量", piecewise->variable().str());
+    printField("定义域", piecewise->domain().latex());
     printSection("各支");
     for (std::size_t index = 0; index < piecewise->branchCount(); ++index) {
       const RealFunction &branch = piecewise->branch(index);
-      printListItem(branch.ruleLatex() + "   当 " + branch.domainLatex());
+      printListItem(branch.ruleLatex() + "   当 " + piecewise->variable().str() + " \\in " + branch.domainLatex());
     }
 
     // 代入求值：分段函数是一元的，所以只认它自己那个变量的条件
