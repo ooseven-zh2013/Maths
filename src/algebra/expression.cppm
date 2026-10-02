@@ -829,4 +829,19 @@ inline std::optional<UnivariatePolynomial> toUnivariatePolynomial(const Polynomi
   return UnivariatePolynomial(std::move(coefficients));
 }
 
+// `toUnivariatePolynomial` 的反向：把 ℚ[x] 上的一元多项式装回单变量多项式。
+// 两个方向都要有，才好在「代数那边构造 → 一元那边算 → 装回来」的流程里来回走
+// （`√(g²)` 的 g 就是这么出来的）。
+inline Polynomial fromUnivariatePolynomial(const UnivariatePolynomial &polynomial, const Variable &variable) {
+  Polynomial result;
+  for (std::size_t power = 0; power < polynomial.coefficients().size(); ++power) {
+    const Fraction coefficient = polynomial.coefficient(power);
+    if (coefficient == 0LL) {
+      continue;
+    }
+    result.addTerm(VarPowers{{variable, static_cast<unsigned long long>(power)}}, coefficient);
+  }
+  return result;
+}
+
 } // namespace maths

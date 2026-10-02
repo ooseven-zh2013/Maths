@@ -132,6 +132,15 @@ compose(√(y+1), |x|)     // √(|x|+1)
 所以 `√|x|` 可以（`|x|` 的两支都是有理函数），`√(√x)` 不行。
 
 
+## 从文本直接进来
+
+`parsePiecewiseExpression` 把 `\sqrt{x^2}` 这类输入直接接成分段函数
+（详见 [expression_parser.md](../parser/expression_parser.md)）：
+
+```cpp
+parsePiecewiseExpression("\\sqrt{x^2}");   // 就是上面那个 |x|
+```
+
 ## 相关
 
 - 单规则函数 → [function.md](function.md)

@@ -25,7 +25,7 @@ if (result.isErr()) { /* result.unwrapErr() */ }     // Result 路径
 | `ExponentOverflow` | 变量指数超出可表示范围 | 同底数幂合并时指数相加溢出 |
 | `NumericOverflow` | 数值超出可精确表示的范围 | 代数数运算的中间量过大，`Fraction` 容纳不下 |
 | `NegativeEvenRoot` | 负数不能开偶次根 | `\sqrt{-4}`、`(-4)^{1/2}`、`RealAlgebraicNumber::nthRootOf(-2, 4)` |
-| `RadicandIsSquare` | 被开方数是完全平方，开方结果带绝对值（如 √(x²) = \|x\|），本库不引入 \|x\| | `RadicalExtension` 的 `√(x²)`、`√((x+1)²)` |
+| `RadicandIsSquare` | 被开方数是完全平方（如 √(x²)），开方结果是 \|x\| —— 装不进代数函数域，要表示它得用分段函数 | `RadicalExtension` 的 `√(x²)`、`√((x+1)²)`。**注意这只是在说代数函数域装不下**，`|x|` 本身用 `PiecewiseFunction` 完全能表示（`parsePiecewiseExpression` 就做这件事）|
 | `RadicandsNotIndependent` | 多个根号落在同一平方类（如 √x 与 √(4x)），请先化成最简根式再写 | `RadicalExtension::sumOfRadicals({x, 4x})` |
 | `NotAMonomial` | 多项式无法化简为单项式 | `Polynomial::toMonomial` 遇到多于一项 |
 | `NotAPolynomial` | 分式无法化简为多项式 | `RationalFunction::toPolynomial` 余式非零 |

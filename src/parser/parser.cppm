@@ -6,6 +6,7 @@ import maths.result;
 import maths.numbers;
 import maths.algebra;
 import maths.algebraic_number;
+import maths.real_set;
 
 export namespace maths {
 
@@ -856,6 +857,169 @@ inline Result<RadicalExtension> parseRadicalExpression(std::string_view text) {
 inline Result<AlgebraicRationalFunction> parseAlgebraicExpression(std::string_view text) {
   const std::string normalized = expression_detail::normalizeLatex(text);
   return expression_detail::ParserOf<RealAlgebraicNumber>(normalized).parse();
+}
+
+// ---------------- 根式 → 分段函数 ----------------
+
+namespace radical_branch_detail {
+
+// 一个「被开方数是完全平方」的根号：g² 里的 g，以及它在改写后的文本里占的那一位
+struct SquareRadical {
+  std::string placeholder; // 占位变量名（纯字母，不含花括号）
+  RationalFunction root;   // g，满足 g² = 被开方数
+};
+
+// 有理函数是不是某个有理函数的平方；是就把那个 g 解出来。
+//
+// p/q 是平方 ⟺ p 与 q 各自都是多项式的平方 —— 分解到分子分母上各做一次
+// （`√(g²) = |g|`、`√(g²/h²) = |g|/|h|`，两边一致，所以分开开方是对的）。
+inline std::optional<RationalFunction> squareRootOf(const RationalFunction &value) {
+  const std::set<Variable> variables = value.variables();
+  if (variables.size() != 1) {
+    return std::nullopt; // 多变量：分段函数是一元的，装不下
+  }
+  const Variable variable = *variables.begin();
+  const std::optional<UnivariatePolynomial> numerator = toUnivariatePolynomial(value.getNumerator(), variable);
+  const std::optional<UnivariatePolynomial> denominator = toUnivariatePolynomial(value.getDenominator(), variable);
+  if (!numerator.has_value() || !denominator.has_value()) {
+    return std::nullopt;
+  }
+  const std::optional<UnivariatePolynomial> numeratorRoot = numerator->squareRoot();
+  const std::optional<UnivariatePolynomial> denominatorRoot = denominator->squareRoot();
+  if (!numeratorRoot.has_value() || !denominatorRoot.has_value()) {
+    return std::nullopt;
+  }
+  const Result<RationalFunction> assembled = RationalFunction::make(
+      fromUnivariatePolynomial(*numeratorRoot, variable), fromUnivariatePolynomial(*denominatorRoot, variable));
+  if (assembled.isErr()) {
+    return std::nullopt;
+  }
+  return assembled.unwrap();
+}
+
+// 分支出数的上限：k 个完全平方的根号 → 2^k 支（与根式扩张的生成元上限同一个量级）
+constexpr std::size_t kMaxSquareRadicals = 4;
+
+} // namespace radical_branch_detail
+
+// `√(x²)` 这类**被开方数是完全平方**的根号，在代数函数域里不是单值元素（它是 |x|），
+// 所以 `parseRadicalExpression` 明确拒收。但它作为 **ℝ → ℝ 的函数**完全合法，
+// 只是需要**分段**才装得下 —— 这一档就是把那种输入接下来：
+//
+//   √(x²)          →  { x on [0,+∞) ; −x on (−∞,0) }              （就是 |x|）
+//   √(x²)·√(x²+1)  →  { x√(x²+1) on [0,+∞) ; −x√(x²+1) on (−∞,0) }
+//
+// 做法：把这些 `\sqrt{g²}` 逐个换成临时变量，用**现有的根式解析器**解析
+// （此时没有完全平方的根号了，一定通过），再把临时变量代成 ±g 并按符号分成 2^k 支。
+// 这样语法、优先级、报错全都与 `parseRadicalExpression` 一致，不必把解析器写第二遍。
+//
+// 只支持**一元**：分段函数这个类型本身就是一元的（多元的定义域是多维点集）。
+inline Result<PiecewiseFunction> parsePiecewiseExpression(std::string_view text) {
+  const std::string normalized = expression_detail::normalizeLatex(text);
+
+  // 先按常规路径试一次：没有完全平方的根号时直接成功，旧行为原封不动地保留
+  const Result<RadicalExtension> direct = parseRadicalExpression(normalized);
+  if (direct.isOk()) {
+    const Result<RealFunction> single = RealFunction::make(direct.unwrap());
+    if (single.isErr()) {
+      return std::unexpected(single.unwrapErr());
+    }
+    return PiecewiseFunction::make({single.unwrap()});
+  }
+  if (direct.unwrapErr() != MathsError::RadicandIsSquare) {
+    return std::unexpected(direct.unwrapErr());
+  }
+
+  // 扫出所有 `\sqrt{...}`，把「被开方数是完全平方」的那些换成占位变量
+  std::string rewritten;
+  std::vector<radical_branch_detail::SquareRadical> squares;
+  std::size_t cursor = 0;
+  while (cursor < normalized.size()) {
+    const std::size_t at = normalized.find("\\sqrt", cursor);
+    if (at == std::string::npos) {
+      rewritten.append(normalized, cursor, std::string::npos);
+      break;
+    }
+    rewritten.append(normalized, cursor, at - cursor);
+
+    std::size_t position = at + 5; // 跳过 "\sqrt"
+    while (position < normalized.size() && std::isspace(static_cast<unsigned char>(normalized[position])) != 0) {
+      ++position;
+    }
+    std::string radicandText;
+    if (position >= normalized.size() || normalized[position] == '[' ||
+        !expression_detail::takeBracedGroup(normalized, position, radicandText)) {
+      // 不是简单的 `\sqrt{...}`（比如高次根）：原样留着，让后面的解析器去报错
+      rewritten.append(normalized, at, position - at);
+      cursor = position;
+      continue;
+    }
+
+    std::optional<RationalFunction> root;
+    if (const Result<RationalFunction> radicand = expression_detail::ParserOf<Fraction>(radicandText).parse();
+        radicand.isOk()) {
+      root = radical_branch_detail::squareRootOf(radicand.unwrap());
+    }
+    if (!root.has_value()) {
+      rewritten.append(normalized, at, position - at); // 不是完全平方：原样保留
+      cursor = position;
+      continue;
+    }
+    if (squares.size() >= radical_branch_detail::kMaxSquareRadicals) {
+      return std::unexpected(MathsError::RadicandIsSquare); // 分支出数会爆，明确拒绝而不是硬撑
+    }
+
+    std::string name = "abs";
+    name += static_cast<char>('a' + squares.size());
+    while (normalized.find("{" + name + "}") != std::string::npos) {
+      name += "z"; // 原文里已经占了这个名字，换一个
+    }
+    rewritten += "{" + name + "}";
+    squares.push_back({name, *root});
+    cursor = position;
+  }
+
+  const Result<RadicalExtension> parsed = parseRadicalExpression(rewritten);
+  if (parsed.isErr()) {
+    return std::unexpected(parsed.unwrapErr());
+  }
+
+  // 每个「完全平方的根号」两种取法：+g 要求 g ≥ 0，−g 要求 g < 0
+  const std::size_t branchCount = std::size_t(1) << squares.size();
+  std::vector<RealFunction> branches;
+  for (std::size_t mask = 0; mask < branchCount; ++mask) {
+    Scope scope;
+    Result<RealSet> domain = Result<RealSet>(RealSet::realLine());
+    for (std::size_t index = 0; index < squares.size(); ++index) {
+      const bool negative = (mask & (std::size_t(1) << index)) != 0;
+      const Result<void> assigned =
+          scope.assign(Variable(squares[index].placeholder), negative ? -squares[index].root : squares[index].root);
+      if (assigned.isErr()) {
+        return std::unexpected(assigned.unwrapErr());
+      }
+      const Result<RealSet> condition =
+          solveInequality(squares[index].root, negative ? Relation::Less : Relation::GreaterEqual);
+      if (condition.isErr()) {
+        return std::unexpected(condition.unwrapErr());
+      }
+      const Result<RealSet> narrowed = domain.unwrap().intersect(condition.unwrap());
+      if (narrowed.isErr()) {
+        return std::unexpected(narrowed.unwrapErr());
+      }
+      domain = narrowed.unwrap();
+    }
+
+    const Result<RadicalExtension> substituted = parsed.unwrap().substitute(scope);
+    if (substituted.isErr()) {
+      return std::unexpected(substituted.unwrapErr());
+    }
+    const Result<RealFunction> branch = RealFunction::make(substituted.unwrap(), domain.unwrap());
+    if (branch.isErr()) {
+      return std::unexpected(branch.unwrapErr());
+    }
+    branches.push_back(branch.unwrap()); // 符号互相冲突的那些支定义域为空，由 make 丢掉
+  }
+  return PiecewiseFunction::make(std::move(branches));
 }
 
 struct Assignment {

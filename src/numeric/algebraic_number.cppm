@@ -45,6 +45,35 @@ inline long long toSigned(unsigned long long value) {
   return static_cast<long long>(value);
 }
 
+// 非负整数的精确平方根（`std::sqrt` 可能因舍入给出错判，所以做一次上下校正）
+inline std::optional<unsigned long long> exactIntegerSquareRoot(unsigned long long value) {
+  unsigned long long root = static_cast<unsigned long long>(std::sqrt(static_cast<double>(value)));
+  while (root > 0ULL && root * root > value) {
+    --root;
+  }
+  while ((root + 1ULL) * (root + 1ULL) <= value) {
+    ++root;
+  }
+  return root * root == value ? std::optional<unsigned long long>(root) : std::nullopt;
+}
+
+// 有理数的精确平方根：分子分母都得是完全平方，负数在 ℝ 上没有平方根。
+// 用于「这个多项式的首项系数能不能开方」以及多项式开平方的入口判断。
+inline std::optional<Fraction> rationalSquareRoot(const Fraction &value) {
+  const long long numerator = value.getNumerator();
+  if (numerator < 0) {
+    return std::nullopt;
+  }
+  const std::optional<unsigned long long> numeratorRoot =
+      exactIntegerSquareRoot(static_cast<unsigned long long>(numerator));
+  const std::optional<unsigned long long> denominatorRoot =
+      exactIntegerSquareRoot(static_cast<unsigned long long>(value.getDenominator()));
+  if (!numeratorRoot.has_value() || !denominatorRoot.has_value() || *denominatorRoot == 0ULL) {
+    return std::nullopt;
+  }
+  return Fraction(toSigned(*numeratorRoot), toSigned(*denominatorRoot));
+}
+
 inline Fraction powInt(const Fraction &base, unsigned exponent) {
   Fraction result(1, 1);
   for (unsigned step = 0; step < exponent; ++step) {
@@ -242,6 +271,58 @@ public:
   Fraction coefficient(std::size_t power) const { return power < coeffs_.size() ? coeffs_[power] : Fraction(0, 1); }
   Fraction leadingCoefficient() const { return coeffs_.empty() ? Fraction(0, 1) : coeffs_.back(); }
   Fraction constantTerm() const { return coeffs_.empty() ? Fraction(0, 1) : coeffs_.front(); }
+
+  // 按次数升序的系数表逐项相等（高次零系数在构造时已去掉，所以直接比表就行）
+  bool operator==(const UnivariatePolynomial &rhs) const { return coeffs_ == rhs.coeffs_; }
+
+  // ==================== 开平方 ====================
+
+  // 若存在 g ∈ ℚ[x] 使 g² = *this，返回 g；否则 nullopt。
+  //
+  // 用途：`√(g²)` 在代数函数域里不是单值元素（它是 |g|），所以根式扩张明确拒收 ——
+  // 但要把它拆成分段函数（`√(x²)` → ±x 按符号分情形）就得先把 g 解出来。
+  //
+  // 做法是逐项定系数：g = Σ bᵢxⁱ，最高次 b_m 由首项系数开有理平方得到；
+  // 再看 x^{m+i} 的系数 —— 它等于 2·b_m·b_i 加上已知的高次项两两乘积，
+  // 于是 bᵢ 一步解出。最后**验一遍** g² == *this，不靠推导过程中的假设作数。
+  std::optional<UnivariatePolynomial> squareRoot() const {
+    if (isZero()) {
+      return UnivariatePolynomial(); // 0 = 0²
+    }
+    if (degree() % 2 != 0) {
+      return std::nullopt; // 奇次多项式不可能是平方
+    }
+    const std::size_t half = degree() / 2;
+    const std::optional<Fraction> leading = algebraic_detail::rationalSquareRoot(leadingCoefficient());
+    if (!leading.has_value()) {
+      return std::nullopt;
+    }
+
+    std::vector<Fraction> root(half + 1, Fraction(0, 1));
+    root[half] = *leading;
+    // 除数 2·b_m 固定（b_m ≠ 0），把它的倒数挪到循环外，顺便避开 Fraction 除法返回 Result
+    const Result<Fraction> inverseDivisor = Fraction(1, 1) / (*leading * Fraction(2, 1));
+    if (inverseDivisor.isErr()) {
+      return std::nullopt;
+    }
+    for (std::size_t index = half; index-- > 0;) {
+      // x^{half+index} 的系数里，下标都大于 index 的那些项已经全部定下来了
+      Fraction known(0, 1);
+      for (std::size_t left = index + 1; left < half; ++left) {
+        const std::size_t right = half + index - left;
+        if (right > index && right < half) {
+          known = known + root[left] * root[right];
+        }
+      }
+      root[index] = (coefficient(half + index) - known) * inverseDivisor.unwrap();
+    }
+
+    const UnivariatePolynomial candidate(std::move(root));
+    if (!(candidate * candidate == *this)) {
+      return std::nullopt;
+    }
+    return candidate;
+  }
 
   // ==================== 求值 ====================
 

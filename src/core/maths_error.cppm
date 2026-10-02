@@ -23,7 +23,9 @@ enum class MathsError {
   // 免得用户看到「区间参数非法」以为是语法问题
   NegativeEvenRoot,
   // 被开方数是完全平方（如 √(x²)、√((x+1)²)）：开方结果是 |x|、|x+1|，
-  // 不是单值的代数函数。本库不引入绝对值节点，因此明确拒收而不是猜一个分支
+  // 不是单值的**代数函数**（代数函数域里 y² − g² 可约、y 是零因子）。
+  // 注意这只说「装不进代数函数域」，不是说 |x| 不存在 —— 它是 ℝ → ℝ 的函数，
+  // 用分段函数（PiecewiseFunction）表示即可：`√(x²)` 就是 `{ x on [0,+∞) ; −x on (−∞,0) }`
   RadicandIsSquare,
   // 多个根号落在同一平方类（如 √x 与 √(4x)，后者等于 2√x）：这时它们不是独立的
   // 生成元，必须先折叠成最简根式。本库不做最简根式化，所以明确拒收
@@ -75,7 +77,7 @@ inline std::string_view describe(MathsError error) {
   case MathsError::NegativeEvenRoot:
     return "负数不能开偶次根";
   case MathsError::RadicandIsSquare:
-    return "被开方数是完全平方，开方结果带绝对值（如 √(x²) = |x|），本库不引入 |x|";
+    return "被开方数是完全平方（如 √(x²)），开方结果是 |x| —— 装不进代数函数域，要表示它得用分段函数";
   case MathsError::RadicandsNotIndependent:
     return "多个根号落在同一平方类（如 √x 与 √(4x)），请先化成最简根式再写";
   case MathsError::NotAMonomial:

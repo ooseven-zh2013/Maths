@@ -134,14 +134,17 @@ std::optional<std::string> radicalHint(std::string_view text) {
 
 // ---------------- 式子 ----------------
 
-// 式子的四种表示：
+// 式子的五种表示：
 //   RationalFunction          系数是有理数，可以含变量 —— 走「代入条件再化简」那条路
 //   RealAlgebraicNumber       纯数值且含根号 —— 直接给精确值
 //   AlgebraicRationalFunction 系数含根号、且带变量（`\sqrt{2}*x`、`x+\sqrt{2}`）——
 //                             一直在 ℚ(α) 上算，效果等同「式子 + 条件」那条路
 //   RadicalExtension          根号包着变量（`\sqrt{x}`、`\sqrt{x^2+1}`、`\sqrt{x}+\sqrt{x+1}`）——
 //                             落在函数域上，代入有理数后给精确值
-using Expression = std::variant<RationalFunction, RealAlgebraicNumber, AlgebraicRationalFunction, RadicalExtension>;
+//   PiecewiseFunction         被开方数是**完全平方**的根号（`\sqrt{x^2}` = |x|）——
+//                             那不是单个式子、分段才装得下，所以单独一档
+using Expression =
+    std::variant<RationalFunction, RealAlgebraicNumber, AlgebraicRationalFunction, RadicalExtension, PiecewiseFunction>;
 
 struct InputExpression {
   Expression value;
@@ -196,22 +199,44 @@ std::optional<InputExpression> readExpression() {
       return InputExpression{radicalExpression.unwrap(), trim(line)};
     }
 
+    // 第五档：被开方数是**完全平方**的根号 —— `\sqrt{x^2}`（也就是 |x|）。
+    //
+    // 它装不进上面任何一档：代数函数域里 `√(g²)` 不是单值元素（`ℚ(x)[y]/(y²−g²)` 可约、
+    // y 是零因子），但作为 **ℝ → ℝ 的函数**完全合法，只是需要**分段**才表示得出来。
+    // 分段不是「化简得不好」，而是这类函数的本来面目 —— 所以单独走一条路、单独报结果。
+    const Result<PiecewiseFunction> piecewise = parsePiecewiseExpression(line);
+    if (piecewise.isOk()) {
+      printField("解析为", piecewise.unwrap().latex(), true);
+      printFeedback("提示", "被开方数是完全平方（如 √(x²) = |x|），分段才装得下；结果给的是分段函数");
+      return InputExpression{piecewise.unwrap(), trim(line)};
+    }
+
     // 都失败了，报谁的错误？看谁更具体：
     //   含变量的输入 —— 有理解析器的诊断更准（它认得变量、能说清语法错在哪）
     //   纯数值输入   —— 只有代数数解析器给得出 ZeroDenominator / DivisionByZero /
     //                   NumericOverflow 这类具体原因（2^{1/0}、0^{-1}、(-4)^{1/2}）
     // InvalidExpression 是各条路共有的兜底错误码，它不算「更具体」。
+    //
+    // 根式这一档还要特殊一点：`RadicandIsSquare` / `RadicandsNotIndependent` 都是在
+    // **整条输入按根号语法解析成功之后**、最后一步合法性校验才抛出来的 ——
+    // 也就是说语法没问题，卡住的是「√(x²) 是 |x|」这种数学上的限制。
+    // 那种诊断比「不支持的表达式」有用得多，必须报出来。
+    // （这里原来把 `RadicandIsSquare` 排除在外，于是 `\sqrt{x^2}` 只显示
+    //   「不支持的表达式」，用户看不到真正的原因。）
     const MathsError algebraicError = algebraic.unwrapErr();
     const MathsError radicalError = radicalExpression.unwrapErr();
     MathsError reported = rational.unwrapErr();
     if (algebraicError != MathsError::InvalidExpression) {
       reported = algebraicError;
     }
-    if (radicalError != MathsError::InvalidExpression && radicalError != MathsError::RadicandIsSquare) {
-      reported = radicalError; // 例如「多个根号落在同一平方类」这类更具体的诊断
+    if (radicalError != MathsError::InvalidExpression) {
+      reported = radicalError;
     }
     printFeedback("不接受", describe(reported));
-    if (const std::optional<std::string> hint = radicalHint(line)) {
+    if (reported == MathsError::RadicandIsSquare) {
+      // 光看「本库不引入 |x|」还不知道该怎么办，补一句可执行的
+      printFeedback("提示", "如果题目里 x 恒非负，直接写 x 就行");
+    } else if (const std::optional<std::string> hint = radicalHint(line)) {
       printFeedback("提示", *hint);
     } else {
       printFeedback("提示", "语法见开头；普通写法与 LaTeX 写法都接受");
@@ -226,7 +251,10 @@ void printSyntax() {
   printField("变量", "单个字母可带下标 —— x、a_1、x_{i,j}", true);
   printField("长名", "多字母变量加花括号 —— {node}、{node}_{car}", true);
   printField("乘法", "可省略 —— xy 即 x*y，2x 即 2*x（所以 {node} 不写花括号会变成 n*o*d*e）", true);
-  printField("根号", "只认 LaTeX 写法 —— \\sqrt{2}、\\sqrt{x}、\\sqrt{x^2+1}；根号内既可以是常数也可以是变量", true);
+  printField("根号",
+             "只认 LaTeX 写法 —— \\sqrt{2}、\\sqrt{x}、\\sqrt{x^2+1}；根号内既可以是常数也可以是变量，"
+             "但被开方数不能是完全平方（\\sqrt{x^2} 是 |x|，不收）",
+             true);
   printField("写法", "普通写法与 LaTeX 写法都接受 —— \\frac{a}{b}、\\cdot、\\times、\\div、x^{2}", true);
 }
 
@@ -648,6 +676,21 @@ int main() {
     std::vector<Constraint> constraints;
     printExpressionAndCollectConstraints(*radical, scope, constraints);
     printRadicalResult(*radical, constraints);
+  } else if (const PiecewiseFunction *piecewise = std::get_if<PiecewiseFunction>(&input->value)) {
+    // √(x²) 这类：开方结果是绝对值，分段才是它的本来面目。
+    // 不走「代入条件」那一套 —— 那套是给「单个式子代入求值」用的，分段函数直接把分支摆出来。
+    std::cout << "\n--- 结果 ---\n";
+    printField("式子", input->text);
+    printSection("分段结果");
+    printListItem(piecewise->latex());
+    if (!piecewise->domain().isRealLine()) {
+      printField("定义域", piecewise->domain().latex());
+    }
+    printSection("各支");
+    for (std::size_t index = 0; index < piecewise->branchCount(); ++index) {
+      const RealFunction &branch = piecewise->branch(index);
+      printListItem(branch.ruleLatex() + "   当 " + branch.domainLatex());
+    }
   } else {
     const RationalFunction &expression = std::get<RationalFunction>(input->value);
     Scope scope;

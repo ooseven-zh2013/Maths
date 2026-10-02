@@ -223,3 +223,23 @@ scope.assign(Variable("t"), Integer(4));
 
 parseExpression("2s").unwrap().substitute(scope).unwrap().latex();   // "24"
 ```
+
+## `parsePiecewiseExpression` —— 根式 → 分段函数
+
+`parseRadicalExpression` 拒收被开方数是**完全平方**的根号（`\sqrt{x^2}` = `|x|`，
+不是单个代数函数）。这一档把那种输入接成**分段函数**：
+
+```cpp
+parsePiecewiseExpression("\\sqrt{x^2}");              // { x 当 [0,+∞) ; −x 当 (−∞,0) }
+parsePiecewiseExpression("\\sqrt{(x+1)^2}");         // |x+1|
+parsePiecewiseExpression("\\sqrt{x^2}*\\sqrt{x^2+1}"); // 两支，规则里还留着那个真根号
+parsePiecewiseExpression("\\sqrt{x}");               // 单支，等价于 parseRadicalExpression
+```
+
+做法：把这些 `\sqrt{g²}` 逐个换成占位变量，交给**现有的根式解析器**解析
+（此时没有完全平方的根号了，一定通过），再把占位变量代成 `±g` 并按符号分成
+2<sup>k</sup> 支（k 上限 4）。语法、优先级、报错因此与 `parseRadicalExpression` 完全一致。
+
+- **只支持一元**：`PiecewiseFunction` 本身就是一元的（多元的定义域是多维点集）
+- 老入口对这类输入**仍然拒收**（`RadicandIsSquare`）—— 域论上的限制没变，
+  变的是「函数层能装下它」
