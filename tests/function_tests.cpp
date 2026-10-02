@@ -175,6 +175,23 @@ int main() {
     // 复合后被开方数变成完全平方 → 那正是 |x|，拒收
     const RealFunction bareRoot = RealFunction::make(radicalOf("y")).unwrap();
     CHECK_ERR(bareRoot.compose(functionOf("x^2")), MathsError::RadicandIsSquare);
+
+    // 内外**自变量同名**是最常见的写法，必须能复合 ——
+    // `Scope::assign(x, 含 x 的式子)` 是方程而不是赋值，所以复合前要先把外层换个临时名
+    const RealFunction sameOuter = RealFunction::make(radicalOf("x+1")).unwrap();
+    const RealFunction sameInner = functionOf("x^2+1");
+    const RealFunction sameComposed = sameOuter.compose(sameInner).unwrap();
+    CHECK_TRUE(sameComposed.variable() == Variable("x"));
+    CHECK_EQ(sameComposed.ruleLatex(), std::string("\\sqrt{x^2 + 2}"));
+    CHECK_EQ(sameComposed.at(number(1)).unwrap().latex(), std::string("\\sqrt{3}"));
+
+    // 名字撞上但内层是同一支恒等映射（f ∘ id）也要能算
+    const RealFunction viaIdentity = functionOf("x^2").compose(functionOf("x")).unwrap();
+    CHECK_TRUE(viaIdentity.at(number(3)).unwrap() == number(9));
+    CHECK_EQ(viaIdentity.ruleLatex(), std::string("x^2"));
+
+    // (x+1)² ∘ 同名
+    CHECK_EQ(functionOf("(x+1)^2").compose(functionOf("x-1")).unwrap().at(number(4)).unwrap(), number(16));
   }
 
   // ---------- 拉回：把集合沿函数拉回去 ----------

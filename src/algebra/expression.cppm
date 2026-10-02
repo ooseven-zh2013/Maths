@@ -799,6 +799,12 @@ using Monomial = MonomialOf<Fraction>;
 using Polynomial = PolynomialOf<Fraction>;
 using PolynomialDivision = PolynomialDivisionOf<Fraction>;
 
+// 自变量本身作为一个多项式（`x`）。构造「f(x) = x」这类元素到处都要用，
+// 与其让每个调用方自己拼 `Monomial(Fraction(1,1), {{v, 1}})`，不如放在这里。
+inline Polynomial variablePolynomial(const Variable &variable) {
+  return Polynomial(Monomial(Fraction(1, 1), VarPowers{{variable, 1ULL}}));
+}
+
 // 把**单变量**多项式转成 ℚ[x] 上的一元多项式，好复用实根隔离那一套机器
 // （Sturm 计数、平方自由化、符号判断）。含多于一个变量时返回 nullopt。
 //

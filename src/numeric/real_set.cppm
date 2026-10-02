@@ -219,6 +219,14 @@ public:
           (top == std::strong_ordering::equal && interval.upper.isClosed() && !last.upper.isClosed())) {
         last.upper = interval.upper;
       }
+      // 下端：只比数值的排序**分不出** `[0,0]` 与 `(0,1)` 的先后（两者的下界数值都是 0），
+      // 谁在前由 std::sort 决定。若轮到的是「下端数值相同、但取到性更松」的那一段，
+      // 必须把下端也收回来 —— 否则 `[0,0] ∪ (0,1)` 会变成 `(0,1)`，白白丢掉孤立的那个点。
+      const std::strong_ordering bottom = interval.lower.compareTo(last.lower);
+      if (bottom == std::strong_ordering::less ||
+          (bottom == std::strong_ordering::equal && interval.lower.isClosed() && !last.lower.isClosed())) {
+        last.lower = interval.lower;
+      }
     }
 
     RealSet result;

@@ -188,12 +188,38 @@ public:
     if (innerValue.isErr()) {
       return std::unexpected(innerValue.unwrapErr());
     }
+
+    // 代入的目标变量。**内外同名时必须先给外层换个临时名**：
+    // `Scope::assign(x, 含 x 的式子)` 是方程 x = x² 而不是赋值，被明确拒收 ——
+    // 而 `f(x) = √(x+1)` 配 `g(x) = x²+1` 这种内外同名恰恰是最常见的复合。
+    // 换个名字再代，语义完全一样，最后结果的自变量由复合后的规则自己推出来（就是内层的）。
+    Variable target = variable_;
+    RadicalExtension outerRule = rule_;
+    if (innerValue.unwrap().containsVariable(variable_)) {
+      std::set<Variable> taken = innerValue.unwrap().variables();
+      for (const Variable &variable : variables()) {
+        taken.insert(variable);
+      }
+      const Variable temporary = freshVariable(taken);
+      Scope rename;
+      const Result<void> renamed = rename.assign(variable_, RationalFunction(variablePolynomial(temporary)));
+      if (renamed.isErr()) {
+        return std::unexpected(renamed.unwrapErr());
+      }
+      const Result<RadicalExtension> renamedRule = rule_.substitute(rename);
+      if (renamedRule.isErr()) {
+        return std::unexpected(renamedRule.unwrapErr());
+      }
+      outerRule = renamedRule.unwrap();
+      target = temporary;
+    }
+
     Scope scope;
-    const Result<void> assigned = scope.assign(variable_, innerValue.unwrap());
+    const Result<void> assigned = scope.assign(target, innerValue.unwrap());
     if (assigned.isErr()) {
       return std::unexpected(assigned.unwrapErr());
     }
-    const Result<RadicalExtension> composed = rule_.substitute(scope);
+    const Result<RadicalExtension> composed = outerRule.substitute(scope);
     if (composed.isErr()) {
       return std::unexpected(composed.unwrapErr());
     }
@@ -210,6 +236,7 @@ public:
     if (effective.isErr()) {
       return std::unexpected(effective.unwrapErr());
     }
+    // 结果的自变量由 make 从复合后的规则推出来，就是内层的那个
     return make(composed.unwrap(), effective.unwrap());
   }
 
@@ -400,6 +427,16 @@ private:
       return std::unexpected(punctured.unwrapErr());
     }
     return natural.unwrap().intersect(punctured.unwrap());
+  }
+
+  // 保证不重名的临时变量名：只由字母组成，逐个加长直到没被用过。
+  // 复合时外层要先改名成它，才能避开 `Scope::assign` 的「右边不得含被赋值变量」这条。
+  static Variable freshVariable(const std::set<Variable> &taken) {
+    std::string name = "t";
+    while (taken.count(Variable(name)) != 0) {
+      name += "t";
+    }
+    return Variable(name);
   }
 
   static bool dropsVariable(const RadicalExtension &rule, const Variable &variable) {

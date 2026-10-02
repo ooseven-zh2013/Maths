@@ -281,6 +281,11 @@ int main() {
         RealSet::make({Interval{Bound::finite(one, true), Bound::finite(RealAlgebraicNumber(Fraction(2, 1)), true)}})
             .unwrap();
     CHECK_EQ(leftOpen.unite(rightClosed).latex(), std::string("(0, 2]"));
+
+    // 孤立的点并进开区间：合并时**下端也要修**，否则 {0} 会被吃掉
+    // （排序只比数值，`[0,0]` 与 `(0,1)` 的先后不确定，轮到点在后面时就会漏）
+    CHECK_EQ(RealSet::point(zero).unwrap().unite(leftOpen).latex(), std::string("[0, 1)"));
+    CHECK_EQ(leftOpen.unite(RealSet::point(zero).unwrap()).latex(), std::string("[0, 1)"));
   }
 
   TEST_SUMMARY();
