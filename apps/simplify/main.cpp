@@ -158,8 +158,8 @@ std::optional<std::string> radicalHint(std::string_view text) {
 //                             落在函数域上，代入有理数后给精确值
 //   PiecewiseFunction         被开方数是**完全平方**的根号（`\sqrt{x^2}` = |x|）——
 //                             那不是单个式子、分段才装得下，所以单独一档
-using Expression =
-    std::variant<RationalFunction, RealAlgebraicNumber, AlgebraicRationalFunction, RadicalExtension, PiecewiseFunction>;
+using Expression = std::variant<RationalFunction, RealAlgebraicNumber, AlgebraicRationalFunction, RadicalExtension,
+                                PiecewiseFunction, TowerExtension>;
 
 struct InputExpression {
   Expression value;
@@ -228,6 +228,18 @@ std::optional<InputExpression> readExpression() {
       return InputExpression{piecewise.unwrap().value, trim(line), piecewise.unwrap().writtenAsAbsoluteValue};
     }
 
+    // 第六档：**套嵌**根号（`\sqrt{1+\sqrt{x}}`）。代数函数域装不下，需要塔。
+    // 放在分段那一档之后：没有套嵌的输入在前面几档就成功了。
+    const Result<TowerExtension> tower = parseTowerExpression(line);
+    if (tower.isOk()) {
+      printField("解析为", tower.unwrap().latex(), true);
+      const Result<RealSet> domain = domainOf(tower.unwrap());
+      if (domain.isOk() && !domain.unwrap().isRealLine()) {
+        printField("定义域", domain.unwrap().latex(), true);
+      }
+      return InputExpression{tower.unwrap(), trim(line)};
+    }
+
     // 都失败了，报谁的错误？看谁更具体：
     //   含变量的输入 —— 有理解析器的诊断更准（它认得变量、能说清语法错在哪）
     //   纯数值输入   —— 只有代数数解析器给得出 ZeroDenominator / DivisionByZero /
@@ -255,6 +267,10 @@ std::optional<InputExpression> readExpression() {
     // 「不支持的表达式」。
     if (piecewiseError != MathsError::InvalidExpression) {
       reported = piecewiseError;
+    }
+    // 塔那一档对「套嵌」的诊断最准，放最后压轴
+    if (tower.unwrapErr() != MathsError::InvalidExpression) {
+      reported = tower.unwrapErr();
     }
     // 只报**原因**，不报「该怎么办」—— 原因本身已经够具体（每个限制都有专属错误码），
     // 补救办法写在 docs/apps/simplify.md 里，不必每次敲一遍。
@@ -519,6 +535,19 @@ Result<RealAlgebraicNumber> constraintPointValue(const Constraint &entry) {
   return RealAlgebraicNumber(value.unwrap());
 }
 
+// 塔只在**有理取值**的点上有值（库那边 evaluate 收的是有理赋值），所以条件右边的
+// 根号值必须能化成有理数；含变量的更不行 —— 那不是「代不代得进去」，是没有值。
+Result<Fraction> rationalValueOf(const ConstraintValue &value) {
+  if (const RealAlgebraicNumber *number = std::get_if<RealAlgebraicNumber>(&value)) {
+    return number->toFraction();
+  }
+  const RationalFunction &rational = std::get<RationalFunction>(value);
+  if (!rational.variables().empty()) {
+    return Result<Fraction>::err(MathsError::UndefinedVariable);
+  }
+  return rational.evaluate(Scope());
+}
+
 std::string exactValueLatex(const RealAlgebraicNumber &value) {
   const Result<Fraction> rational = value.toFraction();
   if (rational.isErr()) {
@@ -758,6 +787,42 @@ int main() {
         printField("精确值", exactValueLatex(value.unwrap()));
       }
     }
+  } else if (const TowerExtension *tower = std::get_if<TowerExtension>(&input->value)) {
+    // 套嵌根号（`\sqrt{1+\sqrt{x}}`）：代数函数域装不下，走塔。定义域在解析时给过了。
+    Scope scope;
+    std::vector<Constraint> constraints;
+    printConstraintHelp();
+    readConstraints(RationalFunction(variablePolynomial(Variable("x"))), scope, constraints);
+
+    std::cout << "\n--- 结果 ---\n";
+    printField("式子", input->text);
+    printConstraintList(constraints);
+    const Result<RealSet> domain = domainOf(*tower);
+    if (domain.isOk() && !domain.unwrap().isRealLine()) {
+      printField("定义域", domain.unwrap().latex());
+    }
+
+    if (constraints.empty()) {
+      return 0;
+    }
+    const Constraint &entry = constraints.front();
+    if (entry.variable != Variable("x")) {
+      printField("无法代入", "这条式子只有变量 x");
+      return 0;
+    }
+    const Result<Fraction> point = rationalValueOf(entry.value);
+    if (point.isErr()) {
+      printField("无法代入", std::string(describe(point.unwrapErr())) + "（套嵌根号只在有理取值处求值）");
+      return 0;
+    }
+    Scope values;
+    values.assign(Variable("x"), point.unwrap()).unwrap();
+    const Result<RealAlgebraicNumber> value = tower->evaluate(values);
+    if (value.isErr()) {
+      printField("无法代入", std::string(describe(value.unwrapErr())));
+      return 0;
+    }
+    printField("精确值", exactValueLatex(value.unwrap()));
   } else {
     const RationalFunction &expression = std::get<RationalFunction>(input->value);
     Scope scope;
