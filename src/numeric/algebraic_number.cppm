@@ -1437,6 +1437,8 @@ public:
     if (isRational()) {
       return algebraic_detail::fractionText(low_);
     }
+    // 这里**故意**保持 RootOf：str() 是终端诊断用的形态，多项式与隔离区间比 \sqrt{2} 有用。
+    // 展示形态（2±√3）由 latex() 负责。
     return "RootOf(" + poly_.str() + ", [" + algebraic_detail::fractionText(low_) + ", " +
            algebraic_detail::fractionText(high_) + "])";
   }
@@ -1473,6 +1475,32 @@ public:
       }
       body += "{" + algebraic_detail::fractionLatex(radicand) + "}";
       return negativePrefix ? "-" + body : body;
+    }
+    // 带平移量的二次根式：2 ± √3 写成 "2 - \sqrt{3}"，别退化成 RootOf(...)
+    if (const std::optional<std::tuple<Fraction, std::pair<Fraction, Fraction>, bool>> surd = asShiftedSurd()) {
+      const Fraction shift = std::get<0>(*surd);
+      const bool positive = std::get<2>(*surd);
+      const std::string root = surdRootText(std::get<1>(*surd));
+      const std::string sign = positive ? " + " : " - ";
+      // 平移量是 0 时就是纯根式（只是形状不是 x^n+c），不必写 "+ 0"
+      if (shift == 0LL) {
+        return positive ? root : "-" + root;
+      }
+      // 平移量是整数时用加法式：49 + 20\sqrt{6} 比 (98 + 40\sqrt{6})/2 干净
+      if (shift.getDenominator() == 1LL) {
+        return algebraic_detail::fractionLatex(shift) + sign + root;
+      }
+      // 否则用教科书那种单分数式：(1 + \sqrt{5})/2
+      // 统一成 (-b ± √(b²-4ac)) / (2a)，被开方数同样先提出平方因子。
+      const Fraction leading = poly_.leadingCoefficient();
+      const Fraction middle = poly_.coefficient(1);
+      const Result<Fraction> discriminant = middle * middle - leading * poly_.constantTerm() * Fraction(4, 1);
+      if (discriminant.isErr()) {
+        return algebraic_detail::fractionLatex(shift) + sign + root;
+      }
+      const std::string numerator =
+          algebraic_detail::fractionLatex(-middle) + sign + surdRootText(pullOutSquareFactor(discriminant.unwrap()));
+      return "\\frac{" + numerator + "}{" + algebraic_detail::fractionLatex(leading * Fraction(2, 1)) + "}";
     }
     return "\\operatorname{RootOf}(" + poly_.latex() + ", [" + algebraic_detail::fractionLatex(low_) + ", " +
            algebraic_detail::fractionLatex(high_) + "])";
@@ -1574,6 +1602,70 @@ private:
       return -root.unwrap();
     }
     return root.unwrap();
+  }
+
+  // 二次的「带平移量」根式：最小多项式 a·x² + b·x + c 时两根是
+  //
+  //     -b/(2a)  ±  √((b²-4ac) / 4a²)
+  //
+  // 判别式除以 4a² 是非负有理数时就能这么写 —— 2±√3、49±20√6、(1±√5)/2 全在这一类，
+  // 是学生答案里最常见的形状。原来只有「纯根式」（xⁿ+c）能被还原，这一类一律退回
+  // `RootOf(x^2-4x+1, [-5/8, 25/8])`，可读性差别很大。
+  //
+  // 返回 (平移量, (根号前系数, 化简后的被开方数), 取正号还是负号)；还原不成返回 nullopt。
+  std::optional<std::tuple<Fraction, std::pair<Fraction, Fraction>, bool>> asShiftedSurd() const {
+    if (isRational() || poly_.degree() != 2) {
+      return std::nullopt;
+    }
+    const Fraction leading = poly_.leadingCoefficient();
+    const Fraction middle = poly_.coefficient(1);
+    const Result<Fraction> discriminant = middle * middle - leading * poly_.constantTerm() * Fraction(4, 1);
+    if (discriminant.isErr()) {
+      return std::nullopt;
+    }
+    const Result<Fraction> radicand = discriminant.unwrap() / (leading * leading * Fraction(4, 1));
+    if (radicand.isErr() || radicand.unwrap().isNegative()) {
+      return std::nullopt; // 判别式为负：没有实根，这个数不是实数
+    }
+    const Result<Fraction> shift = (Fraction(0, 1) - middle) / (leading * Fraction(2, 1));
+    if (shift.isErr()) {
+      return std::nullopt;
+    }
+    // 偶次根分不出正负号，用「自己在中点的哪一侧」定符号
+    return std::make_tuple(shift.unwrap(), pullOutSquareFactor(radicand.unwrap()),
+                           compareToRational(shift.unwrap()) != std::strong_ordering::less);
+  }
+
+  // 整数被开方数提出最大的平方因子：√2400 写成 20√6 而不是 √2400。
+  // 反复平方很容易攒出这种大整数，留着不化简可读性差一大截。
+  //
+  // 只处理**整数**：分数的情形（√(5/4)）提出因子反而变成 (1/2)√5，更难看，不动。
+  static std::pair<Fraction, Fraction> pullOutSquareFactor(const Fraction &radicand) {
+    if (radicand.getDenominator() != 1LL || radicand.isNegative()) {
+      return {Fraction(1, 1), radicand};
+    }
+    const unsigned long long magnitude = algebraic_detail::magnitudeOf(radicand.getNumerator());
+    unsigned long long factor = 1;
+    for (unsigned long long candidate = 1; candidate * candidate <= magnitude; ++candidate) {
+      if (magnitude % (candidate * candidate) == 0) {
+        factor = candidate;
+      }
+    }
+    if (factor <= 1) {
+      return {Fraction(1, 1), radicand};
+    }
+    const Fraction factorValue(static_cast<long long>(factor), 1);
+    const Result<Fraction> reduced = radicand / (factorValue * factorValue);
+    if (reduced.isErr()) {
+      return {Fraction(1, 1), radicand};
+    }
+    return {factorValue, reduced.unwrap()};
+  }
+
+  // 系数 + \sqrt{被开方数} 的 latex 片段。系数为 1 时省略（`\sqrt{6}` 而不是 `1\sqrt{6}`）。
+  static std::string surdRootText(const std::pair<Fraction, Fraction> &surd) {
+    const std::string body = "\\sqrt{" + algebraic_detail::fractionLatex(surd.second) + "}";
+    return surd.first == 1LL ? body : algebraic_detail::fractionLatex(surd.first) + body;
   }
 
   // 最小多项式只有首项与常数项非零时（a·x^n + c），这个数就是 ±ⁿ√(-c/a)。

@@ -309,6 +309,26 @@ int runTests() {
     CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt{2}").unwrap().str().starts_with("RootOf"));
   }
 
+  // ---------- 带平移量的二次根式（x^2 + bx + c 那一类）----------
+  {
+    // 原来只有「纯根式」（最小多项式形如 x^n + c）能被还原，这一类一律退回
+    // RootOf(x^2-4x+1, [-5/8, 25/8])，可读性差一大截。
+    CHECK_TRUE(RealAlgebraicNumber::parse("2+\\sqrt{3}").unwrap().latex() == std::string("2 + \\sqrt{3}"));
+    CHECK_TRUE(RealAlgebraicNumber::parse("2-\\sqrt{3}").unwrap().latex() == std::string("2 - \\sqrt{3}"));
+    CHECK_TRUE(RealAlgebraicNumber::parse("-\\sqrt{3}").unwrap().latex() == std::string("-\\sqrt{3}"));
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt{3}").unwrap().latex() == std::string("\\sqrt{3}"));
+
+    // 平移量带分数时用教科书的单分数式，别写成 1/2 + \sqrt{5/4}
+    CHECK_TRUE(RealAlgebraicNumber::parse("(1+\\sqrt{5})/2").unwrap().latex() ==
+               std::string("\\frac{1 + \\sqrt{5}}{2}"));
+
+    // 整数被开方数提出平方因子：√2400 → 20√6
+    CHECK_TRUE(RealAlgebraicNumber::parse("49+\\sqrt{2400}").unwrap().latex() == std::string("49 + 20\\sqrt{6}"));
+
+    // str() 保持 RootOf 是**有意**的：终端诊断时多项式信息比 \sqrt{2} 有用
+    CHECK_TRUE(RealAlgebraicNumber::parse("2+\\sqrt{3}").unwrap().str().starts_with("RootOf"));
+  }
+
   // ---------- 纯根式的整数次幂：走 O(deg) 特例 ----------
   //
   // 回归用：x^6 配 x = √[6]{2} 曾经 NumericOverflow（x^6 = x³·x³，

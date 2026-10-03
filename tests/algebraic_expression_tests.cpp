@@ -199,7 +199,7 @@ int main() {
         {"\\sqrt[4]{2}", "\\sqrt[4]{2}"},
         {"\\sqrt[5]{2}", "\\sqrt[5]{2}"},
         {"\\sqrt{2}+\\sqrt{3}", "\\operatorname{RootOf}(x^{4} - 10x^{2} + 1, [\\frac{3}{4}, \\frac{21}{4}])"},
-        {"\\frac{1+\\sqrt{5}}{2}", "\\operatorname{RootOf}(x^{2} - x - 1, [\\frac{11}{8}, \\frac{17}{8}])"},
+        {"\\frac{1+\\sqrt{5}}{2}", "\\frac{1 + \\sqrt{5}}{2}"},
     };
 
     AlgebraicPolynomial single; // 式子 x
@@ -236,12 +236,8 @@ int main() {
       const char *expectedLatex;
     };
     const Case cases[] = {
-        {"\\sqrt[6]{2}", 3, "\\sqrt{2}"},
-        {"\\sqrt[6]{2}", 6, "2"},
-        {"\\sqrt[3]{2}", 6, "4"},
-        {"\\sqrt[4]{2}", 5, "\\sqrt[4]{32}"},
-        {"\\sqrt{2}", 3, "\\sqrt{8}"},
-        {"5+2\\sqrt{6}", 2, "\\operatorname{RootOf}(x^{2} - 98x + 1, [\\frac{229}{4}, \\frac{589}{4}])"},
+        {"\\sqrt[6]{2}", 3, "\\sqrt{2}"},     {"\\sqrt[6]{2}", 6, "2"},      {"\\sqrt[3]{2}", 6, "4"},
+        {"\\sqrt[4]{2}", 5, "\\sqrt[4]{32}"}, {"\\sqrt{2}", 3, "\\sqrt{8}"}, {"5+2\\sqrt{6}", 2, "49 + 20\\sqrt{6}"},
     };
     for (const Case &item : cases) {
       AlgebraicScope scope;
