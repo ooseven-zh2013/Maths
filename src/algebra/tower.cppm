@@ -612,7 +612,10 @@ inline Result<RealSet> layerCondition(std::size_t index, const TowerExtension::F
 
   const RationalFunction &a = relation[0];
   const RationalFunction &b = relation[previousBit];
-  const Result<RationalFunction> ratio = b / a; // 记 r = b/a，条件是 √f ⋈ −a/b 那一侧
+  // 记 r = a/b（**不是 b/a**！），于是 h = −a/b = −r，三条判据都写成关于 r 的：
+  //   b>0 → √f ≥ −r ⟺ (r ≥ 0) ∨ (f ≥ r²)
+  //   b<0 → √f ≤ −r ⟺ (r ≤ 0) ∧ (f ≤ r²)
+  const Result<RationalFunction> ratio = a / b;
   if (ratio.isErr()) {
     return Result<RealSet>::err(ratio.unwrapErr());
   }
@@ -806,6 +809,32 @@ inline Result<TowerExtension> substituteVariable(const RationalFunction &value, 
     return denominator;
   }
   return numerator.unwrap().dividedBy(denominator.unwrap());
+}
+
+// ==================== 判元素的符号 ====================
+
+// `{x : g(x) ≥ 0}`，g 是塔里的元素。绝对值按符号分支时要用。
+//
+// 只支持“ g 对某个生成元线性、且那个生成元的被开方数是有理函数”这一类 ——
+// 那正好是 `layerCondition` 的适用形状（它给的是“每层被开方数 ≥ 0”，而这里需要的是“任意元素”）。
+// 判不了的报 DomainNotDecidable —— 不猜。
+inline Result<RealSet> whereNonNegativeOverTower(const TowerExtension &value) {
+  const TowerExtension::Flat &flat = value.coefficients();
+  std::optional<std::size_t> generator;
+  for (std::size_t mask = 1; mask < flat.size(); ++mask) {
+    if (flat[mask].isZero()) {
+      continue;
+    }
+    if (generator.has_value() || std::popcount(mask) != 1) {
+      return Result<RealSet>::err(MathsError::DomainNotDecidable); // 一次用到多个生成元
+    }
+    generator = mask;
+  }
+  if (!generator.has_value()) {
+    return solveInequality(flat[0], Relation::GreaterEqual); // 纯有理函数
+  }
+  // 把「对 y_k 线性」形成 「第 k+1 层的被开方数」的形状，直接复用 layerCondition
+  return layerCondition(static_cast<std::size_t>(std::countr_zero(*generator)) + 1, flat, value.relations());
 }
 
 // ==================== 定义域 ====================

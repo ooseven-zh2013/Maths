@@ -169,6 +169,19 @@ int main() {
               MathsError::NestedRadical);
   }
 
+  // ---------- 判元素的符号（绝对值按符号分支时要用）----------
+  {
+    // x - 2√x ≥ 0 ⇔ x = 0 或 x ≥ 4（x≥0）
+    const TowerExtension value = parseTowerExpression("x-2\\sqrt{x}").unwrap();
+    CHECK_EQ(whereNonNegativeOverTower(value).unwrap().latex(), std::string("\\{0\\} \\cup [4, +\\infty)"));
+    // 1 + √x ≥ 0 恒成立 → 整条真线
+    const TowerExtension always = parseTowerExpression("1+\\sqrt{x}").unwrap();
+    CHECK_TRUE(whereNonNegativeOverTower(always).unwrap().isRealLine());
+    // 一次用到两个生成元 → 判不了
+    const TowerExtension product = parseTowerExpression("\\sqrt{x}*\\sqrt{1+\\sqrt{x}}").unwrap();
+    CHECK_ERR(whereNonNegativeOverTower(product), MathsError::DomainNotDecidable);
+  }
+
   // ---------- FunctionRule：规则可以是根式，也可以是一条塔 ----------
   {
     const FunctionRule radical(FunctionRule::rational(expression("x+1")));
