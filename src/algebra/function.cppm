@@ -12,6 +12,8 @@ import :scope;
 import :algebraic;
 import :constraint;
 import :radical;
+import :rule;
+import :tower;
 
 export namespace maths {
 
@@ -82,9 +84,8 @@ public:
   // ==================== 构造 ====================
 
   // 从规则推出自变量与天然定义域：分母的零点、被开方数 < 0 的地方都自动剔掉
-  static Result<RealFunction> make(const RationalFunction &rule) { return make(RadicalExtension(rule)); }
-
-  static Result<RealFunction> make(const RadicalExtension &rule) {
+  // 规则可以是根式，也可以是一条塔（`FunctionRule` 包装两者）
+  static Result<RealFunction> make(const FunctionRule &rule) {
     const Result<Variable> variable = inferVariable(rule);
     if (variable.isErr()) {
       return std::unexpected(variable.unwrapErr());
@@ -96,13 +97,13 @@ public:
     return RealFunction(variable.unwrap(), rule, natural.unwrap());
   }
 
+  static Result<RealFunction> make(const RationalFunction &rule) { return make(FunctionRule::rational(rule)); }
+
+  static Result<RealFunction> make(const RadicalExtension &rule) { return make(FunctionRule::radicalOf(rule)); }
+
   // 显式给定义域：与规则的天然定义域**取交**，不是覆盖 ——
   // 规则算不出来的点永远不属于函数。f(x) = 1/x 配 [0,2] 得到 (0,2]。
-  static Result<RealFunction> make(const RationalFunction &rule, const RealSet &domain) {
-    return make(RadicalExtension(rule), domain);
-  }
-
-  static Result<RealFunction> make(const RadicalExtension &rule, const RealSet &domain) {
+  static Result<RealFunction> make(const FunctionRule &rule, const RealSet &domain) {
     const Result<RealFunction> base = make(rule);
     if (base.isErr()) {
       return std::unexpected(base.unwrapErr());
@@ -110,15 +111,23 @@ public:
     return base.unwrap().restrict(domain);
   }
 
+  static Result<RealFunction> make(const RationalFunction &rule, const RealSet &domain) {
+    return make(FunctionRule::rational(rule), domain);
+  }
+
+  static Result<RealFunction> make(const RadicalExtension &rule, const RealSet &domain) {
+    return make(FunctionRule::radicalOf(rule), domain);
+  }
+
   // 常函数。自变量名必须显式给（可以走默认值）：规则里没有变量，推不出来。
   static RealFunction constant(const Fraction &value, const Variable &variable = Variable("x")) {
-    return RealFunction(variable, RadicalExtension(value), RealSet::realLine());
+    return RealFunction(variable, FunctionRule::rational(RationalFunction(value)), RealSet::realLine());
   }
 
   // ==================== 查询 ====================
 
   const Variable &variable() const { return variable_; }
-  const RadicalExtension &rule() const { return rule_; }
+  const FunctionRule &rule() const { return rule_; }
   const RealSet &domain() const { return domain_; }
 
   // 规则里真正出现的自变量（常函数时为空集）
@@ -164,7 +173,7 @@ public:
   RealFunction negate() const { return RealFunction(variable_, -rule_, domain_); }
 
   Result<RealFunction> scaledBy(const Fraction &factor) const {
-    const Result<RadicalExtension> scaled = rule_ * RadicalExtension(factor);
+    const Result<FunctionRule> scaled = rule_ * FunctionRule::rational(RationalFunction(factor));
     if (scaled.isErr()) {
       return std::unexpected(scaled.unwrapErr());
     }
@@ -194,7 +203,7 @@ public:
     // 而 `f(x) = √(x+1)` 配 `g(x) = x²+1` 这种内外同名恰恰是最常见的复合。
     // 换个名字再代，语义完全一样，最后结果的自变量由复合后的规则自己推出来（就是内层的）。
     Variable target = variable_;
-    RadicalExtension outerRule = rule_;
+    FunctionRule outerRule = rule_;
     if (innerValue.unwrap().containsVariable(variable_)) {
       std::set<Variable> taken = innerValue.unwrap().variables();
       for (const Variable &variable : variables()) {
@@ -206,7 +215,7 @@ public:
       if (renamed.isErr()) {
         return std::unexpected(renamed.unwrapErr());
       }
-      const Result<RadicalExtension> renamedRule = rule_.substitute(rename);
+      const Result<FunctionRule> renamedRule = rule_.substitute(rename);
       if (renamedRule.isErr()) {
         return std::unexpected(renamedRule.unwrapErr());
       }
@@ -219,7 +228,7 @@ public:
     if (assigned.isErr()) {
       return std::unexpected(assigned.unwrapErr());
     }
-    const Result<RadicalExtension> composed = outerRule.substitute(scope);
+    const Result<FunctionRule> composed = outerRule.substitute(scope);
     if (composed.isErr()) {
       return std::unexpected(composed.unwrapErr());
     }
@@ -388,12 +397,12 @@ public:
   }
 
 private:
-  RealFunction(Variable variable, RadicalExtension rule, RealSet domain)
+  RealFunction(Variable variable, FunctionRule rule, RealSet domain)
       : variable_(std::move(variable)), rule_(std::move(rule)), domain_(std::move(domain)) {}
 
   // 自变量：规则里有几个变量就取那个；没有变量（常函数）时给默认名 x；
   // 多于一个就是多元函数，本类型不收
-  static Result<Variable> inferVariable(const RadicalExtension &rule) {
+  static Result<Variable> inferVariable(const FunctionRule &rule) {
     const std::set<Variable> variables = rule.variables();
     if (variables.size() > 1) {
       return std::unexpected(MathsError::NotUnivariate);
@@ -410,8 +419,8 @@ private:
   // 不把它算进来，函数就会在 x = 0 上给出 1：那是静默给错，本库最不能接受的一类错误。
   // 只收**与自变量同名**的约束；不同名说明那个变量已经被约得不再是自变量
   // （如 `√x·(y/y)` 在 x 上看），那种参数上的条件留给调用方按约束处理。
-  static Result<RealSet> definitionDomainOf(const RadicalExtension &rule, const Variable &variable) {
-    const Result<RealSet> natural = domainOf(rule);
+  static Result<RealSet> definitionDomainOf(const FunctionRule &rule, const Variable &variable) {
+    const Result<RealSet> natural = rule.domain();
     if (natural.isErr()) {
       return std::unexpected(natural.unwrapErr());
     }
@@ -439,14 +448,26 @@ private:
     return Variable(name);
   }
 
-  static bool dropsVariable(const RadicalExtension &rule, const Variable &variable) {
-    for (const RationalFunction &coefficient : rule.coefficients()) {
-      if (coefficient.discardedConstraints().count(variable) != 0) {
+  static bool dropsVariable(const FunctionRule &rule, const Variable &variable) {
+    const auto dropped = [&variable](const RationalFunction &value) {
+      return value.discardedConstraints().count(variable) != 0;
+    };
+    if (rule.holdsTower()) {
+      // 塔：每一项的系数都可能带着「约掉过某个变量」的痕迹
+      for (const RationalFunction &coefficient : rule.asTower().coefficients()) {
+        if (dropped(coefficient)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    for (const RationalFunction &coefficient : rule.asRadical().coefficients()) {
+      if (dropped(coefficient)) {
         return true;
       }
     }
-    for (const RationalFunction &radicand : rule.radicands()) {
-      if (radicand.discardedConstraints().count(variable) != 0) {
+    for (const RationalFunction &radicand : rule.asRadical().radicands()) {
+      if (dropped(radicand)) {
         return true;
       }
     }
@@ -456,7 +477,7 @@ private:
   // 四则的公共骨架：定义域取交，规则由调用方合好。
   // 合出来的规则会带来自己的天然定义域，由 make 再取一次交 ——
   // 那一层不是多余的：定义域理论上应该等于两侧天然定义域之交，让 make 复核一遍最省心。
-  Result<RealFunction> combine(const RealFunction &rhs, const Result<RadicalExtension> &merged) const {
+  Result<RealFunction> combine(const RealFunction &rhs, const Result<FunctionRule> &merged) const {
     if (merged.isErr()) {
       return std::unexpected(merged.unwrapErr());
     }
@@ -497,7 +518,7 @@ private:
       info.attained.push_back(value.unwrap());
     }
 
-    const Result<RealSet> natural = domainOf(rule_);
+    const Result<RealSet> natural = rule_.domain();
     if (natural.isErr()) {
       return std::unexpected(natural.unwrapErr());
     }
@@ -661,7 +682,7 @@ private:
   }
 
   Variable variable_{"x"};
-  RadicalExtension rule_{Fraction(0, 1)};
+  FunctionRule rule_{RationalFunction(Fraction(0, 1))};
   RealSet domain_;
 };
 

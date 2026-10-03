@@ -38,11 +38,16 @@ class FunctionRule {
 public:
   using Flat = TowerExtension::Flat;
 
-  FunctionRule() = default;                                        // 零
-  FunctionRule(const RadicalExtension &value) : radical_(value) {} // NOLINT(google-explicit-constructor)
-  FunctionRule(const TowerExtension &value) : tower_(value) {}     // NOLINT(google-explicit-constructor)
+  FunctionRule() = default; // 零
+  // 构造函数刻意 **explicit**：隐式转换叠加重载会让 `make(有理函数, 定义域)` 这类调用
+  // 在「RationalFunction 版」与「RadicalExtension 版」之间含糊，也拼不出
+  // `RationalFunction → RadicalExtension → FunctionRule` 的两次转换。要用就调工厂。
+  explicit FunctionRule(const RadicalExtension &value) : radical_(value) {}
+  explicit FunctionRule(const TowerExtension &value) : tower_(value) {}
 
   static FunctionRule rational(const RationalFunction &value) { return FunctionRule(RadicalExtension(value)); }
+  static FunctionRule radicalOf(const RadicalExtension &value) { return FunctionRule(value); }
+  static FunctionRule towerOf(const TowerExtension &value) { return FunctionRule(value); }
 
   bool holdsTower() const { return tower_.has_value(); }
   const RadicalExtension &asRadical() const { return *radical_; }
@@ -50,10 +55,9 @@ public:
 
   // ==================== 观察 ====================
 
-  const std::set<Variable> &variables() const {
-    static const std::set<Variable> kNone;
-    return radical_ ? radical_->variables() : tower_->variables();
-  }
+  // ⚠️ 必须**按值返回**： 是按值的，返回引用会绑到临时对象上，
+  // 读它就是访问已释放的内存 —— 表现为「莫名其妙多了几个变量」，进而报 NotUnivariate。
+  std::set<Variable> variables() const { return radical_ ? radical_->variables() : tower_->variables(); }
 
   bool isZero() const { return radical_ ? radical_->isZero() : tower_->isZero(); }
 

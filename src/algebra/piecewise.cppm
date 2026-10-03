@@ -239,7 +239,7 @@ public:
           !(negative.unwrap() == tail.domain())) {
         continue;
       }
-      if (!(tail.rule() == RadicalExtension(-magnitude.unwrap()))) {
+      if (!(tail.rule() == FunctionRule::rational(RationalFunction(-magnitude.unwrap())))) {
         continue;
       }
       return magnitude.unwrap();
@@ -366,7 +366,7 @@ namespace piecewise_detail {
 
 // 「差 ≥ 0」的解集。三种情形，全程精确，没有一处近似。
 inline Result<RealSet> whereNonNegative(const RealFunction &difference) {
-  const RadicalExtension &rule = difference.rule();
+  const FunctionRule &rule = difference.rule();
   const Result<RealSet> domain = Result<RealSet>(difference.domain()); // 差本身有定义的地方
 
   // ---- 纯有理函数：直接解不等式 ----
@@ -383,12 +383,12 @@ inline Result<RealSet> whereNonNegative(const RealFunction &difference) {
   }
 
   // ---- 一个生成元：差 = a + b√f ----
-  if (rule.radicands().size() != 1) {
+  if (rule.holdsTower() || rule.asRadical().radicands().size() != 1) {
     return std::unexpected(MathsError::NotARational); // 两个以上根号：不做
   }
-  const RationalFunction &a = rule.coefficient(0);
-  const RationalFunction &b = rule.coefficient(1);
-  const RationalFunction &radicand = rule.radicands().front();
+  const RationalFunction &a = rule.asRadical().coefficient(0);
+  const RationalFunction &b = rule.asRadical().coefficient(1);
+  const RationalFunction &radicand = rule.asRadical().radicands().front();
 
   const Result<RationalFunction> quotient = a / b; // a / b，也就是 −h 里的 h 取反
   if (quotient.isErr()) {
