@@ -105,6 +105,39 @@ int main() {
     CHECK_TRUE(valueAt(product, 3) == rootThree * expected);
   }
 
+  // ---------- 在塔上按占位变量求值（解析器建塔时要用）----------
+  {
+    // 从深度 0 往上接：y₁² = x
+    const TowerExtension base = TowerExtension::rational(number(0)).unwrap();
+    const TowerExtension one = base.adjoining(Flat{expression("x")}).unwrap();
+    CHECK_TRUE(one.depth() == std::size_t(1));
+
+    // 占位变量 t₁ ↦ y₁：`1 + t₁` 就是 1 + y₁
+    const Result<TowerExtension> sum = evaluateOverPlaceholders(expression("1+t"), {Variable("t")}, one);
+    CHECK_TRUE(sum.isOk());
+    CHECK_TRUE(sum.unwrap() == element(kRootX, Flat{number(1), number(1)}));
+
+    // 再接一层：y₂² = 1 + y₁
+    const TowerExtension two = one.adjoining(sum.unwrap().coefficients()).unwrap();
+    CHECK_TRUE(two.depth() == std::size_t(2));
+
+    // **一个式子里有多个占位变量**：t₁·t₂ ↦ y₁y₂。
+    // 这正是不能「先换 t₁ 再换 t₂」的原因 —— 换出来的元素不是有理函数，没地方放回去；
+    // 逐项展开则全程都是「系数 × 生成元的幂」。
+    const Result<TowerExtension> product =
+        evaluateOverPlaceholders(expression("t*u"), {Variable("t"), Variable("u")}, two);
+    CHECK_TRUE(product.isOk());
+    CHECK_TRUE(product.unwrap() == element(kNested, Flat{number(0), number(0), number(0), number(1)}));
+
+    // 占位变量比塔还深 → 拒收
+    CHECK_ERR(evaluateOverPlaceholders(expression("t"), {Variable("t")}, base), MathsError::NestedRadical);
+    // 分母里也有占位变量：1/(1+t) = 1/(1+y₁)
+    const Result<TowerExtension> quotient = evaluateOverPlaceholders(expression("1/(1+t)"), {Variable("t")}, one);
+    CHECK_TRUE(quotient.isOk());
+    CHECK_TRUE((quotient.unwrap() * element(kRootX, Flat{number(1), number(1)})).unwrap() ==
+               element(kRootX, Flat{number(1), number(0)}));
+  }
+
   // ---------- 定义域 ----------
   {
     auto tower = [](const std::vector<Flat> &relations) {

@@ -267,6 +267,36 @@ public:
     return evaluateFlat(coefficients_, scope, generators);
   }
 
+  // ==================== 往上接一层 ====================
+
+  // ℚ(x) 里的元素放进这条塔（塔里的常数项）
+  Result<TowerExtension> lifting(const RationalFunction &value) const {
+    Flat flat(coefficients_.size(), RationalFunction(Fraction(0, 1)));
+    flat[0] = value;
+    return Result<TowerExtension>(TowerExtension(relations_, std::move(flat)));
+  }
+
+  // 往上接一层：y_{d+1}² = radicand。`radicand` 只能用**已有**的 d 个生成元
+  // （长度必须正好是 2^d）。
+  Result<TowerExtension> adjoining(const Flat &radicand) const {
+    if (radicand.size() != coefficients_.size()) {
+      return Result<TowerExtension>::err(MathsError::NestedRadical);
+    }
+    std::vector<Flat> extended = relations_;
+    extended.push_back(radicand);
+    return Result<TowerExtension>(make(RationalFunction(Fraction(0, 1)), extended));
+  }
+
+  // 第 index 个生成元本身（平表里只有那一位是 1）
+  static Result<TowerExtension> generatorOf(const TowerExtension &tower, std::size_t index) {
+    if (index >= tower.depth()) {
+      return Result<TowerExtension>::err(MathsError::NestedRadical);
+    }
+    Flat flat(std::size_t(1) << tower.depth(), RationalFunction(Fraction(0, 1)));
+    flat[std::size_t(1) << index] = RationalFunction(Fraction(1, 1));
+    return fromMasks(tower.relations(), flat);
+  }
+
   // ==================== 判等 ====================
   //
   // 平表就是基（`make` 已排除可检测的退化），所以逐项比系数即可。
@@ -560,6 +590,152 @@ inline Result<RealSet> layerCondition(std::size_t index, const TowerExtension::F
     return flatBranch;
   }
   return Result<RealSet>(upperBranch.unwrap().unite(lowerBranch.unwrap()).unite(flatBranch.unwrap()));
+}
+
+// ==================== 在塔上求值 ====================
+
+// 把有理函数 `value` 里的变量 `name` 换成塔里的元素 `replacement`。
+//
+// 有理函数在 name 上是 P(name)/Q(name)（系数是有理数），所以：
+//   分子 = Σ aₖ·replacementᵏ（Horner），分母同理，再相除
+// 分母可能变成零元素，那时报 DivisionByZero。
+// 把「含占位变量的有理函数」变成塔里的元素。
+//
+// 解析套嵌根号时，被开方数是**占位变量**上的有理函数（例如 t₂² = 1 + t₁ 里的 `1 + t₁`），
+// 而占位变量要换成塔里的生成元。逐项展开即可：
+//
+//   P(t₁,…,t_k) 的每一项 = 有理系数 × t₁^{e₁} × … × t_k^{e_k} × （不含占位变量的那部分）
+//                          → 有理系数那部分放进塔，再乘 eⱼ 次第 j 个生成元
+//
+// 分母同理，最后分子 ÷ 分母。**不能**先把 t₁ 换成元素再换 t₂ —— 换出来的元素不是有理函数，
+// 没有地方放回去；逐项展开则全程都是「系数 × 生成元的幂」，可以累加。
+inline Result<TowerExtension> evaluateOverPlaceholders(const RationalFunction &value,
+                                                       const std::vector<Variable> &placeholders,
+                                                       const TowerExtension &tower) {
+  const auto expand = [&placeholders, &tower](const Polynomial &polynomial) -> Result<TowerExtension> {
+    std::optional<TowerExtension> total;
+    for (const auto &[factors, coefficient] : polynomial.getTerms()) {
+      std::vector<unsigned> powers(tower.depth(), 0);
+      VarPowers rest;
+      for (const auto &[variable, power] : factors) {
+        bool isPlaceholder = false;
+        for (std::size_t index = 0; index < placeholders.size(); ++index) {
+          if (placeholders[index] == variable) {
+            if (index >= tower.depth()) {
+              return Result<TowerExtension>::err(MathsError::NestedRadical);
+            }
+            powers[index] += power;
+            isPlaceholder = true;
+            break;
+          }
+        }
+        if (!isPlaceholder) {
+          rest.push_back({variable, power});
+        }
+      }
+      Result<TowerExtension> term = tower.lifting(RationalFunction(Monomial(coefficient, rest)));
+      for (std::size_t index = 0; index < powers.size(); ++index) {
+        for (unsigned step = 0; step < powers[index]; ++step) {
+          if (term.isErr()) {
+            return term;
+          }
+          const Result<TowerExtension> generator = TowerExtension::generatorOf(tower, index);
+          if (generator.isErr()) {
+            return generator;
+          }
+          const Result<TowerExtension> product = term.unwrap() * generator.unwrap();
+          if (product.isErr()) {
+            return product;
+          }
+          term = product;
+        }
+      }
+      if (term.isErr()) {
+        return term;
+      }
+      if (!total.has_value()) {
+        total = term.unwrap();
+        continue;
+      }
+      const Result<TowerExtension> sum = total.value() + term.unwrap();
+      if (sum.isErr()) {
+        return sum;
+      }
+      total = sum.unwrap();
+    }
+    if (!total.has_value()) {
+      return tower.lifting(RationalFunction(Fraction(0, 1)));
+    }
+    return Result<TowerExtension>(total.value());
+  };
+
+  const Result<TowerExtension> numerator = expand(value.getNumerator());
+  if (numerator.isErr()) {
+    return numerator;
+  }
+  const Result<TowerExtension> denominator = expand(value.getDenominator());
+  if (denominator.isErr()) {
+    return denominator;
+  }
+  if (denominator.unwrap().isZero()) {
+    return Result<TowerExtension>::err(MathsError::ZeroDenominator);
+  }
+  return numerator.unwrap().dividedBy(denominator.unwrap());
+}
+
+inline Result<TowerExtension> substituteVariable(const RationalFunction &value, const Variable &name,
+                                                 const TowerExtension &replacement) {
+  const auto overTower = [&name, &replacement](const Polynomial &polynomial) -> Result<TowerExtension> {
+    std::optional<TowerExtension> total;
+    for (const auto &[factors, coefficient] : polynomial.getTerms()) {
+      unsigned exponent = 0;
+      VarPowers rest;
+      for (const auto &[variable, power] : factors) {
+        if (variable == name) {
+          exponent = power;
+        } else {
+          rest.push_back({variable, power});
+        }
+      }
+      Result<TowerExtension> term = replacement.lifting(RationalFunction(Monomial(coefficient, rest)));
+      for (unsigned step = 0; step < exponent; ++step) {
+        if (term.isErr()) {
+          return term;
+        }
+        const Result<TowerExtension> product = term.unwrap() * replacement;
+        if (product.isErr()) {
+          return product;
+        }
+        term = product;
+      }
+      if (term.isErr()) {
+        return term;
+      }
+      if (!total.has_value()) {
+        total = term.unwrap();
+        continue;
+      }
+      const Result<TowerExtension> sum = total.value() + term.unwrap();
+      if (sum.isErr()) {
+        return sum;
+      }
+      total = sum.unwrap();
+    }
+    if (!total.has_value()) {
+      return replacement.lifting(RationalFunction(Fraction(0, 1)));
+    }
+    return Result<TowerExtension>(total.value());
+  };
+
+  const Result<TowerExtension> numerator = overTower(value.getNumerator());
+  if (numerator.isErr()) {
+    return numerator;
+  }
+  const Result<TowerExtension> denominator = overTower(value.getDenominator());
+  if (denominator.isErr()) {
+    return denominator;
+  }
+  return numerator.unwrap().dividedBy(denominator.unwrap());
 }
 
 // ==================== 定义域 ====================
