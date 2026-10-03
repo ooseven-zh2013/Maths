@@ -39,6 +39,8 @@ if (result.isErr()) { /* result.unwrapErr() */ }     // Result 路径
 | `CircularReference` | 该赋值会形成循环引用 | `x = s`、`s = t`、`t = x` |
 | `OutsideDomain` | 该点不在函数定义域内 | `RealFunction::at` 传入定义域外的点（如 `√x` 在 x = −1）。**不是「变量未定义」** —— 那是没给值，这是给了值但该点不属于函数 |
 | `NotUnivariate` | 不是一元函数（含多个自变量） | `RealFunction::make` 的规则里出现两个以上自变量；一元函数四则时两侧自变量名不同；`PiecewiseFunction` 的分支之间自变量不同名 |
+| `NestedRadical` | 根号里不能再套根号（根式套根式本库不做）| `|g|` 的内部形式是 `\sqrt{g^2}`，g 自带根号时套嵌；`\sqrt{1+\sqrt{x}}` |
+| `MultiVariableRadical` | 根号里含多个变量（本库的根号只支持单变量）| `\sqrt{ab}`；`\sqrt{x}\sqrt{y}` |
 | `EmptyCollection` | 样本为空或观测数不够，没有该统计量 | `maximumOf` / `meanOf` / `varianceOf` 收到空序列或空集；`sampleVarianceOf` 少于 2 个观测 |
 | `NotFiniteSet` | 不是有限点集（含区间块）—— 连续集合上的求和是积分，不是求和 | `sumOf(RealSet)` / `meanOf(RealSet)` 等收到含区间块的集合 |
 

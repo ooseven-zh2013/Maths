@@ -225,8 +225,6 @@ std::optional<InputExpression> readExpression() {
     if (piecewise.isOk()) {
       const std::optional<std::string> shown = absoluteValueText(piecewise.unwrap().value, true);
       printField("解析为", shown.has_value() ? *shown : piecewise.unwrap().value.latex(), true);
-      printFeedback("提示", shown.has_value() ? "绝对值：内部按符号分段计算，结果按 |…| 显示"
-                                              : "被开方数是完全平方，分段才装得下；结果给的是分段函数");
       return InputExpression{piecewise.unwrap().value, trim(line), piecewise.unwrap().writtenAsAbsoluteValue};
     }
 
@@ -258,45 +256,36 @@ std::optional<InputExpression> readExpression() {
     if (piecewiseError != MathsError::InvalidExpression) {
       reported = piecewiseError;
     }
-    printFeedback("不接受", describe(reported));
-    if (reported == MathsError::RadicandIsSquare) {
-      // 光看「装不进代数函数域」还不知道该怎么办，补一句可执行的
-      printFeedback("提示", "如果题目里 x 恒非负，直接写 x 就行");
-    } else if (reported == MathsError::NestedRadical) {
-      printFeedback("提示", "根号里不能再套根号；绝对值内部是 \\sqrt{g^2}，g 自带根号时就套上了");
-    } else if (reported == MathsError::MultiVariableRadical) {
-      printFeedback("提示", "根号里只能有一个变量；a、b 都非负时 \\sqrt{ab} 可写成 \\sqrt{a}*\\sqrt{b}");
-    } else if (const std::optional<std::string> hint = radicalHint(line)) {
+    // 只报**原因**，不报「该怎么办」—— 原因本身已经够具体（每个限制都有专属错误码），
+    // 补救办法写在 docs/apps/simplify.md 里，不必每次敲一遍。
+    // 「根号里不能再套根号」是**内部形式**的说法 —— 用户写的是 `|\sqrt{x}|`，只写了一个根号。
+    // 内部要把 `|g|` 变成 `\sqrt{g^2}`，g 自带根号才套上；拿内部形态去报错，
+    // 等于让用户怀疑自己写错了。所以这里翻译成他看得懂的那句话。
+    // （真写成 `\sqrt{\sqrt{x}}` 的，报原错误码就是对的，不用翻。）
+    std::string_view reason = describe(reported);
+    if (reported == MathsError::NestedRadical && line.find('|') != std::string::npos) {
+      reason = "绝对值里面不能再带根号";
+    }
+    printFeedback("不接受", reason);
+    // 唯一保留的提示：输入**解析成功了**但很可能不是本意（`sqrt(2)` 被当成 s·q·r·t·(2)）——
+    // 那不是限制的说明，是「你可能写错了」的提醒。
+    if (const std::optional<std::string> hint = radicalHint(line)) {
       printFeedback("提示", *hint);
-    } else {
-      printFeedback("提示", "语法见开头；普通写法与 LaTeX 写法都接受");
     }
   }
 }
 
 // 打印语法说明。一次性给全，后面不再零散补充
+// 语法说明**只在文档里**，程序不再重复印 —— 用法类内容属于 docs/apps/simplify.md。
+// 这里只留一行指针。
 void printSyntax() {
-  printSection("语法");
-  printField("运算", "+ - * / ^ 与括号", true);
-  printField("变量", "单个字母可带下标 —— x、a_1、x_{i,j}", true);
-  printField("长名", "多字母变量加花括号 —— {node}、{node}_{car}", true);
-  printField("乘法", "可省略 —— xy 即 x*y，2x 即 2*x（所以 {node} 不写花括号会变成 n*o*d*e）", true);
-  printField("根号", "只认 LaTeX 写法 —— \\sqrt{2}、\\sqrt{x}、\\sqrt{x^2+1}；根号内既可以是常数也可以是变量", true);
-  printField("绝对值",
-             "|x|、|x+1|、|\\frac{x}{x-1}| 与 \\sqrt{x^2} 是同一件事：内部按符号分段算，"
-             "结果按 |…| 显示，也能代入条件求值",
-             true);
-  printField("写法", "普通写法与 LaTeX 写法都接受 —— \\frac{a}{b}、\\cdot、\\times、\\div、x^{2}", true);
+  std::cout << "（语法与用法见 docs/apps/simplify.md）\n\n";
 }
 
 // 打印条件输入的说明
+// 同上：条件怎么写进文档，这里只留最小提示（`0=0` 结束这件事不写出来会让人卡住）
 void printConstraintHelp() {
-  printSection("条件");
-  printField("写法", "变量 = 表达式，如 x = 2、s = v*t（右边可含式子里没有的变量）", true);
-  printField("根号", "右边可以直接写根号 —— x = \\sqrt{2}、y = \\sqrt[3]{5}", true);
-  printField("删除", "输入 x = x 删掉变量 x 的约束（重复输入同名变量即为覆盖）", true);
-  printField("结束", "输入 0=0", true);
-  printField("限制", "右边不能含被赋值的变量本身 —— x = 2x 是方程，不支持", true);
+  std::cout << "（变量 = 表达式；0=0 结束 · 详见 docs/apps/simplify.md）\n";
 }
 
 // ---------------- 条件 ----------------
@@ -578,7 +567,7 @@ void printExpressionAndCollectConstraints(const ExpressionType &expression, Scop
   // 式子不含变量时它就是纯常数运算，没有可代入的东西 —— 直接出结果，当计算器用。
   // 这时连条件说明都不必打印，否则用户会对着一段用不上的提示发愣。
   if (expression.variables().empty()) {
-    printFeedback("提示", "式子不含变量，跳过条件输入");
+    // 不给理由：没有条件可读是自明的
   } else {
     std::cout << '\n';
     printConstraintHelp();

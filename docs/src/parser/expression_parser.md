@@ -224,6 +224,19 @@ scope.assign(Variable("t"), Integer(4));
 parseExpression("2s").unwrap().substitute(scope).unwrap().latex();   // "24"
 ```
 
+## 一元负号与幂的优先级
+
+```
+power := primary ('^' 非负整数)?     ← 幂从 primary 起
+unary := ('-' | '+')? power         ← 一元负号在**外层**
+```
+
+所以 `-x^2` 是 `-(x^2)`，**不是** `(-x)^2`（与 C / Python 一致）。这条曾经写反，
+于是 `-x^2` 算成 `x^2` —— 负号被 `^` 吃掉了。数值那一路同样：
+`-4^{1/2}` 现在给 `-2`，而不是落到 `(-4)^{1/2}` 上报「负数不能开偶次根」。
+
+`x^2^3` 仍然报「无法解析的残留」—— 只吃**一个** `^`，不悄悄按左结合算成 `(x^2)^3`。
+
 ## `parsePiecewiseExpression` —— 根式 → 分段函数
 
 `parseRadicalExpression` 拒收被开方数是**完全平方**的根号（`\sqrt{x^2}` = `|x|`，
@@ -253,6 +266,26 @@ parsePiecewiseExpression("|\\frac{x}{x-1}|");    // 分母有洞，两支不是�
 ⚠️ 判形状时**两支的定义域必须各自解一次** `{g ≥ 0}` / `{g < 0}`，不能拿一支的补集去凑 ——
 `g` 自带极点时（例如 `x/(x−1)`）那个极点两边都不在，补集会把它凭空放回来。
 
+| `|g|` 里面自带根号 | `NestedRadical` | 内部形式 `\sqrt{g^2}` 在 g 自带根号时就套嵌了，代数函数域装不下。**这一档目前不做** |
 - **只支持一元**：`PiecewiseFunction` 本身就是一元的（多元的定义域是多维点集）
 - 老入口对这类输入**仍然拒收**（`RadicandIsSquare`）—— 域论上的限制没变，
   变的是「函数层能装下它」
+
+## `parsePiecewiseExpressionDetailed` —— 连「输入怎么写的」一起返回
+
+`parsePiecewiseExpression` 只给分段本身。但**展示形态不能只看结果的结构**：
+`|g|` 在 g 恒非负时（`|(x-1)^2/2|`）内部只剩一支，
+而「一个本来就单支的分段」跟它结构上完全一样 —— 分辨不出来。所以另有一个入口：
+
+```cpp
+struct PiecewiseParseResult {
+  PiecewiseFunction value;
+  bool writtenAsAbsoluteValue;   // 输入形如 |…| 或 √(g²)
+};
+
+parsePiecewiseExpressionDetailed(text);   // 要标记用这个
+parsePiecewiseExpression(text);           // 只要分段用这个（薄封装）
+```
+
+调用方拿 `writtenAsAbsoluteValue` 决定展示：用户既然写的是 `|…|`，
+结果就该还他一个 `|…|`，不能同一个输入有时给 `|…|` 有时给 `cases`。
