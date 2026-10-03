@@ -75,6 +75,21 @@ void printFeedback(std::string_view action, std::string_view detail) {
   std::cout << "  " << action << " · " << detail << '\n';
 }
 
+// 分段结果的展示形态：是 `|g|` 就给 `|g|`，否则 nullopt（调用方给完整的 cases）。
+//
+// ⚠️ 判据不能只看「分支数 == 2」—— `|g|` 在 g **恒非负**时（`|(x-1)^2/2|`）内部只剩一支，
+// 而「一个本来就单支的分段」跟它结构上完全一样，分辨不出来。所以要靠**输入形态**兜底：
+// 用户既然写的是 `|…|`，结果就该还他一个 `|…|`，同一类输入不能给两种形态。
+std::optional<std::string> absoluteValueText(const PiecewiseFunction &value, bool writtenAsAbsoluteValue) {
+  if (const std::optional<RationalFunction> magnitude = value.asAbsoluteValue()) {
+    return "|" + magnitude->latex() + "|";
+  }
+  if (writtenAsAbsoluteValue && value.branchCount() == 1) {
+    return "|" + value.branch(0).ruleLatex() + "|";
+  }
+  return std::nullopt;
+}
+
 // ---------------- 输入 ----------------
 
 // 去掉全部空白，用于识别终止哨兵 0=0
@@ -148,7 +163,8 @@ using Expression =
 
 struct InputExpression {
   Expression value;
-  std::string text; // 用户的原始输入（去首尾空白），回显用
+  std::string text;                   // 用户的原始输入（去首尾空白），回显用
+  bool writtenAsAbsoluteValue{false}; // 输入形如 |…| 或 √(g²)
 };
 
 // 反复索取式子，直到解析成功；输入流结束则返回 nullopt
@@ -205,14 +221,13 @@ std::optional<InputExpression> readExpression() {
     // 它装不进上面任何一档：代数函数域里 `√(g²)` 不是单值元素（`ℚ(x)[y]/(y²−g²)` 可约、
     // y 是零因子），但作为 **ℝ → ℝ 的函数**完全合法，只需要分段才表示得出来。
     // 分段不是「化简得不好」，而是这类函数的本来面目 —— 所以单独走一条路、单独报结果。
-    const Result<PiecewiseFunction> piecewise = parsePiecewiseExpression(line);
+    const Result<PiecewiseParseResult> piecewise = parsePiecewiseExpressionDetailed(line);
     if (piecewise.isOk()) {
-      // 是 |g| 形状的就直接显示 |g|，别让一个绝对值在「解析为」里躺成两行 cases
-      const std::optional<RationalFunction> magnitude = piecewise.unwrap().asAbsoluteValue();
-      printField("解析为", magnitude.has_value() ? "|" + magnitude->latex() + "|" : piecewise.unwrap().latex(), true);
-      printFeedback("提示", magnitude.has_value() ? "绝对值：内部按符号分段计算，结果按 |…| 显示"
-                                                  : "被开方数是完全平方，分段才装得下；结果给的是分段函数");
-      return InputExpression{piecewise.unwrap(), trim(line)};
+      const std::optional<std::string> shown = absoluteValueText(piecewise.unwrap().value, true);
+      printField("解析为", shown.has_value() ? *shown : piecewise.unwrap().value.latex(), true);
+      printFeedback("提示", shown.has_value() ? "绝对值：内部按符号分段计算，结果按 |…| 显示"
+                                              : "被开方数是完全平方，分段才装得下；结果给的是分段函数");
+      return InputExpression{piecewise.unwrap().value, trim(line), piecewise.unwrap().writtenAsAbsoluteValue};
     }
 
     // 都失败了，报谁的错误？看谁更具体：
@@ -723,10 +738,10 @@ int main() {
     printField("式子", input->text);
     printConstraintList(constraints);
 
-    // |g| 形状的直接给 |g|，其余给完整的 cases
-    const std::optional<RationalFunction> magnitude = piecewise->asAbsoluteValue();
-    if (magnitude.has_value()) {
-      printField("分段结果", "|" + magnitude->latex() + "|");
+    // 与「解析为」同一套判定：同一类输入不能给两种形态
+    const std::optional<std::string> shown = absoluteValueText(*piecewise, input->writtenAsAbsoluteValue);
+    if (shown.has_value()) {
+      printField("分段结果", *shown);
     } else {
       printSection("分段结果");
       printListItem(piecewise->latex());

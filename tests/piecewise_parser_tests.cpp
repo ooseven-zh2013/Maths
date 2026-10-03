@@ -145,6 +145,23 @@ int main() {
     // 根式套根式：|x-2\sqrt{x}| 的内部形式 √((x-2√x)²) 就套上了
     CHECK_ERR(parsePiecewiseExpression("|x-2\\sqrt{x}|"), MathsError::NestedRadical);
 
+    // 同一类输入必须给同一种展示形态。`|g|` 在 g **恒非负**时内部只剩一支
+    // （|(x-1)^2/2| 就是），这时光看分支结构分辨不出「这是 |g|」——
+    // 所以展示形态要靠解析器带出来的「输入写成绝对值形式」标记。
+    {
+      const PiecewiseParseResult nonNegative = parsePiecewiseExpressionDetailed("|x^2|").unwrap();
+      CHECK_TRUE(nonNegative.writtenAsAbsoluteValue);
+      CHECK_TRUE(nonNegative.value.branchCount() == std::size_t(1)); // x² 恒非负，只剩一支
+      CHECK_TRUE(!nonNegative.value.asAbsoluteValue().has_value());  // 结构上分辨不出来
+      // 但输入形态说它是绝对值 → 展示时仍该还原成 |x^2|
+      CHECK_EQ(nonNegative.value.branch(0).ruleLatex(), std::string("x^2"));
+
+      // 不是绝对值形式写的（例如本来就是个单支分段）→ 标记为 false
+      const PiecewiseParseResult plain = parsePiecewiseExpressionDetailed("\\sqrt{x^2+1}").unwrap();
+      CHECK_TRUE(!plain.writtenAsAbsoluteValue);
+      CHECK_TRUE(plain.value.branchCount() == std::size_t(1));
+    }
+
     // 落单的竖线原样留给解析器报错
     CHECK_ERR(parsePiecewiseExpression("|x"), MathsError::InvalidExpression);
   }

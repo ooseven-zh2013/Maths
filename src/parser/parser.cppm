@@ -955,7 +955,17 @@ constexpr std::size_t kMaxSquareRadicals = 4;
 //
 // `|g|` 与 `√(g²)` 走的是**同一条路**（`|g|` 先被改写成 `\sqrt{{g}^2}`），
 // 所以两者得到的是同一个分段函数，输出时再一起还原成 `|g|`。
-inline Result<PiecewiseFunction> parsePiecewiseExpression(std::string_view text) {
+// 解析结果：分段本身，外加「输入是不是写成 |g| / √(g²) 的」这个标记。
+//
+// 为什么必须把标记带出来：`|g|` 在 **g 恒非负** 时内部只剩一支
+// （`|(x-1)^2/2|` 就是），而「一个本来就单支的分段」跟它结构上完全一样 ——
+// 光看 `PiecewiseFunction` 分辨不出来。展示形态要一致，只能靠输入形态。
+struct PiecewiseParseResult {
+  PiecewiseFunction value;
+  bool writtenAsAbsoluteValue{false};
+};
+
+inline Result<PiecewiseParseResult> parsePiecewiseExpressionDetailed(std::string_view text) {
   // 原文里有没有根号 —— 用来把「根号里含多个变量」翻译成「绝对值这边只支持一元」：
   // `|a+b|` 走的是内部形式 `√((a+b)²)`，用户压根没打根号，报「根号里含多个变量」
   // 会让人莫名其妙。查的是**原文**，不是改写后那份。
@@ -973,7 +983,8 @@ inline Result<PiecewiseFunction> parsePiecewiseExpression(std::string_view text)
     if (single.isErr()) {
       return std::unexpected(reported(single.unwrapErr()));
     }
-    return PiecewiseFunction::make({single.unwrap()});
+    return Result<PiecewiseParseResult>(
+        PiecewiseParseResult{PiecewiseFunction::make({single.unwrap()}).unwrap(), false});
   }
   if (direct.unwrapErr() != MathsError::RadicandIsSquare) {
     return std::unexpected(reported(direct.unwrapErr()));
@@ -1068,7 +1079,21 @@ inline Result<PiecewiseFunction> parsePiecewiseExpression(std::string_view text)
     }
     branches.push_back(branch.unwrap()); // 符号互相冲突的那些支定义域为空，由 make 丢掉
   }
-  return PiecewiseFunction::make(std::move(branches));
+  const Result<PiecewiseFunction> built = PiecewiseFunction::make(std::move(branches));
+  if (built.isErr()) {
+    return std::unexpected(built.unwrapErr());
+  }
+  // 改写过（有 `|…|` 或 `√(g²)` 被换成占位变量）就是「按绝对值写的」
+  return PiecewiseParseResult{built.unwrap(), !squares.empty()};
+}
+
+// 只要分段本身时的便捷入口
+inline Result<PiecewiseFunction> parsePiecewiseExpression(std::string_view text) {
+  const Result<PiecewiseParseResult> detailed = parsePiecewiseExpressionDetailed(text);
+  if (detailed.isErr()) {
+    return std::unexpected(detailed.unwrapErr());
+  }
+  return detailed.unwrap().value;
 }
 
 struct Assignment {
