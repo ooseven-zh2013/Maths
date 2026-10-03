@@ -278,15 +278,11 @@ std::optional<InputExpression> readExpression() {
 // 打印语法说明。一次性给全，后面不再零散补充
 // 语法说明**只在文档里**，程序不再重复印 —— 用法类内容属于 docs/apps/simplify.md。
 // 这里只留一行指针。
-void printSyntax() {
-  std::cout << "（语法与用法见 docs/apps/simplify.md）\n\n";
-}
+void printSyntax() { std::cout << "（语法与用法见 docs/apps/simplify.md）\n\n"; }
 
 // 打印条件输入的说明
 // 同上：条件怎么写进文档，这里只留最小提示（`0=0` 结束这件事不写出来会让人卡住）
-void printConstraintHelp() {
-  std::cout << "（变量 = 表达式；0=0 结束 · 详见 docs/apps/simplify.md）\n";
-}
+void printConstraintHelp() { std::cout << "（变量 = 表达式；0=0 结束 · 详见 docs/apps/simplify.md）\n"; }
 
 // ---------------- 条件 ----------------
 
