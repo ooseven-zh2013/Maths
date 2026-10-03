@@ -62,6 +62,9 @@ enum class MathsError {
   // 空样本（或观测数不够，如样本方差至少要 2 个观测）：没有该统计量
   EmptyCollection,
   // 不是有限点集（集合里含区间块）：连续集合上的「求和」是积分，不是求和，本库不做
+  // 塔的定义域算不出来：只支持「每层被开方数是 x 的有理函数」或「对前一个生成元线性」
+  // 这两类，更一般的组合要逐层做符号推理
+  DomainNotDecidable,
   NotFiniteSet,
 };
 
@@ -115,6 +118,8 @@ inline std::string_view describe(MathsError error) {
     return "不是一元函数（含多个自变量）";
   case MathsError::EmptyCollection:
     return "样本为空或观测数不够，没有该统计量";
+  case MathsError::DomainNotDecidable:
+    return "这层被开方数的符号判不了（定义域只支持每层对前一个生成元线性的情形）";
   case MathsError::NotFiniteSet:
     return "不是有限点集（含区间块）—— 连续集合上的求和是积分，不是求和";
   }

@@ -10,6 +10,7 @@ import :expression;
 import :rational;
 import :scope;
 import :algebraic;
+import :constraint;
 
 // ==================== 塔式扩张 ====================
 //
@@ -61,7 +62,8 @@ public:
   // 判等会失效。已知的例子是 `√((√x+1)^2)` 这类刻意构造的输入。
   static Result<TowerExtension> make(const RationalFunction &base, const std::vector<Flat> &relations) {
     for (std::size_t index = 0; index < relations.size(); ++index) {
-      // 长度必须是 2^i：relation[i] 只能用前 i 个生成元，超出就是引用了不在本层的东西
+      // 长度必须是 2^i：relation[i] 只能用前 i 个生成元（掩码最大 2^i−1，
+      // 正好第 i 位永远是 0，所以「引用自己」这种情形长度约束本身就排除了）
       if (relations[index].size() != (std::size_t(1) << index)) {
         return Result<TowerExtension>::err(MathsError::NestedRadical);
       }
@@ -476,5 +478,116 @@ private:
   std::vector<Flat> relations_;
   Flat coefficients_;
 };
+
+// 一层的条件：{x : fᵢ 在 x 处 ≥ 0}。见 domainOf 的说明。
+inline Result<RealSet> layerCondition(std::size_t index, const TowerExtension::Flat &relation,
+                                      const std::vector<TowerExtension::Flat> &relations) {
+  const std::size_t count = relation.size();
+  std::optional<std::size_t> generator; // 非零项用到的生成元
+  for (std::size_t mask = 1; mask < count; ++mask) {
+    if (relation[mask].isZero()) {
+      continue;
+    }
+    if (std::popcount(mask) != 1) {
+      return Result<RealSet>::err(MathsError::DomainNotDecidable); // 一次出现多个生成元
+    }
+    if (generator.has_value()) {
+      return Result<RealSet>::err(MathsError::DomainNotDecidable); // 不止一个生成元
+    }
+    generator = mask;
+  }
+
+  // 只有常数项：fᵢ 是 x 的有理函数
+  if (!generator.has_value()) {
+    return solveInequality(relation[0], Relation::GreaterEqual);
+  }
+  // fᵢ = a + b·y_{i−1}：b 必须是常数项之外的**唯一**一项，且 y_{i−1} 本身要有理被开方数
+  const std::size_t previousBit = std::size_t(1) << (index - 1);
+  if (*generator != previousBit || index == 0) {
+    return Result<RealSet>::err(MathsError::DomainNotDecidable);
+  }
+  if (relations[index - 1].size() != 1 || relations[index - 1][0].isZero()) {
+    return Result<RealSet>::err(MathsError::DomainNotDecidable); // y_{i−1} 的被开方数不是有理函数
+  }
+
+  const RationalFunction &a = relation[0];
+  const RationalFunction &b = relation[previousBit];
+  const Result<RationalFunction> ratio = b / a; // 记 r = b/a，条件是 √f ⋈ −a/b 那一侧
+  if (ratio.isErr()) {
+    return Result<RealSet>::err(ratio.unwrapErr());
+  }
+  const Result<RationalFunction> residual = relations[index - 1][0] - ratio.unwrap() * ratio.unwrap();
+  if (residual.isErr()) {
+    return Result<RealSet>::err(residual.unwrapErr());
+  }
+
+  // b > 0 → √f ≥ −a/b；b < 0 → √f ≤ −a/b；b = 0 → a ≥ 0
+  // 而 √f ≥ h ⟺ h ≤ 0 ∨ f ≥ h²，√f ≤ h ⟺ h ≥ 0 ∧ f ≤ h²，h = −a/b
+  const Result<RealSet> positive = solveInequality(b, Relation::Greater);
+  const Result<RealSet> negative = solveInequality(b, Relation::Less);
+  const Result<RealSet> zero = solveInequality(b, Relation::Equal);
+  const Result<RealSet> ratioNonNegative = solveInequality(ratio.unwrap(), Relation::GreaterEqual);
+  const Result<RealSet> residualNonNegative = solveInequality(residual.unwrap(), Relation::GreaterEqual);
+  const Result<RealSet> ratioNonPositive = solveInequality(ratio.unwrap(), Relation::LessEqual);
+  const Result<RealSet> residualNonPositive = solveInequality(residual.unwrap(), Relation::LessEqual);
+  const Result<RealSet> aNonNegative = solveInequality(a, Relation::GreaterEqual);
+  for (const Result<RealSet> *step : {&positive, &negative, &zero, &ratioNonNegative, &residualNonNegative,
+                                      &ratioNonPositive, &residualNonPositive, &aNonNegative}) {
+    if (step->isErr()) {
+      return *step;
+    }
+  }
+  // √f ≥ −a/b  ⟺  (−a/b ≤ 0) ∨ (f ≥ (a/b)²)，而 (−a/b ≤ 0) ⟺ a/b ≥ 0
+  const Result<RealSet> atLeast = RealSet(ratioNonNegative.unwrap().unite(residualNonNegative.unwrap()));
+  // √f ≤ −a/b  ⟺  (−a/b ≥ 0) ∧ (f ≤ (a/b)²)，而 (−a/b ≥ 0) ⟺ a/b ≤ 0
+  const Result<RealSet> atMost = ratioNonPositive.unwrap().intersect(residualNonPositive.unwrap());
+  if (atLeast.isErr()) {
+    return atLeast;
+  }
+  if (atMost.isErr()) {
+    return atMost;
+  }
+  const Result<RealSet> upperBranch = positive.unwrap().intersect(atLeast.unwrap());
+  if (upperBranch.isErr()) {
+    return upperBranch;
+  }
+  const Result<RealSet> lowerBranch = negative.unwrap().intersect(atMost.unwrap());
+  if (lowerBranch.isErr()) {
+    return lowerBranch;
+  }
+  const Result<RealSet> flatBranch = zero.unwrap().intersect(aNonNegative.unwrap());
+  if (flatBranch.isErr()) {
+    return flatBranch;
+  }
+  return Result<RealSet>(upperBranch.unwrap().unite(lowerBranch.unwrap()).unite(flatBranch.unwrap()));
+}
+
+// ==================== 定义域 ====================
+//
+// {x : 每一层的被开方数在 x 处都 ≥ 0}。逐层判、必要时与已算出的定义域取交 ——
+// 后面的层要用到前面各层的生成元，那些层先得是实数。
+//
+// 判定范围刻意保守，算不出来就明确报错，不猜：
+//
+//   fᵢ 是 x 的有理函数            → solveInequality(fᵢ, ≥)
+//   fᵢ = a + b·y_{i−1}（a、b 与 f_{i−1} 都是 x 的有理函数）
+//                                   → √f ≥ h ⟺ h ≤ 0 ∨ f ≥ h²，三情形化归
+//   其余（fᵢ 含更早的生成元）        → DomainNotDecidable
+inline Result<RealSet> domainOf(const TowerExtension &value) {
+  Result<RealSet> domain = Result<RealSet>(RealSet::realLine());
+  for (std::size_t index = 0; index < value.depth(); ++index) {
+    const TowerExtension::Flat &relation = value.relations()[index];
+    Result<RealSet> layer = layerCondition(index, relation, value.relations());
+    if (layer.isErr()) {
+      return layer;
+    }
+    const Result<RealSet> narrowed = domain.unwrap().intersect(layer.unwrap());
+    if (narrowed.isErr()) {
+      return narrowed;
+    }
+    domain = narrowed;
+  }
+  return domain;
+}
 
 } // namespace maths

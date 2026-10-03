@@ -105,6 +105,37 @@ int main() {
     CHECK_TRUE(valueAt(product, 3) == rootThree * expected);
   }
 
+  // ---------- 定义域 ----------
+  {
+    auto tower = [](const std::vector<Flat> &relations) {
+      const std::size_t depth = relations.size();
+      return TowerExtension::fromMasks(relations, Flat(std::size_t(1) << depth, number(0))).unwrap();
+    };
+
+    // 深度 1：被开方数就是 x 的有理函数
+    CHECK_EQ(domainOf(tower({Flat{expression("x")}})).unwrap().latex(), std::string("[0, +\\infty)"));
+    CHECK_EQ(domainOf(tower({Flat{expression("1/x")}})).unwrap().latex(), std::string("(0, +\\infty)"));
+    CHECK_EQ(domainOf(tower({Flat{expression("x-1")}})).unwrap().latex(), std::string("[1, +\\infty)"));
+
+    // 深度 2：f₂ = a + b·y₁，靠 √f ≥ h ⟺ h ≤ 0 ∨ f ≥ h² 化归
+    CHECK_EQ(domainOf(tower({Flat{expression("x")}, Flat{number(1), number(1)}})).unwrap().latex(),
+             std::string("[0, +\\infty)")); // 1+√x 恒正
+    CHECK_EQ(domainOf(tower({Flat{expression("x")}, Flat{number(-1), number(1)}})).unwrap().latex(),
+             std::string("[1, +\\infty)")); // √x−1 ≥ 0 ⟺ x ≥ 1
+    CHECK_EQ(domainOf(tower({Flat{expression("x")}, Flat{number(1), number(-1)}})).unwrap().latex(),
+             std::string("[0, 1]")); // 1−√x ≥ 0 ⟺ x ≤ 1
+    CHECK_TRUE(domainOf(tower({Flat{expression("x")}, Flat{number(-1), number(-1)}})).unwrap().isEmpty()); // −1−√x 恒负
+
+    // 判不了的：fᵢ 一次用了两个生成元（y₁y₂）—— 深度 3 才排得下
+    CHECK_ERR(domainOf(tower({Flat{expression("x")}, Flat{number(1), number(0)},
+                              Flat{number(1), number(0), number(0), number(1)}})),
+              MathsError::DomainNotDecidable);
+    // relations[i] 的长度必须是 2^i：给短了就是编码不自洽
+    CHECK_ERR(TowerExtension::fromMasks({Flat{expression("x")}, Flat{number(1)}},
+                                        Flat{number(0), number(0), number(0), number(0)}),
+              MathsError::NestedRadical);
+  }
+
   // ---------- 判等 ----------
   {
     CHECK_TRUE(rootOfX() == element(kRootX, Flat{number(0), number(1)}));
