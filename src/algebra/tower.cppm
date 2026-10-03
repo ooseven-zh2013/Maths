@@ -11,6 +11,7 @@ import :rational;
 import :scope;
 import :algebraic;
 import :constraint;
+import :radical;
 
 // ==================== 塔式扩张 ====================
 //
@@ -111,8 +112,47 @@ public:
                        [](const RationalFunction &coefficient) { return coefficient.isZero(); });
   }
 
+  // 塔建在 ℚ(x) 上，唯一的变量就是 x
+  std::set<Variable> variables() const {
+    if (isConstant()) {
+      return {};
+    }
+    return {Variable("x")};
+  }
+
+  // 是不是**同一条塔**（relations 逐条相同）。做算术前必须查：域不同就没法算。
+  // operator== 连元素一起比，判「域是否相同」要用这个。
+  bool sameTower(const TowerExtension &rhs) const {
+    if (relations_.size() != rhs.relations_.size()) {
+      return false;
+    }
+    for (std::size_t index = 0; index < relations_.size(); ++index) {
+      if (relations_[index] != rhs.relations_[index]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   // 系数全在 ℚ(x) 里，所以「有没有变量」只看系数
+  // 用到的最高编号生成元（一个都没用上时返回 npos）。
+  // ⚠️ 掩码 0 是**常数项**、不是 y₀，所以要从高位降到 1 为止。
+  std::size_t highestGeneratorUsed() const {
+    for (std::size_t mask = coefficients_.size(); mask-- > 1;) {
+      if (!coefficients_[mask].isZero()) {
+        return static_cast<std::size_t>(std::countr_zero(mask));
+      }
+    }
+    return static_cast<std::size_t>(-1);
+  }
+
+  // 常数元素 = **一个生成元都没用上**，且非零的那些系数本身也不含变量。
+  // 两个条件都要：y₂ 的系数是常数 1，可「1·y₂」显然不是常数；
+  // 反过来深度 0 的元素装的是有理函数 x，它也含变量。
   bool isConstant() const {
+    if (highestGeneratorUsed() != static_cast<std::size_t>(-1)) {
+      return false;
+    }
     return std::all_of(coefficients_.begin(), coefficients_.end(), [](const RationalFunction &coefficient) {
       return coefficient.isZero() || coefficient.variables().empty();
     });
@@ -126,7 +166,8 @@ public:
   Result<TowerExtension> operator+(const TowerExtension &rhs) const { return combine(rhs, false); }
   Result<TowerExtension> operator-(const TowerExtension &rhs) const { return combine(rhs, true); }
 
-  Result<TowerExtension> negate() const {
+  // 取负不会失败（逐系数变号，不涉及扩域）
+  TowerExtension negate() const {
     Flat flat = coefficients_;
     for (RationalFunction &coefficient : flat) {
       coefficient = -coefficient;
@@ -287,6 +328,45 @@ public:
     return Result<TowerExtension>(make(RationalFunction(Fraction(0, 1)), extended));
   }
 
+  // 把一个独立根式扩张「挂」到这条塔的顶上：它的每个生成元各占一层。
+  //
+  // 这是「塔是更大的代数」的具体用法 —— 所有关系都在第 0 层的塔正好就是多生成元的
+  // 独立根式扩张，所以 radical ⊗ tower 只要把 radical 挂上来再算，不用另设一套运算。
+  Result<TowerExtension> liftedWith(const RadicalExtension &value) const {
+    if (value.isRadicalFree()) {
+      const Result<RationalFunction> plain = value.toRationalFunction();
+      if (plain.isErr()) {
+        return Result<TowerExtension>::err(plain.unwrapErr());
+      }
+      return Result<TowerExtension>(lifting(plain.unwrap()));
+    }
+    Result<TowerExtension> extended = Result<TowerExtension>(*this);
+    for (const RationalFunction &radicand : value.radicands()) {
+      const Result<TowerExtension> appended =
+          extended.unwrap().adjoining(flatOfConstant(coefficients_.size(), radicand));
+      if (appended.isErr()) {
+        return appended;
+      }
+      extended = appended;
+    }
+    // 元素本身：原来的掩码整体右移「挂上去的层数」位
+    const std::size_t shift = extended.unwrap().depth() - depth();
+    Flat flat(std::size_t(1) << extended.unwrap().depth(), RationalFunction(Fraction(0, 1)));
+    for (std::size_t mask = 0; mask < value.coefficients().size(); ++mask) {
+      if (!value.coefficients()[mask].isZero()) {
+        flat[mask << shift] = value.coefficients()[mask];
+      }
+    }
+    return fromMasks(extended.unwrap().relations(), flat);
+  }
+
+  // 长度 size、只有常数项是 value 的平表（relations[i] 的标准形状）
+  static Flat flatOfConstant(std::size_t size, const RationalFunction &value) {
+    Flat flat(size, RationalFunction(Fraction(0, 1)));
+    flat[0] = value;
+    return flat;
+  }
+
   // 第 index 个生成元本身（平表里只有那一位是 1）
   static Result<TowerExtension> generatorOf(const TowerExtension &tower, std::size_t index) {
     if (index >= tower.depth()) {
@@ -301,7 +381,9 @@ public:
   //
   // 平表就是基（`make` 已排除可检测的退化），所以逐项比系数即可。
   bool operator==(const TowerExtension &rhs) const {
-    return relations_.size() == rhs.relations_.size() && coefficients_ == rhs.coefficients_;
+    // ⚠️ relations 必须**逐条**比：只比条数的话，y₂² = 1 + y₁ 与 y₂² = 2 + y₁
+    // 这两条不同的塔会被判成相等（长度一样）
+    return relations_ == rhs.relations_ && coefficients_ == rhs.coefficients_;
   }
 
   // ==================== 输出 ====================
@@ -339,18 +421,6 @@ private:
       return false; // 多变量：不是这一类退化
     }
     return univariate->squareFreePart().degree() != univariate->degree();
-  }
-
-  bool sameTower(const TowerExtension &rhs) const {
-    if (relations_.size() != rhs.relations_.size()) {
-      return false;
-    }
-    for (std::size_t index = 0; index < relations_.size(); ++index) {
-      if (relations_[index] != rhs.relations_[index]) {
-        return false;
-      }
-    }
-    return true;
   }
 
   // 约化：把幂 ≥ 2 的部分按 yᵢ² = fᵢ 换掉，最后摊回平表。

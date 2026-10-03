@@ -169,6 +169,45 @@ int main() {
               MathsError::NestedRadical);
   }
 
+  // ---------- FunctionRule：规则可以是根式，也可以是一条塔 ----------
+  {
+    const FunctionRule radical(FunctionRule::rational(expression("x+1")));
+    const FunctionRule tower(parseTowerExpression("\\sqrt{1+\\sqrt{x}}").unwrap());
+    CHECK_TRUE(!radical.holdsTower() && radical.isRadicalFree());
+    CHECK_TRUE(tower.holdsTower() && !tower.isRadicalFree());
+    // 塔没有「降回有理函数」这件事
+    CHECK_ERR(tower.toRationalFunction(), MathsError::NestedRadical);
+    CHECK_TRUE(radical.toRationalFunction().isOk());
+    // 塔的变量仍然只有 x
+    CHECK_TRUE(tower.variables().size() == std::size_t(1));
+
+    // radical ⊗ radical 走老路径，结果仍是 radical
+    const Result<FunctionRule> sum = radical + radical;
+    CHECK_TRUE(sum.isOk() && !sum.unwrap().holdsTower());
+    CHECK_EQ(sum.unwrap().latex(), std::string("2x + 2"));
+
+    // radical ⊗ tower：把 radical 挂到塔顶再算
+    const Result<FunctionRule> mixed = radical + tower;
+    CHECK_TRUE(mixed.isOk() && mixed.unwrap().holdsTower());
+    // tower ⊗ radical 一样
+    const Result<FunctionRule> other = tower + radical;
+    CHECK_TRUE(other.isOk() && other.unwrap().holdsTower());
+    CHECK_TRUE(mixed.unwrap() == other.unwrap());
+
+    // tower ⊗ tower：两条不同的塔不能相加（域都不一样）
+    const FunctionRule other1(parseTowerExpression("\\sqrt{2+\\sqrt{x}}").unwrap());
+    CHECK_ERR(tower + other1, MathsError::InvalidExpression);
+    // 同一对可以
+    CHECK_TRUE((tower + tower).isOk());
+    CHECK_TRUE((tower * tower).isOk());
+    CHECK_TRUE((tower / tower).isOk());
+    CHECK_TRUE((tower - tower).isOk());
+
+    // 取负
+    CHECK_TRUE((-tower) == FunctionRule(tower.asTower().negate()));
+    CHECK_TRUE((tower + (-tower)).isOk());
+  }
+
   // ---------- 解析器：由内往外建塔 ----------
   {
     // 套嵌根号：y₁² = x、y₂² = 1 + y₁

@@ -11,4 +11,5 @@ export import :radical;
 export import :function;
 export import :piecewise;
 export import :tower;
+export import :rule;
 export import :aggregate;
