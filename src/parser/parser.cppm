@@ -1096,6 +1096,120 @@ inline Result<PiecewiseFunction> parsePiecewiseExpression(std::string_view text)
   return detailed.unwrap().value;
 }
 
+// ==================== 套嵌根号 → 塔 ====================
+
+namespace tower_parser_detail {
+
+// 最里层的那个 `\sqrt{...}`（内容里不再有根号）。
+// 找到就返回它在 text 里的 [spanBegin, spanEnd) 跨度（spanEnd 落在 `}` 之后）与内容。
+inline bool innermostRadical(const std::string &text, std::size_t &spanBegin, std::size_t &spanEnd,
+                             std::string &content) {
+  std::size_t search = 0;
+  while (true) {
+    const std::size_t at = text.find("\\sqrt", search);
+    if (at == std::string::npos) {
+      return false;
+    }
+    std::size_t position = at + 5;
+    while (position < text.size() && std::isspace(static_cast<unsigned char>(text[position])) != 0) {
+      ++position;
+    }
+    if (position < text.size() && text[position] == '[') {
+      return false; // 高次根不做
+    }
+    std::string inner;
+    if (!expression_detail::takeBracedGroup(text, position, inner)) {
+      return false;
+    }
+    if (inner.find("\\sqrt") == std::string::npos) {
+      spanBegin = at;
+      spanEnd = position;
+      content = std::move(inner);
+      return true;
+    }
+    // 这个不是最里层，继续往**它内部**找 —— 从 at+1 起扫，而不是从 position 起
+    // （内层根号在 position 之前，从 position 起会直接跳过它，整轮一个都找不到）
+    search = at + 1;
+  }
+}
+
+// 一个原文里没用过的占位变量名。
+//
+// ⚠️ 必须**纯字母**：`Name::check` 只接受「全字母」或「全数字」，混着写会抛
+// `InvalidName`。写成 `{zabsa}` 这种带花括号的长名，是为了不跟邻近字母粘成隐含乘法。
+inline Variable freshPlaceholder(const std::string &text, std::size_t index) {
+  std::string name = "zabs";
+  name += static_cast<char>('a' + index);
+  while (text.find("{" + name + "}") != std::string::npos) {
+    name += "z";
+  }
+  return Variable(name);
+}
+
+} // namespace tower_parser_detail
+
+// 把含**套嵌根号**的式子解析成塔：`\sqrt{1+\sqrt{x}}` → y₁² = x、y₂² = 1 + y₁。
+//
+// 由内往外逐个根号处理：
+//   1. 找最里层的 `\sqrt{...}`，内容记下来，整个 span 换成占位变量
+//   2. 内容里已经没有根号 → 按有理函数解析，用 `evaluateOverPlaceholders`
+//      把已用过的占位变量换成对应生成元
+//   3. `adjoining` 往上接一层
+//   4. 最后整条式子同样代一遍，得到元素本身
+//
+// 只处理**一元**（与库里其他函数类型一致）。`\sqrt{2}` 这类纯数值根号走实代数数那条路，
+// 不归这里。
+inline Result<TowerExtension> parseTowerExpression(std::string_view text) {
+  using tower_parser_detail::freshPlaceholder;
+  using tower_parser_detail::innermostRadical;
+
+  std::string remaining = expression_detail::normalizeLatex(text);
+  std::vector<std::string> radicands; // 由内往外
+  std::vector<Variable> placeholders;
+
+  while (true) {
+    std::size_t spanBegin = 0;
+    std::size_t spanEnd = 0;
+    std::string content;
+    if (!innermostRadical(remaining, spanBegin, spanEnd, content)) {
+      break;
+    }
+    const Variable placeholder = freshPlaceholder(remaining, placeholders.size());
+    placeholders.push_back(placeholder);
+    radicands.push_back(std::move(content));
+    remaining = remaining.substr(0, spanBegin) + "{" + placeholder.str() + "}" + remaining.substr(spanEnd);
+  }
+  if (placeholders.empty()) {
+    return Result<TowerExtension>::err(MathsError::InvalidExpression); // 没有根号，走别的入口
+  }
+
+  // 由内往外往上接层
+  Result<TowerExtension> tower = TowerExtension::rational(RationalFunction(Fraction(0, 1)));
+  for (std::size_t index = 0; index < placeholders.size(); ++index) {
+    const Result<RationalFunction> parsed = expression_detail::ParserOf<Fraction>(radicands[index]).parse();
+    if (parsed.isErr()) {
+      return std::unexpected(parsed.unwrapErr());
+    }
+    const std::vector<Variable> used(placeholders.begin(), placeholders.begin() + static_cast<std::ptrdiff_t>(index));
+    const Result<TowerExtension> radicand = evaluateOverPlaceholders(parsed.unwrap(), used, tower.unwrap());
+    if (radicand.isErr()) {
+      return radicand;
+    }
+    const Result<TowerExtension> appended = tower.unwrap().adjoining(radicand.unwrap().coefficients());
+    if (appended.isErr()) {
+      return std::unexpected(appended.unwrapErr());
+    }
+    tower = appended;
+  }
+
+  // 整条式子：代掉全部占位变量
+  const Result<RationalFunction> whole = expression_detail::ParserOf<Fraction>(remaining).parse();
+  if (whole.isErr()) {
+    return std::unexpected(whole.unwrapErr());
+  }
+  return evaluateOverPlaceholders(whole.unwrap(), placeholders, tower.unwrap());
+}
+
 struct Assignment {
   Variable variable;
   RationalFunction value; // 右边可以是含其它变量的表达式，如 s = v*t

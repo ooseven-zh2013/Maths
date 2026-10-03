@@ -169,6 +169,45 @@ int main() {
               MathsError::NestedRadical);
   }
 
+  // ---------- 解析器：由内往外建塔 ----------
+  {
+    // 套嵌根号：y₁² = x、y₂² = 1 + y₁
+    const TowerExtension nested = parseTowerExpression("\\sqrt{1+\\sqrt{x}}").unwrap();
+    CHECK_TRUE(nested.depth() == std::size_t(2));
+    CHECK_TRUE(nested == element(kNested, Flat{number(0), number(0), number(1), number(0)}));
+    CHECK_EQ(domainOf(nested).unwrap().latex(), std::string("[0, +\\infty)"));
+    // x = 4 时 √(1+2) = √3
+    CHECK_TRUE(valueAt(nested, 4) == RealAlgebraicNumber::nthRootOf(Fraction(3, 1), 2).unwrap());
+
+    // 单层也走这条路（深度 1）
+    const TowerExtension single = parseTowerExpression("\\sqrt{x}").unwrap();
+    CHECK_TRUE(single.depth() == std::size_t(1));
+    CHECK_TRUE(single == element(kRootX, Flat{number(0), number(1)}));
+
+    // 整条式子里带系数
+    const TowerExtension scaled = parseTowerExpression("2*\\sqrt{1+\\sqrt{x}}").unwrap();
+    CHECK_TRUE(scaled.depth() == std::size_t(2));
+    CHECK_TRUE(valueAt(scaled, 4) ==
+               RealAlgebraicNumber(Fraction(2, 1)) * RealAlgebraicNumber::nthRootOf(Fraction(3, 1), 2).unwrap());
+
+    // 三个根号、两个是套嵌的
+    const TowerExtension three = parseTowerExpression("\\sqrt{1+\\sqrt{x}}+\\sqrt{3}").unwrap();
+    CHECK_TRUE(three.depth() == std::size_t(3));
+    CHECK_TRUE(valueAt(three, 4) == RealAlgebraicNumber::nthRootOf(Fraction(3, 1), 2).unwrap() +
+                                        RealAlgebraicNumber::nthRootOf(Fraction(3, 1), 2).unwrap());
+
+    // 除法：1/√(1+√x) 在 x=4 处是 1/√3
+    const TowerExtension quotient = parseTowerExpression("1/\\sqrt{1+\\sqrt{x}}").unwrap();
+    CHECK_TRUE(quotient.depth() == std::size_t(2));
+    CHECK_TRUE(valueAt(quotient, 4) * RealAlgebraicNumber::nthRootOf(Fraction(3, 1), 2).unwrap() ==
+               RealAlgebraicNumber(Fraction(1, 1)));
+
+    // 没有根号 → 走别的入口
+    CHECK_ERR(parseTowerExpression("x^2+1"), MathsError::InvalidExpression);
+    // 高次根不做
+    CHECK_ERR(parseTowerExpression("\\sqrt[3]{x}"), MathsError::InvalidExpression);
+  }
+
   // ---------- 判等 ----------
   {
     CHECK_TRUE(rootOfX() == element(kRootX, Flat{number(0), number(1)}));
