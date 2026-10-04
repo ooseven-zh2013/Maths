@@ -95,6 +95,18 @@ std::optional<std::string> absoluteValueText(const PiecewiseFunction &value, boo
   return std::nullopt;
 }
 
+// 变量清单的显示（一元那边只会出现一个，所以以前没写过这个）
+std::string variableListLatex(const std::set<Variable> &variables) {
+  std::string result;
+  for (const Variable &variable : variables) {
+    if (!result.empty()) {
+      result += ",\\quad ";
+    }
+    result += variable.str();
+  }
+  return result;
+}
+
 // ---------------- 输入 ----------------
 
 // 去掉全部空白，用于识别终止哨兵 0=0
@@ -163,8 +175,10 @@ std::optional<std::string> radicalHint(std::string_view text) {
 //                             落在函数域上，代入有理数后给精确值
 //   PiecewiseFunction         被开方数是**完全平方**的根号（`\sqrt{x^2}` = |x|）——
 //                             那不是单个式子、分段才装得下，所以单独一档
+// 最后一档 `MultiTowerExtension` 是**多元**的（变量不止一个）。它只在「代入求值」上
+// 与前几档不同：条件要给**一个点**（x=3, y=4），而一元那边给 x = 值就够了。
 using Expression = std::variant<RationalFunction, RealAlgebraicNumber, AlgebraicRationalFunction, RadicalExtension,
-                                PiecewiseFunction, TowerExtension>;
+                                PiecewiseFunction, TowerExtension, MultiTowerExtension>;
 
 struct InputExpression {
   Expression value;
@@ -226,6 +240,15 @@ std::optional<InputExpression> readExpression() {
     // 它装不进上面任何一档：代数函数域里 `√(g²)` 不是单值元素（`ℚ(x)[y]/(y²−g²)` 可约、
     // y 是零因子），但作为 **ℝ → ℝ 的函数**完全合法，只需要分段才表示得出来。
     // 分段不是「化简得不好」，而是这类函数的本来面目 —— 所以单独走一条路、单独报结果。
+    // 多元的套嵌根号（`\sqrt{x^2+y^2}`、`\sqrt{1+\sqrt{x^2+y^2}}`）（`\sqrt{x^2+y^2}`、`\sqrt{1+\sqrt{x^2+y^2}}`）。
+    // 变量不止一个才走这一档 —— 单变量的输入在前面几档就成功了。
+    const Result<MultiTowerExtension> multi = parseMultiTowerExpression(line);
+    if (multi.isOk() && multi.unwrap().variables().size() > std::size_t(1)) {
+      printField("解析为", multi.unwrap().latex(), true);
+      printField("变量", variableListLatex(multi.unwrap().variables()), true);
+      return InputExpression{multi.unwrap(), trim(line)};
+    }
+
     const Result<PiecewiseParseResult> piecewise = parsePiecewiseExpressionDetailed(line);
     if (piecewise.isOk()) {
       const std::optional<std::string> shown = absoluteValueText(piecewise.unwrap().value, true);
@@ -540,6 +563,70 @@ Result<RealAlgebraicNumber> constraintPointValue(const Constraint &entry) {
   return RealAlgebraicNumber(value.unwrap());
 }
 
+// 多元的条件输入：一行可以给多个（`x=3, y=4`），读满所有变量才算一个点。
+//
+// 与一元那边三处不同：
+//   - 一行多个赋值（一元是一行一个）
+//   - 不支持 `x = x` 那种删除（多元这边没这个需求）
+//   - 取值只接受**纯有理数** —— 多元塔只在有理取值的点上有值
+Result<Scope> readPoint(const std::set<Variable> &variables) {
+  Scope scope;
+  printConstraintHelp();
+  while (true) {
+    std::cout << "条件> ";
+    std::string line;
+    if (!readLine(line)) {
+      return Result<Scope>::err(MathsError::InvalidRange);
+    }
+    const std::string trimmed = stripSpaces(line);
+    if (trimmed == "0=0") {
+      // 没给满就报错，而不是拿部分变量去算 —— 那会算出一个没有意义的值
+      for (const Variable &variable : variables) {
+        if (scope.lookup(variable).isErr()) {
+          printFeedback("不接受", "还差 " + variableListLatex({variable}));
+          return Result<Scope>::err(MathsError::UndefinedVariable);
+        }
+      }
+      return Result<Scope>(scope);
+    }
+    if (trimmed.empty()) {
+      continue;
+    }
+    std::size_t position = 0;
+    while (position < trimmed.size()) {
+      const std::size_t comma = trimmed.find(',', position);
+      const std::string piece =
+          trimmed.substr(position, comma == std::string::npos ? std::string::npos : comma - position);
+      const std::size_t equals = piece.find('=');
+      if (equals == std::string::npos) {
+        printFeedback("不接受", "多元的条件写成 x=3, y=4 这样");
+        return Result<Scope>::err(MathsError::InvalidExpression);
+      }
+      const std::string name = stripSpaces(piece.substr(0, equals));
+      const std::string value = stripSpaces(piece.substr(equals + 1));
+      const Result<RationalFunction> parsed = parseExpression(value);
+      if (parsed.isErr()) {
+        printFeedback("不接受", std::string(describe(parsed.unwrapErr())));
+        return Result<Scope>::err(parsed.unwrapErr());
+      }
+      if (!parsed.unwrap().variables().empty()) {
+        printFeedback("不接受", "取值点只接受有理数");
+        return Result<Scope>::err(MathsError::NotARational);
+      }
+      const Result<void> recorded = scope.assign(Variable(name), parsed.unwrap());
+      if (recorded.isErr()) {
+        printFeedback("不接受", std::string(describe(recorded.unwrapErr())));
+        return Result<Scope>::err(recorded.unwrapErr());
+      }
+      printFeedback("已记录", name + " = " + parsed.unwrap().str());
+      if (comma == std::string::npos) {
+        break;
+      }
+      position = comma + 1;
+    }
+  }
+}
+
 // 塔只在**有理取值**的点上有值（库那边 evaluate 收的是有理赋值），所以条件右边的
 // 根号值必须能化成有理数；含变量的更不行 —— 那不是「代不代得进去」，是没有值。
 Result<Fraction> rationalValueOf(const ConstraintValue &value) {
@@ -792,6 +879,24 @@ int main() {
         printField("精确值", exactValueLatex(value.unwrap()));
       }
     }
+  } else if (const MultiTowerExtension *multi = std::get_if<MultiTowerExtension>(&input->value)) {
+    // 多元：条件要给一个**点**（x=3, y=4），不是一条一元约束
+    const std::set<Variable> variables = multi->variables();
+    const Result<Scope> point = readPoint(variables);
+
+    std::cout << "\n--- 结果 ---\n";
+    printField("式子", input->text);
+    printField("变量", variableListLatex(variables));
+    if (point.isErr()) {
+      printField("无法代入", "这个式子有 " + std::to_string(variables.size()) + " 个变量，要一次给全");
+      return 0;
+    }
+    const Result<RealAlgebraicNumber> value = multi->evaluate(point.unwrap());
+    if (value.isErr()) {
+      printField("无法代入", std::string(describe(value.unwrapErr())));
+      return 0;
+    }
+    printField("精确值", exactValueLatex(value.unwrap()));
   } else if (const TowerExtension *tower = std::get_if<TowerExtension>(&input->value)) {
     // 套嵌根号（`\sqrt{1+\sqrt{x}}`）：代数函数域装不下，走塔。定义域在解析时给过了。
     Scope scope;
