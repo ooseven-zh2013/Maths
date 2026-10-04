@@ -181,7 +181,6 @@ int main() {
     const TowerExtension product = parseTowerExpression("\\sqrt{x}*\\sqrt{1+\\sqrt{x}}").unwrap();
     CHECK_ERR(whereNonNegativeOverTower(product), MathsError::DomainNotDecidable);
   }
-
   // ---------- FunctionRule：规则可以是根式，也可以是一条塔 ----------
   {
     const FunctionRule radical(FunctionRule::rational(expression("x+1")));

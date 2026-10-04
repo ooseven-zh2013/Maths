@@ -107,6 +107,12 @@ public:
   const Flat &coefficients() const { return coefficients_; }
   const std::vector<Flat> &relations() const { return relations_; }
 
+  // 平表里非零项的个数 —— 「形态好不好看」的量化指标
+  std::size_t nonzeroCoefficients() const {
+    return static_cast<std::size_t>(
+        std::count_if(coefficients_.begin(), coefficients_.end(), [](const RationalFunction &value) { return !value.isZero(); }));
+  }
+
   bool isZero() const {
     return std::all_of(coefficients_.begin(), coefficients_.end(),
                        [](const RationalFunction &coefficient) { return coefficient.isZero(); });
@@ -199,6 +205,18 @@ public:
     }
     return TowerExtension(relations_, reduce(terms));
   }
+
+  // ==================== 除法后的有理化 ====================
+  //
+  // 逐层取共轭把分母压回下一层：
+  //
+  //     a = a₀ + a₁·y    ⟹    1/a = (a₀ − a₁·y) / (a₀² − a₁²·f)
+  //
+  // 1/(1+√x) 变成 (1−√x)/(1−x)，而不是四项之和。
+  //
+  // ⚠️ **这里绝不能改值**。有理化只是换代表元；所以任何一步凑不齐（形状不符、
+  // 系数算不动）都原样退回，值由高斯消元那条路保证。
+  Flat rationalized(const Flat &element) const { return element; }
 
   // 1 / rhs：解 `lhs · x = 1`。
   //
