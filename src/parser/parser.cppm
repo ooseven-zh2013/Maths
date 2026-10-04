@@ -1289,6 +1289,205 @@ inline Result<TowerExtension> parseTowerExpression(std::string_view text) {
   return evaluateOverPlaceholders(whole.unwrap(), placeholders, tower.unwrap());
 }
 
+// ==================== 多元式子 → 多元塔 ====================
+//
+// 与一元的 `parseTowerExpression` 同一套思路：由内往外逐个根号处理。
+// 换掉的只是**占位变量的替换方式** —— 一元那边系数是 `RationalFunction`，
+// 多元这边是 `MultiRationalFunction`，两者都在 x 的有理函数域里，所以
+// 「逐项展开成 系数 × 生成元的幂」那一招照样管用。
+
+namespace multi_parser_detail {
+
+// 原文里没用过的单字母占位名。
+//
+// ⚠️ 必须**纯字母**：`Name::check` 只接受「全字母」或「全数字」，混着写会抛
+// `InvalidName`（一元那边踩过：名字带数字 → 整个进程 abort、无任何输出）。
+inline Variable freshPlaceholder(const std::string &text, std::size_t index) {
+  std::string name = "zabs";
+  name += static_cast<char>('a' + index);
+  while (text.find("{" + name + "}") != std::string::npos) {
+    name += "z";
+  }
+  return Variable(name);
+}
+
+// 最里层的那个 `\sqrt{...}`（内容里不再有根号），返回 [spanBegin, spanEnd) 与内容
+inline bool innermostRadical(const std::string &text, std::size_t &spanBegin, std::size_t &spanEnd,
+                             std::string &content) {
+  std::size_t search = 0;
+  while (true) {
+    const std::size_t at = text.find("\\sqrt", search);
+    if (at == std::string::npos) {
+      return false;
+    }
+    std::size_t position = at + 5;
+    while (position < text.size() && std::isspace(static_cast<unsigned char>(text[position])) != 0) {
+      ++position;
+    }
+    if (position < text.size() && text[position] == '[') {
+      return false; // 高次根不做
+    }
+    std::string inner;
+    if (!expression_detail::takeBracedGroup(text, position, inner)) {
+      return false;
+    }
+    if (inner.find("\\sqrt") == std::string::npos) {
+      spanBegin = at;
+      spanEnd = position;
+      content = std::move(inner);
+      return true;
+    }
+    // 这个不是最里层，继续往**它内部**找 —— 从 at+1 起扫，不是从 position 起
+    // （内层根号在 position 之前，从 position 起会直接跳过它）
+    search = at + 1;
+  }
+}
+
+// 把「含占位变量的多元有理函数」变成塔里的元素：逐项展开，最后分子 ÷ 分母。
+//
+// 不能「先换 t₁ 再换 t₂」—— 换出来的元素不是有理函数，没地方放回去。
+// 逐项展开则全程都是「系数 × 生成元的幂」，可以累加。
+Result<MultiTowerExtension> substitutePlaceholders(const MultiRationalFunction &value,
+                                                   const std::vector<Variable> &placeholders,
+                                                   const MultiTowerExtension &tower) {
+  const auto expand = [&placeholders, &tower](const Polynomial &polynomial) -> Result<MultiTowerExtension> {
+    std::optional<MultiTowerExtension> total;
+    for (const auto &[factors, coefficient] : polynomial.getTerms()) {
+      std::vector<unsigned> powers(tower.depth(), 0);
+      VarPowers rest;
+      for (const auto &[variable, power] : factors) {
+        bool isPlaceholder = false;
+        for (std::size_t index = 0; index < placeholders.size(); ++index) {
+          if (placeholders[index] == variable) {
+            if (index >= tower.depth()) {
+              return Result<MultiTowerExtension>::err(MathsError::NestedRadical);
+            }
+            powers[index] += power;
+            isPlaceholder = true;
+            break;
+          }
+        }
+        if (!isPlaceholder) {
+          rest.push_back({variable, power});
+        }
+      }
+      Result<MultiTowerExtension> term = tower.lifting(MultiRationalFunction(Monomial(coefficient, rest)));
+      for (std::size_t index = 0; index < powers.size(); ++index) {
+        for (unsigned step = 0; step < powers[index]; ++step) {
+          if (term.isErr()) {
+            return term;
+          }
+          const Result<MultiTowerExtension> generator = MultiTowerExtension::generatorOf(tower, index);
+          if (generator.isErr()) {
+            return generator;
+          }
+          const Result<MultiTowerExtension> product = term.unwrap() * generator.unwrap();
+          if (product.isErr()) {
+            return product;
+          }
+          term = product;
+        }
+      }
+      if (term.isErr()) {
+        return term;
+      }
+      if (!total.has_value()) {
+        total = term.unwrap();
+        continue;
+      }
+      const Result<MultiTowerExtension> sum = total.value() + term.unwrap();
+      if (sum.isErr()) {
+        return sum;
+      }
+      total = sum.unwrap();
+    }
+    if (!total.has_value()) {
+      const Result<MultiTowerExtension> zero = tower.lifting(MultiRationalFunction(Fraction(0, 1)));
+      return zero;
+    }
+    return Result<MultiTowerExtension>(total.value());
+  };
+
+  const Result<MultiTowerExtension> numerator = expand(value.numerator());
+  if (numerator.isErr()) {
+    return numerator;
+  }
+  const Result<MultiTowerExtension> denominator = expand(value.denominator());
+  if (denominator.isErr()) {
+    return denominator;
+  }
+  if (denominator.unwrap().isZero()) {
+    return Result<MultiTowerExtension>::err(MathsError::ZeroDenominator);
+  }
+  return numerator.unwrap().dividedBy(denominator.unwrap());
+}
+
+} // namespace multi_parser_detail
+
+// 把含**套嵌根号**的多元式子解析成多元塔：`\sqrt{1+\sqrt{x^2+y^2}}` →
+// y₁² = x²+y²、y₂² = 1 + y₁。
+inline Result<MultiTowerExtension> parseMultiTowerExpression(std::string_view text) {
+  using multi_parser_detail::freshPlaceholder;
+  using multi_parser_detail::innermostRadical;
+  using multi_parser_detail::substitutePlaceholders;
+
+  std::string remaining = expression_detail::normalizeLatex(text);
+  std::vector<std::string> radicands; // 由内往外
+  std::vector<Variable> placeholders;
+
+  while (true) {
+    std::size_t spanBegin = 0;
+    std::size_t spanEnd = 0;
+    std::string content;
+    if (!innermostRadical(remaining, spanBegin, spanEnd, content)) {
+      break;
+    }
+    const Variable placeholder = freshPlaceholder(remaining, placeholders.size());
+    placeholders.push_back(placeholder);
+    radicands.push_back(std::move(content));
+    remaining = remaining.substr(0, spanBegin) + "{" + placeholder.str() + "}" + remaining.substr(spanEnd);
+  }
+  if (placeholders.empty()) {
+    return Result<MultiTowerExtension>::err(MathsError::InvalidExpression); // 没有根号，走别的入口
+  }
+
+  // 由内往外往上接层
+  Result<MultiTowerExtension> tower = MultiTowerExtension::rational(MultiRationalFunction(Fraction(0, 1)));
+  for (std::size_t index = 0; index < placeholders.size(); ++index) {
+    const Result<RationalFunction> parsed = expression_detail::ParserOf<Fraction>(radicands[index]).parse();
+    if (parsed.isErr()) {
+      return std::unexpected(parsed.unwrapErr());
+    }
+    const Result<MultiRationalFunction> asMulti =
+        MultiRationalFunction::make(parsed.unwrap().getNumerator(), parsed.unwrap().getDenominator());
+    if (asMulti.isErr()) {
+      return std::unexpected(asMulti.unwrapErr());
+    }
+    const std::vector<Variable> used(placeholders.begin(), placeholders.begin() + static_cast<std::ptrdiff_t>(index));
+    const Result<MultiTowerExtension> radicand = substitutePlaceholders(asMulti.unwrap(), used, tower.unwrap());
+    if (radicand.isErr()) {
+      return radicand;
+    }
+    const Result<MultiTowerExtension> appended = tower.unwrap().adjoining(radicand.unwrap().coefficients());
+    if (appended.isErr()) {
+      return std::unexpected(appended.unwrapErr());
+    }
+    tower = appended;
+  }
+
+  // 整条式子：代掉全部占位变量
+  const Result<RationalFunction> whole = expression_detail::ParserOf<Fraction>(remaining).parse();
+  if (whole.isErr()) {
+    return std::unexpected(whole.unwrapErr());
+  }
+  const Result<MultiRationalFunction> asMulti =
+      MultiRationalFunction::make(whole.unwrap().getNumerator(), whole.unwrap().getDenominator());
+  if (asMulti.isErr()) {
+    return std::unexpected(asMulti.unwrapErr());
+  }
+  return substitutePlaceholders(asMulti.unwrap(), placeholders, tower.unwrap());
+}
+
 struct Assignment {
   Variable variable;
   RationalFunction value; // 右边可以是含其它变量的表达式，如 s = v*t
