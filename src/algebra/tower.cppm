@@ -109,8 +109,8 @@ public:
 
   // 平表里非零项的个数 —— 「形态好不好看」的量化指标
   std::size_t nonzeroCoefficients() const {
-    return static_cast<std::size_t>(
-        std::count_if(coefficients_.begin(), coefficients_.end(), [](const RationalFunction &value) { return !value.isZero(); }));
+    return static_cast<std::size_t>(std::count_if(coefficients_.begin(), coefficients_.end(),
+                                                  [](const RationalFunction &value) { return !value.isZero(); }));
   }
 
   bool isZero() const {
