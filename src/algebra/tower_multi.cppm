@@ -74,6 +74,21 @@ public:
   std::size_t depth() const { return relations_.size(); }
   const std::vector<Flat> &relations() const { return relations_; }
   const Flat &coefficients() const { return coefficients_; }
+  const Flat &denominator() const { return denominator_; }
+
+  // 分子 / 分母都是平表
+  static Result<MultiTowerExtension> fromRatios(std::vector<Flat> relations, Flat numerator, Flat denominator) {
+    const std::size_t width = std::size_t(1) << relations.size();
+    if (numerator.size() != width || denominator.size() != width) {
+      return Result<MultiTowerExtension>::err(MathsError::InvalidExpression);
+    }
+    const Result<MultiTowerExtension> zero = make(MultiRationalFunction(Fraction(0, 1)), std::move(relations));
+    if (zero.isErr()) {
+      return std::unexpected(zero.unwrapErr());
+    }
+    return Result<MultiTowerExtension>(
+        MultiTowerExtension(zero.unwrap().relations_, std::move(numerator), std::move(denominator)));
+  }
 
   bool isZero() const {
     return std::all_of(coefficients_.begin(), coefficients_.end(),
@@ -118,29 +133,9 @@ public:
     if (!sameTower(rhs)) {
       return Result<MultiTowerExtension>::err(MathsError::InvalidExpression);
     }
-    std::vector<Term> terms;
-    for (std::size_t left = 0; left < coefficients_.size(); ++left) {
-      if (coefficients_[left].isZero()) {
-        continue;
-      }
-      const std::vector<unsigned> leftPowers = powersOfMask(left, depth());
-      for (std::size_t right = 0; right < rhs.coefficients_.size(); ++right) {
-        if (rhs.coefficients_[right].isZero()) {
-          continue;
-        }
-        std::vector<unsigned> powers = leftPowers;
-        const std::vector<unsigned> rightPowers = powersOfMask(right, depth());
-        for (std::size_t index = 0; index < powers.size(); ++index) {
-          powers[index] += rightPowers[index];
-        }
-        const Result<MultiRationalFunction> product = coefficients_[left] * rhs.coefficients_[right];
-        if (product.isErr()) {
-          return std::unexpected(product.unwrapErr());
-        }
-        terms.push_back(Term{product.unwrap(), std::move(powers)});
-      }
-    }
-    return Result<MultiTowerExtension>(MultiTowerExtension(relations_, reduce(terms)));
+    // (N₁/D₁)·(N₂/D₂) = (N₁N₂)/(D₁D₂)
+    return Result<MultiTowerExtension>(MultiTowerExtension(relations_, multiplyFlats(coefficients_, rhs.coefficients_),
+                                                           multiplyFlats(denominator_, rhs.denominator_)));
   }
 
   MultiTowerExtension negate() const {
@@ -148,7 +143,31 @@ public:
     for (MultiRationalFunction &coefficient : flat) {
       coefficient = -coefficient;
     }
-    return MultiTowerExtension(relations_, std::move(flat));
+    return MultiTowerExtension(relations_, std::move(flat), denominator_);
+  }
+
+  // ℚ(x₁,…,xₙ) 里的元素放进这条塔（分子，分母取 1）
+  Result<MultiTowerExtension> lifting(const MultiRationalFunction &value) const {
+    Flat numerator(coefficients_.size(), MultiRationalFunction(Fraction(0, 1)));
+    numerator[0] = value;
+    return Result<MultiTowerExtension>(MultiTowerExtension(relations_, std::move(numerator)));
+  }
+
+  // 往上接一层，被开方数是**整个元素**（分子分母都要带上）
+  Result<MultiTowerExtension> adjoiningElement(const MultiTowerExtension &radicand) const {
+    std::vector<Flat> extended = relations_;
+    extended.push_back(radicand.coefficients());
+    // 被开方数活在**旧**塔里（平表长 2^d），要放进新塔（长 2^(d+1)）得补齐一格 ——
+    // 新增的那一位对应新生成元，被开方数里没有它。
+    Flat denominator = radicand.denominator();
+    denominator.resize(std::size_t(1) << (depth() + 1), MultiRationalFunction(Fraction(0, 1)));
+    return fromRatios(std::move(extended), unitFlat(std::size_t(1) << (depth() + 1)), std::move(denominator));
+  }
+
+  // 把一个多元有理函数放进这条塔 —— 就是 lifting。有理函数本来就在第 0 层，
+  // 不需要新生成元（保留这个名字是为了与一元对齐）。
+  Result<MultiTowerExtension> liftedWith(const MultiRationalFunction &value) const {
+    return Result<MultiTowerExtension>(lifting(value));
   }
 
   // 往上接一层：y_{d+1}² = radicand（只能用已有的 d 个生成元）
@@ -161,17 +180,7 @@ public:
     return make(MultiRationalFunction(Fraction(0, 1)), std::move(extended));
   }
 
-  // ℚ(x₁,…,xₙ) 里的元素放进这条塔
-  Result<MultiTowerExtension> lifting(const MultiRationalFunction &value) const {
-    Flat flat(coefficients_.size(), MultiRationalFunction(Fraction(0, 1)));
-    flat[0] = value;
-    return Result<MultiTowerExtension>(MultiTowerExtension(relations_, std::move(flat)));
-  }
-
-  // ==================== 除法 ====================
-  //
-  // 解 `rhs · x = lhs`。乘以非零元素在域上是双射，所以 rhs 在 2^d 维基下的乘法矩阵
-  // 可逆，在 ℚ(x₁..xₙ) 上高斯消元即可 —— 与一元那边同一个办法，只是系数换了类型。
+  // (N₁/D₁) ÷ (N₂/D₂) = (N₁D₂)/(D₁N₂) —— 交叉相乘就是除法，不需要解线性系统
   Result<MultiTowerExtension> dividedBy(const MultiTowerExtension &rhs) const {
     if (!sameTower(rhs)) {
       return Result<MultiTowerExtension>::err(MathsError::InvalidExpression);
@@ -179,76 +188,11 @@ public:
     if (rhs.isZero()) {
       return Result<MultiTowerExtension>::err(MathsError::DivisionByZero);
     }
-    const std::size_t size = coefficients_.size();
-    // matrix[掩码][基向量]，行=掩码、列=未知量（与高斯消元里的行列一致）
-    std::vector<Flat> matrix(size, Flat(size, MultiRationalFunction(Fraction(0, 1))));
-    for (std::size_t column = 0; column < size; ++column) {
-      std::vector<Term> product;
-      for (std::size_t mask = 0; mask < size; ++mask) {
-        if (rhs.coefficients_[mask].isZero()) {
-          continue;
-        }
-        std::vector<unsigned> powers = powersOfMask(mask, depth());
-        const std::vector<unsigned> extra = powersOfMask(column, depth());
-        for (std::size_t index = 0; index < powers.size(); ++index) {
-          powers[index] += extra[index];
-        }
-        product.push_back(Term{rhs.coefficients_[mask], std::move(powers)});
-      }
-      const Flat image = reduce(product);
-      for (std::size_t mask = 0; mask < size; ++mask) {
-        matrix[mask][column] = image[mask];
-      }
-    }
-    Flat right = coefficients_;
-    for (std::size_t step = 0; step < size; ++step) {
-      std::optional<std::size_t> pivot;
-      for (std::size_t row = step; row < size && !pivot.has_value(); ++row) {
-        if (!matrix[row][step].isZero()) {
-          pivot = row;
-        }
-      }
-      if (!pivot.has_value()) {
-        return Result<MultiTowerExtension>::err(MathsError::DivisionByZero); // 矩阵不满秩 → 零因子
-      }
-      if (*pivot != step) {
-        std::swap(matrix[step], matrix[*pivot]);
-        std::swap(right[step], right[*pivot]);
-      }
-      for (std::size_t row = 0; row < size; ++row) {
-        if (row == step || matrix[row][step].isZero()) {
-          continue;
-        }
-        const Result<MultiRationalFunction> factor = matrix[row][step] / matrix[step][step];
-        if (factor.isErr()) {
-          return std::unexpected(factor.unwrapErr());
-        }
-        for (std::size_t column = 0; column < size; ++column) {
-          const Result<MultiRationalFunction> updated = matrix[row][column] - factor.unwrap() * matrix[step][column];
-          if (updated.isErr()) {
-            return std::unexpected(updated.unwrapErr());
-          }
-          matrix[row][column] = updated.unwrap();
-        }
-        const Result<MultiRationalFunction> updatedRight = right[row] - factor.unwrap() * right[step];
-        if (updatedRight.isErr()) {
-          return std::unexpected(updatedRight.unwrapErr());
-        }
-        right[row] = updatedRight.unwrap();
-      }
-    }
-    Flat solution(size, MultiRationalFunction(Fraction(0, 1)));
-    for (std::size_t index = 0; index < size; ++index) {
-      const Result<MultiRationalFunction> value = right[index] / matrix[index][index];
-      if (value.isErr()) {
-        return std::unexpected(value.unwrapErr());
-      }
-      solution[index] = value.unwrap();
-    }
-    return Result<MultiTowerExtension>(MultiTowerExtension(relations_, std::move(solution)));
+    return Result<MultiTowerExtension>(MultiTowerExtension(relations_, multiplyFlats(coefficients_, rhs.denominator_),
+                                                           multiplyFlats(denominator_, rhs.coefficients_)));
   }
 
-  // ==================== 求值 ====================
+  // ==================== 求值 ====================  // ==================== 求值 ====================
 
   // 逐层嵌套调 nthRoot。只支持**有理取值**的点 —— 与一元塔同源限制
   // （`MultiRationalFunction::evaluate` 收 `Scope`）。
@@ -269,18 +213,18 @@ public:
       }
       generators.push_back(root.unwrap());
     }
-    return evaluateFlat(coefficients_, point, generators);
-  }
-
-  // 把一个多元有理函数放进这条塔 —— 就是 `lifting`。
-  //
-  // ⚠️ 有理函数**本来就在第 0 层**（ℚ(x₁..xₙ) 是塔的基域），所以**不需要新生成元**。
-  // 我第一版在这里多加了一层，两侧深度就差了 1、乘法直接被 `sameTower` 拒掉 ——
-  // 一元那边的 `liftedWith` 之所以有「加生成元」的分支，是因为那里的入参
-  // 是 `RadicalExtension`（可能自带根号）；多元这边入参就是有理函数，不需要。
-  // 保留这个名字是为了与一元对齐。
-  Result<MultiTowerExtension> liftedWith(const MultiRationalFunction &value) const {
-    return Result<MultiTowerExtension>(lifting(value));
+    const Result<RealAlgebraicNumber> numerator = evaluateFlat(coefficients_, point, generators);
+    if (numerator.isErr()) {
+      return numerator;
+    }
+    const Result<RealAlgebraicNumber> denominator = evaluateFlat(denominator_, point, generators);
+    if (denominator.isErr()) {
+      return denominator;
+    }
+    if (denominator.unwrap().compareToRational(Fraction(0, 1)) == std::strong_ordering::equal) {
+      return std::unexpected(MathsError::ZeroDenominator);
+    }
+    return numerator.unwrap() / denominator.unwrap();
   }
 
   // ==================== 判等 ====================
@@ -288,7 +232,10 @@ public:
   // 平表就是基（make 已排除可检测的退化），逐项比即可。
   // ⚠️ relations 必须**逐条**比：只比条数的话 y₂²=1+y₁ 与 y₂²=2+y₁ 会被判成相等。
   bool operator==(const MultiTowerExtension &rhs) const {
-    return relations_ == rhs.relations_ && coefficients_ == rhs.coefficients_;
+    if (relations_ != rhs.relations_) {
+      return false;
+    }
+    return multiplyFlats(coefficients_, rhs.denominator_) == multiplyFlats(rhs.coefficients_, denominator_);
   }
 
   // 判「域是否相同」用这个（`operator==` 连元素一起比）
@@ -316,8 +263,46 @@ private:
     std::vector<unsigned> powers;
   };
 
-  MultiTowerExtension(std::vector<Flat> relations, Flat coefficients)
-      : relations_(std::move(relations)), coefficients_(std::move(coefficients)) {}
+  MultiTowerExtension(std::vector<Flat> relations, Flat coefficients, Flat denominator = {})
+      : relations_(std::move(relations)), coefficients_(std::move(coefficients)),
+        // ⚠️ 必须用 coefficients_.size()（成员，已就绪）；形参 coefficients 在上面已被移走
+        denominator_(denominator.empty() ? unitFlat(coefficients_.size()) : std::move(denominator)) {}
+
+  // 全 1 的平表 —— 分母的单位元
+  static Flat unitFlat(std::size_t size) {
+    Flat flat(size, MultiRationalFunction(Fraction(0, 1)));
+    if (!flat.empty()) {
+      flat[0] = MultiRationalFunction(Fraction(1, 1));
+    }
+    return flat;
+  }
+
+  // 两个平表在同一层内相乘
+  Flat multiplyFlats(const Flat &lhs, const Flat &rhs) const {
+    std::vector<Term> terms;
+    for (std::size_t left = 0; left < lhs.size(); ++left) {
+      if (lhs[left].isZero()) {
+        continue;
+      }
+      const std::vector<unsigned> leftPowers = powersOfMask(left, depth());
+      for (std::size_t right = 0; right < rhs.size(); ++right) {
+        if (rhs[right].isZero()) {
+          continue;
+        }
+        const Result<MultiRationalFunction> product = lhs[left] * rhs[right];
+        if (product.isErr()) {
+          continue;
+        }
+        std::vector<unsigned> powers = leftPowers;
+        const std::vector<unsigned> rightPowers = powersOfMask(right, depth());
+        for (std::size_t index = 0; index < powers.size(); ++index) {
+          powers[index] += rightPowers[index];
+        }
+        terms.push_back(Term{product.unwrap(), std::move(powers)});
+      }
+    }
+    return reduce(terms);
+  }
 
   static std::vector<unsigned> powersOfMask(std::size_t mask, std::size_t depth) {
     std::vector<unsigned> powers(depth, 0);
@@ -382,25 +367,25 @@ private:
     return flat;
   }
 
+  // (N₁/D₁) ± (N₂/D₂) = (N₁D₂ ± N₂D₁) / (D₁D₂)
   Result<MultiTowerExtension> combine(const MultiTowerExtension &rhs, char operation) const {
     if (!sameTower(rhs)) {
       return Result<MultiTowerExtension>::err(MathsError::InvalidExpression);
     }
-    std::vector<Term> terms;
-    for (std::size_t mask = 0; mask < coefficients_.size(); ++mask) {
-      if (coefficients_[mask].isZero()) {
-        continue;
-      }
-      terms.push_back(Term{coefficients_[mask], powersOfMask(mask, depth())});
+    if (operation == '*') {
+      return Result<MultiTowerExtension>(MultiTowerExtension(
+          relations_, multiplyFlats(coefficients_, rhs.coefficients_), multiplyFlats(denominator_, rhs.denominator_)));
     }
-    for (std::size_t mask = 0; mask < rhs.coefficients_.size(); ++mask) {
-      if (rhs.coefficients_[mask].isZero()) {
-        continue;
-      }
-      const MultiRationalFunction coefficient = operation == '-' ? -rhs.coefficients_[mask] : rhs.coefficients_[mask];
-      terms.push_back(Term{coefficient, powersOfMask(mask, depth())});
+    if (operation == '/') {
+      return dividedBy(rhs);
     }
-    return Result<MultiTowerExtension>(MultiTowerExtension(relations_, reduce(terms)));
+    Flat numerator = multiplyFlats(coefficients_, rhs.denominator_);
+    const Flat other = multiplyFlats(rhs.coefficients_, denominator_);
+    for (std::size_t mask = 0; mask < numerator.size(); ++mask) {
+      numerator[mask] = operation == '-' ? numerator[mask] - other[mask] : numerator[mask] + other[mask];
+    }
+    return Result<MultiTowerExtension>(
+        MultiTowerExtension(relations_, std::move(numerator), multiplyFlats(denominator_, rhs.denominator_)));
   }
 
   static Result<RealAlgebraicNumber> evaluateFlat(const Flat &flat, const Scope &point,
@@ -434,7 +419,27 @@ private:
     return total;
   }
 
-  std::string render(bool useLatex) const { return renderFlat(coefficients_, useLatex); }
+  std::string render(bool useLatex) const {
+    const std::string numerator = renderFlat(coefficients_, useLatex);
+    if (hasUnitDenominator()) {
+      return numerator;
+    }
+    const std::string denominator = renderFlat(denominator_, useLatex);
+    return useLatex ? "\\frac{" + numerator + "}{" + denominator + "}" : "(" + numerator + ")/(" + denominator + ")";
+  }
+
+  // 分母是不是 1
+  bool hasUnitDenominator() const {
+    if (denominator_.empty()) {
+      return true;
+    }
+    for (std::size_t mask = 1; mask < denominator_.size(); ++mask) {
+      if (!denominator_[mask].isZero()) {
+        return false;
+      }
+    }
+    return denominator_[0] == MultiRationalFunction(Fraction(1, 1));
+  }
 
   std::string renderFlat(const Flat &flat, bool useLatex) const {
     std::string result;
@@ -479,7 +484,8 @@ private:
   }
 
   std::vector<Flat> relations_;
-  Flat coefficients_;
+  Flat coefficients_; // 分子
+  Flat denominator_;  // 分母（也是平表 —— 与一元那套一致）
 };
 
 } // namespace maths

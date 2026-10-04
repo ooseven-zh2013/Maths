@@ -1274,7 +1274,7 @@ inline Result<TowerExtension> parseTowerExpression(std::string_view text) {
     if (radicand.isErr()) {
       return radicand;
     }
-    const Result<TowerExtension> appended = tower.unwrap().adjoining(radicand.unwrap().coefficients());
+    const Result<TowerExtension> appended = tower.unwrap().adjoiningElement(radicand.unwrap());
     if (appended.isErr()) {
       return std::unexpected(appended.unwrapErr());
     }
@@ -1468,7 +1468,7 @@ inline Result<MultiTowerExtension> parseMultiTowerExpression(std::string_view te
     if (radicand.isErr()) {
       return radicand;
     }
-    const Result<MultiTowerExtension> appended = tower.unwrap().adjoining(radicand.unwrap().coefficients());
+    const Result<MultiTowerExtension> appended = tower.unwrap().adjoiningElement(radicand.unwrap());
     if (appended.isErr()) {
       return std::unexpected(appended.unwrapErr());
     }

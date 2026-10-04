@@ -119,6 +119,19 @@ int main() {
     CHECK_TRUE(valueAt(lifted, 3, 4) == RealAlgebraicNumber(Fraction(3, 1)));
   }
 
+  // ---------- 塔分母：多元塔的除法也有正常表示 ----------
+  {
+    // 1/(x²+y²) 在 (3,4) 上是 1/25；1/√(x²+y²) 显示成分母含根号的分式
+    const MultiTowerExtension reciprocal = parseMultiTowerExpression("1/\\sqrt{x^2+y^2}").unwrap();
+    CHECK_TRUE(reciprocal.latex().find("frac") != std::string::npos);
+    CHECK_TRUE(valueAt(reciprocal, 3, 4) == RealAlgebraicNumber(Fraction(1, 5)));
+    // 乘回去等于 1
+    const MultiTowerExtension root = parseMultiTowerExpression("\\sqrt{x^2+y^2}").unwrap();
+    CHECK_TRUE((reciprocal * root).unwrap().evaluate(point(3, 4)).unwrap() == RealAlgebraicNumber(Fraction(1, 1)));
+    // 没有根号的输入不走这个入口（那是多元有理函数的事）
+    CHECK_ERR(parseMultiTowerExpression("x/(x^2+y^2)"), MathsError::InvalidExpression);
+  }
+
   // ---------- 渲染 ----------
   {
     const MultiTowerExtension root = rootOfSumSquares();

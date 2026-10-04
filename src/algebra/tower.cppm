@@ -271,6 +271,20 @@ public:
     return make(RationalFunction(Fraction(0, 1)), std::move(extended));
   }
 
+  // 往上接一层，被开方数是**整个元素**（分子分母都要带上）。
+  //
+  // ⚠️ 解析器必须用这个而不是 adjoining(Flat)：被开方数可能本身带分母
+  // （比如 `1/(1+√x)` 的外层根号里就是 `1/{t}`），只传分子会把分母丢掉。
+  Result<TowerExtension> adjoiningElement(const TowerExtension &radicand) const {
+    std::vector<Flat> extended = relations_;
+    extended.push_back(radicand.coefficients());
+    // 被开方数活在**旧**塔里（平表长 2^d），要放进新塔（长 2^(d+1)）得补齐一格 ——
+    // 新增的那一位对应新生成元，被开方数里没有它。
+    Flat denominator = radicand.denominator();
+    denominator.resize(std::size_t(1) << (depth() + 1), RationalFunction(Fraction(0, 1)));
+    return fromRatios(std::move(extended), unitFlat(std::size_t(1) << (depth() + 1)), std::move(denominator));
+  }
+
   // 把一个独立根式扩张「挂」到这条塔的顶上：它的每个生成元各占一层。
   //
   // 塔是更大的代数：所有关系都在第 0 层的塔正好就是多生成元的独立根式扩张，
