@@ -48,12 +48,20 @@ inline bool holdsFor(Relation relation, const Fraction &value) {
 
 } // namespace multi_domain_detail
 
-// P(x₁,…,xₙ)/Q(x₁,…,xₙ) 的定义域 = {Q ≠ 0}
+// P(x₁,…,xₙ)/Q(x₁,…,xₙ) 的定义域 = {Q ≠ 0} ∧ {约掉过的变量 ≠ 0}
+//
+// 第二项是**必须有**的：`x/x` 化简成 1，但 x ≠ 0 这条约束跟着化简一起消失了。
+// 少了它，函数会在 x = 0 处静默给出 1 —— 那是本库最不能接受的一类错误。
+// 一元那边靠 `discardedConstraints` 记着，多元这边是 `discardedVariables()`。
 inline Result<ConstraintSystem> domainOf(const MultiRationalFunction &value) {
-  if (value.denominator().variables().empty()) {
-    return Result<ConstraintSystem>(ConstraintSystem()); // 常数分母 → 处处有定义
+  std::vector<AtomConstraint> atoms;
+  if (!value.denominator().variables().empty()) {
+    atoms.push_back(AtomConstraint(value.denominator(), Relation::NotEqual));
   }
-  return Result<ConstraintSystem>(ConstraintSystem({AtomConstraint(value.denominator(), Relation::NotEqual)}));
+  for (const Variable &variable : value.discardedVariables()) {
+    atoms.push_back(AtomConstraint(Monomial(Fraction(1, 1), VarPowers{{variable, 1}}), Relation::NotEqual));
+  }
+  return Result<ConstraintSystem>(ConstraintSystem(atoms));
 }
 
 // {x : P(x₁,…,xₙ) ≥ 0}，P 是多元多项式。

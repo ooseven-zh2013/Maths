@@ -14,4 +14,5 @@ export import :tower;
 export import :rule;
 export import :rational_multi;
 export import :domain_multi;
+export import :function_multi;
 export import :aggregate;

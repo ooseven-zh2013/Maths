@@ -47,13 +47,15 @@ public:
       return Result<MultiRationalFunction>::err(MathsError::ZeroDenominator);
     }
     MultiRationalFunction value(std::move(numerator), std::move(denominator));
-    value.cancelCommonMonomial();
+    // 约掉的公共因子是「除掉过东西」，x/x → 1 要记住 x ≠ 0
+    const std::set<Variable> canceled = value.cancelCommonMonomial();
     value.normalizeSign();
-    return Result<MultiRationalFunction>(value);
+    return Result<MultiRationalFunction>(value.notingDiscarded(canceled));
   }
 
   const Polynomial &numerator() const { return numerator_; }
   const Polynomial &denominator() const { return denominator_; }
+  const std::set<Variable> &discardedVariables() const { return discarded_; }
 
   std::set<Variable> variables() const {
     std::set<Variable> all = numerator_.variables();
@@ -99,7 +101,21 @@ public:
     if (bottom.isErr()) {
       return std::unexpected(bottom.unwrapErr());
     }
-    return make(top.unwrap(), bottom.unwrap());
+    const Result<MultiRationalFunction> product = make(top.unwrap(), bottom.unwrap());
+    if (product.isErr()) {
+      return product;
+    }
+    return Result<MultiRationalFunction>(product.unwrap().notingDiscarded(rhs.discardedVariables()));
+  }
+
+  // 记下「约掉过的变量」，供定义域用
+  MultiRationalFunction notingDiscarded(const std::set<Variable> &variables) const {
+    if (variables.empty()) {
+      return *this;
+    }
+    MultiRationalFunction copy = *this;
+    copy.discarded_.insert(variables.begin(), variables.end());
+    return copy;
   }
 
   Result<MultiRationalFunction> operator/(const MultiRationalFunction &rhs) const {
@@ -114,7 +130,15 @@ public:
     if (bottom.isErr()) {
       return std::unexpected(bottom.unwrapErr());
     }
-    return make(top.unwrap(), bottom.unwrap());
+    const Result<MultiRationalFunction> quotient = make(top.unwrap(), bottom.unwrap());
+    if (quotient.isErr()) {
+      return quotient;
+    }
+    // 被除掉的那些变量一个都不能丢：`x/x` → 1 要记住 x ≠ 0
+    std::set<Variable> lost = rhs.discardedVariables();
+    const std::set<Variable> fromDivisor = rhs.numerator_.variables();
+    lost.insert(fromDivisor.begin(), fromDivisor.end());
+    return Result<MultiRationalFunction>(quotient.unwrap().notingDiscarded(lost));
   }
 
   MultiRationalFunction &operator+=(const MultiRationalFunction &rhs) {
@@ -171,8 +195,8 @@ private:
 
   static Polynomial one() { return Monomial(Fraction(1, 1)); }
 
-  // 分子分母同除以公共单项式（每个变量取两侧最小指数）
-  void cancelCommonMonomial() {
+  // 分子分母同除以公共单项式（每个变量取两侧最小指数）。返回被约掉的那些变量。
+  std::set<Variable> cancelCommonMonomial() {
     const std::map<VarPowers, Fraction> &top = numerator_.getTerms();
     const std::map<VarPowers, Fraction> &bottom = denominator_.getTerms();
     VarPowers common;
@@ -202,19 +226,24 @@ private:
       }
     }
     if (common.empty()) {
-      return;
+      return {};
     }
     const Polynomial divisor = Monomial(Fraction(1, 1), common);
     const Result<PolynomialDivision> topSplit = divideWithRemainder(numerator_, divisor);
     if (topSplit.isErr() || !topSplit.unwrap().remainder.isZero()) {
-      return; // 除不尽就保持原样，不硬凑
+      return {}; // 除不尽就保持原样，不硬凑
     }
     const Result<PolynomialDivision> bottomSplit = divideWithRemainder(denominator_, divisor);
     if (bottomSplit.isErr() || !bottomSplit.unwrap().remainder.isZero()) {
-      return;
+      return {};
     }
     numerator_ = topSplit.unwrap().quotient;
     denominator_ = bottomSplit.unwrap().quotient;
+    std::set<Variable> canceled;
+    for (const auto &[variable, power] : common) {
+      canceled.insert(variable);
+    }
+    return canceled;
   }
 
   // 分母首项系数为负 → 分子分母同时取负，让显示的符号稳定
@@ -237,6 +266,9 @@ private:
 
   Polynomial numerator_;
   Polynomial denominator_;
+  // 「约掉过的变量」：`x/x` 化简成 1，但 x ≠ 0 这条约束不能跟着消失 ——
+  // 少了它，`at()` 会在 x = 0 处静默给出 1（那是本库最不能接受的一类错误）。
+  std::set<Variable> discarded_;
 };
 
 } // namespace maths
