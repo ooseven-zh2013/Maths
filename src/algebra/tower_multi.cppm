@@ -168,6 +168,86 @@ public:
     return Result<MultiTowerExtension>(MultiTowerExtension(relations_, std::move(flat)));
   }
 
+  // ==================== 除法 ====================
+  //
+  // 解 `rhs · x = lhs`。乘以非零元素在域上是双射，所以 rhs 在 2^d 维基下的乘法矩阵
+  // 可逆，在 ℚ(x₁..xₙ) 上高斯消元即可 —— 与一元那边同一个办法，只是系数换了类型。
+  Result<MultiTowerExtension> dividedBy(const MultiTowerExtension &rhs) const {
+    if (!sameTower(rhs)) {
+      return Result<MultiTowerExtension>::err(MathsError::InvalidExpression);
+    }
+    if (rhs.isZero()) {
+      return Result<MultiTowerExtension>::err(MathsError::DivisionByZero);
+    }
+    const std::size_t size = coefficients_.size();
+    // matrix[掩码][基向量]，行=掩码、列=未知量（与高斯消元里的行列一致）
+    std::vector<Flat> matrix(size, Flat(size, MultiRationalFunction(Fraction(0, 1))));
+    for (std::size_t column = 0; column < size; ++column) {
+      std::vector<Term> product;
+      for (std::size_t mask = 0; mask < size; ++mask) {
+        if (rhs.coefficients_[mask].isZero()) {
+          continue;
+        }
+        std::vector<unsigned> powers = powersOfMask(mask, depth());
+        const std::vector<unsigned> extra = powersOfMask(column, depth());
+        for (std::size_t index = 0; index < powers.size(); ++index) {
+          powers[index] += extra[index];
+        }
+        product.push_back(Term{rhs.coefficients_[mask], std::move(powers)});
+      }
+      const Flat image = reduce(product);
+      for (std::size_t mask = 0; mask < size; ++mask) {
+        matrix[mask][column] = image[mask];
+      }
+    }
+    Flat right = coefficients_;
+    for (std::size_t step = 0; step < size; ++step) {
+      std::optional<std::size_t> pivot;
+      for (std::size_t row = step; row < size && !pivot.has_value(); ++row) {
+        if (!matrix[row][step].isZero()) {
+          pivot = row;
+        }
+      }
+      if (!pivot.has_value()) {
+        return Result<MultiTowerExtension>::err(MathsError::DivisionByZero); // 矩阵不满秩 → 零因子
+      }
+      if (*pivot != step) {
+        std::swap(matrix[step], matrix[*pivot]);
+        std::swap(right[step], right[*pivot]);
+      }
+      for (std::size_t row = 0; row < size; ++row) {
+        if (row == step || matrix[row][step].isZero()) {
+          continue;
+        }
+        const Result<MultiRationalFunction> factor = matrix[row][step] / matrix[step][step];
+        if (factor.isErr()) {
+          return std::unexpected(factor.unwrapErr());
+        }
+        for (std::size_t column = 0; column < size; ++column) {
+          const Result<MultiRationalFunction> updated = matrix[row][column] - factor.unwrap() * matrix[step][column];
+          if (updated.isErr()) {
+            return std::unexpected(updated.unwrapErr());
+          }
+          matrix[row][column] = updated.unwrap();
+        }
+        const Result<MultiRationalFunction> updatedRight = right[row] - factor.unwrap() * right[step];
+        if (updatedRight.isErr()) {
+          return std::unexpected(updatedRight.unwrapErr());
+        }
+        right[row] = updatedRight.unwrap();
+      }
+    }
+    Flat solution(size, MultiRationalFunction(Fraction(0, 1)));
+    for (std::size_t index = 0; index < size; ++index) {
+      const Result<MultiRationalFunction> value = right[index] / matrix[index][index];
+      if (value.isErr()) {
+        return std::unexpected(value.unwrapErr());
+      }
+      solution[index] = value.unwrap();
+    }
+    return Result<MultiTowerExtension>(MultiTowerExtension(relations_, std::move(solution)));
+  }
+
   // ==================== 求值 ====================
 
   // 逐层嵌套调 nthRoot。只支持**有理取值**的点 —— 与一元塔同源限制
