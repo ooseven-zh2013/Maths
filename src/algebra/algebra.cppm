@@ -17,4 +17,5 @@ export import :domain_multi;
 export import :function_multi;
 export import :tower_multi;
 export import :region_multi;
+export import :piecewise_multi;
 export import :aggregate;

@@ -272,6 +272,17 @@ public:
     return evaluateFlat(coefficients_, point, generators);
   }
 
+  // 把一个多元有理函数放进这条塔 —— 就是 `lifting`。
+  //
+  // ⚠️ 有理函数**本来就在第 0 层**（ℚ(x₁..xₙ) 是塔的基域），所以**不需要新生成元**。
+  // 我第一版在这里多加了一层，两侧深度就差了 1、乘法直接被 `sameTower` 拒掉 ——
+  // 一元那边的 `liftedWith` 之所以有「加生成元」的分支，是因为那里的入参
+  // 是 `RadicalExtension`（可能自带根号）；多元这边入参就是有理函数，不需要。
+  // 保留这个名字是为了与一元对齐。
+  Result<MultiTowerExtension> liftedWith(const MultiRationalFunction &value) const {
+    return Result<MultiTowerExtension>(lifting(value));
+  }
+
   // ==================== 判等 ====================
 
   // 平表就是基（make 已排除可检测的退化），逐项比即可。
