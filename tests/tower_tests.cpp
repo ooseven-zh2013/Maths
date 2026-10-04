@@ -17,6 +17,7 @@ RationalFunction number(long long numerator, long long denominator = 1) {
 }
 
 using Flat = TowerExtension::Flat;
+using TowerExtensionValue = TowerExtension;
 
 // 深度 1：y₁² = x
 const std::vector<Flat> kRootX = {Flat{expression("x")}};
@@ -181,6 +182,34 @@ int main() {
     const TowerExtension product = parseTowerExpression("\\sqrt{x}*\\sqrt{1+\\sqrt{x}}").unwrap();
     CHECK_ERR(whereNonNegativeOverTower(product), MathsError::DomainNotDecidable);
   }
+  // ---------- 塔分母：除法有个正常的表示 ----------
+  //
+  // 之前元素只有「平表」，分母被固定成有理函数，于是 1/(1+√x) 曾被表示成
+  // c₀ = c₁ = 1/(1-x) —— 在 x=1 处 0/0，而真值是 1/2。有了塔分母，
+  // 它就直接是「分子 1、分母 1+√x」，既没有极点，形态也天然正确。
+  {
+    const TowerExtension inverse = parseTowerExpression("(1)/(1+\\sqrt{x})").unwrap();
+    CHECK_EQ(inverse.latex(), std::string("\\frac{1}{1 + \\sqrt{x}}"));
+    CHECK_TRUE(inverse.nonzeroCoefficients() == std::size_t(1)); // 分子只有 1
+    CHECK_TRUE(valueAt(inverse, 0) == RealAlgebraicNumber(Fraction(1, 1)));
+    CHECK_TRUE(valueAt(inverse, 1) == RealAlgebraicNumber(Fraction(1, 2))); // 曾经的 0/0
+    CHECK_TRUE(valueAt(inverse, 4) == RealAlgebraicNumber(Fraction(1, 3)));
+
+    // 套嵌的除法
+    const TowerExtension nested = parseTowerExpression("1/\\sqrt{1+\\sqrt{x}}").unwrap();
+    CHECK_EQ(nested.latex(), std::string("\\frac{1}{\\sqrt{1 + \\sqrt{x}}}"));
+    CHECK_TRUE(valueAt(nested, 0) == RealAlgebraicNumber(Fraction(1, 1)));
+
+    // 同一个**函数**、不同的表示：1/√x 与 √x/(√x·√x) 代数上是同一个东西，
+    const TowerExtension a = parseTowerExpression("1/\\sqrt{x}").unwrap();
+    const TowerExtension b = parseTowerExpression("(\\sqrt{x})/(\\sqrt{x}*\\sqrt{x})").unwrap();
+    // 库保证的是「值相等」，不保证「形式相等」—— 平表之比不做规范化约分。
+    CHECK_TRUE(valueAt(a, 4) == valueAt(b, 4));
+    CHECK_TRUE(valueAt(a, 9) == valueAt(b, 9));
+    // 分母为零的除法仍然拒收
+    CHECK_ERR(rational(1).dividedBy(rational(0)), MathsError::DivisionByZero);
+  }
+
   // ---------- FunctionRule：规则可以是根式，也可以是一条塔 ----------
   {
     const FunctionRule radical(FunctionRule::rational(expression("x+1")));

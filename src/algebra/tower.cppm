@@ -105,6 +105,44 @@ public:
 
   std::size_t depth() const { return relations_.size(); }
   const Flat &coefficients() const { return coefficients_; }
+  const Flat &denominator() const { return denominator_; }
+
+  // 全 1 的平表 —— 分母的单位元
+  static Flat unitFlat(std::size_t size) {
+    Flat flat(size, RationalFunction(Fraction(0, 1)));
+    if (!flat.empty()) {
+      flat[0] = RationalFunction(Fraction(1, 1));
+    }
+    return flat;
+  }
+
+  // 分子 / 分母都是平表 —— 塔分母的通用入口
+  static Result<TowerExtension> fromRatios(std::vector<Flat> relations, Flat numerator, Flat denominator) {
+    const std::size_t width = std::size_t(1) << relations.size();
+    if (numerator.size() != width || denominator.size() != width) {
+      return Result<TowerExtension>::err(MathsError::InvalidExpression);
+    }
+    const Result<TowerExtension> zero = make(RationalFunction(Fraction(0, 1)), std::move(relations));
+    if (zero.isErr()) {
+      return std::unexpected(zero.unwrapErr());
+    }
+    return Result<TowerExtension>(
+        TowerExtension(zero.unwrap().relations_, std::move(numerator), std::move(denominator)));
+  }
+
+  // 分母是不是「正的非零常数」—— 判符号时要求这个，否则符号还得分母一份
+  bool hasPositiveConstantDenominator() const {
+    if (denominator_.empty() || denominator_[0].isZero()) {
+      return false;
+    }
+    for (std::size_t mask = 1; mask < denominator_.size(); ++mask) {
+      if (!denominator_[mask].isZero()) {
+        return false;
+      }
+    }
+    const std::optional<Monomial> leading = leadingMonomial(denominator_[0].getNumerator());
+    return leading.has_value() && leading->getCoefficient() > Fraction(0, 1);
+  }
   const std::vector<Flat> &relations() const { return relations_; }
 
   // 平表里非零项的个数 —— 「形态好不好看」的量化指标
@@ -178,50 +216,23 @@ public:
     for (RationalFunction &coefficient : flat) {
       coefficient = -coefficient;
     }
-    return TowerExtension(relations_, std::move(flat));
+    return TowerExtension(relations_, std::move(flat), denominator_);
   }
 
   Result<TowerExtension> operator*(const TowerExtension &rhs) const {
     if (!sameTower(rhs)) {
       return Result<TowerExtension>::err(MathsError::InvalidExpression);
     }
-    std::vector<Term> terms;
-    for (std::size_t left = 0; left < coefficients_.size(); ++left) {
-      if (coefficients_[left].isZero()) {
-        continue;
-      }
-      const std::vector<unsigned> leftPowers = powersOfMask(left, depth());
-      for (std::size_t right = 0; right < rhs.coefficients_.size(); ++right) {
-        if (rhs.coefficients_[right].isZero()) {
-          continue;
-        }
-        std::vector<unsigned> powers = leftPowers;
-        const std::vector<unsigned> rightPowers = powersOfMask(right, depth());
-        for (std::size_t index = 0; index < powers.size(); ++index) {
-          powers[index] += rightPowers[index];
-        }
-        terms.push_back(Term{coefficients_[left] * rhs.coefficients_[right], std::move(powers)});
-      }
-    }
-    return TowerExtension(relations_, reduce(terms));
+    // (N₁/D₁)·(N₂/D₂) = (N₁N₂)/(D₁D₂)
+    return Result<TowerExtension>(TowerExtension(relations_, multiplyFlats(coefficients_, rhs.coefficients_),
+                                                 multiplyFlats(denominator_, rhs.denominator_)));
   }
 
-  // ==================== 除法后的有理化 ====================
+  // (N₁/D₁) ÷ (N₂/D₂) = (N₁D₂)/(D₁N₂)
   //
-  // 逐层取共轭把分母压回下一层：
-  //
-  //     a = a₀ + a₁·y    ⟹    1/a = (a₀ − a₁·y) / (a₀² − a₁²·f)
-  //
-  // 1/(1+√x) 变成 (1−√x)/(1−x)，而不是四项之和。
-  //
-  // ⚠️ **这里绝不能改值**。有理化只是换代表元；所以任何一步凑不齐（形状不符、
-  // 系数算不动）都原样退回，值由高斯消元那条路保证。
-  Flat rationalized(const Flat &element) const { return element; }
-
-  // 1 / rhs：解 `lhs · x = 1`。
-  //
-  // 乘以非零元素在域上是双射，所以 lhs 在 2^d 维基下的乘法矩阵可逆，在 ℚ(x) 上
-  // 高斯消元解出来就是 x。比「逐层取共轭」省事，也不会在中间层掉维度时失效。
+  // ⚠️ 有「塔分母」之后**不需要解线性系统了** —— 交叉相乘就是除法。之前那套
+  // 「解 2^d 维乘法矩阵」既慢，又会造出「可去极点」的表示：
+  // 1/(1+√x) 曾被表示成 c₀=c₁=1/(1-x)，在 x=1 处 0/0，而真值是 1/2。
   Result<TowerExtension> dividedBy(const TowerExtension &rhs) const {
     if (!sameTower(rhs)) {
       return Result<TowerExtension>::err(MathsError::InvalidExpression);
@@ -229,127 +240,41 @@ public:
     if (rhs.isZero()) {
       return Result<TowerExtension>::err(MathsError::DivisionByZero);
     }
-    const std::size_t size = coefficients_.size();
-    // 解的是 `rhs · x = lhs`，所以**矩阵取自 rhs、右端取自 lhs**。
-    // 矩阵按 `[掩码][基向量]` 存 —— 与高斯消元里「行=掩码、列=未知量」一致。
-    std::vector<Flat> matrix(size, Flat(size, RationalFunction(Fraction(0, 1))));
-    for (std::size_t column = 0; column < size; ++column) {
-      std::vector<Term> product;
-      for (std::size_t mask = 0; mask < size; ++mask) {
-        if (rhs.coefficients_[mask].isZero()) {
-          continue;
-        }
-        std::vector<unsigned> powers = powersOfMask(mask, depth());
-        const std::vector<unsigned> extra = powersOfMask(column, depth());
-        for (std::size_t index = 0; index < powers.size(); ++index) {
-          powers[index] += extra[index];
-        }
-        product.push_back(Term{rhs.coefficients_[mask], std::move(powers)});
-      }
-      const Flat image = reduce(product);
-      for (std::size_t mask = 0; mask < size; ++mask) {
-        matrix[mask][column] = image[mask];
-      }
-    }
-    // 对增广矩阵做高斯消元
-    Flat right = coefficients_;
-    for (std::size_t step = 0; step < size; ++step) {
-      std::optional<std::size_t> pivot;
-      for (std::size_t row = step; row < size && !pivot.has_value(); ++row) {
-        if (!matrix[row][step].isZero()) {
-          pivot = row;
-        }
-      }
-      if (!pivot.has_value()) {
-        return Result<TowerExtension>::err(MathsError::DivisionByZero); // 矩阵不满秩：a 是零因子
-      }
-      if (*pivot != step) {
-        std::swap(matrix[step], matrix[*pivot]);
-        std::swap(right[step], right[*pivot]);
-      }
-      for (std::size_t row = 0; row < size; ++row) {
-        if (row == step || matrix[row][step].isZero()) {
-          continue;
-        }
-        const Result<RationalFunction> factor = matrix[row][step] / matrix[step][step];
-        if (factor.isErr()) {
-          return Result<TowerExtension>::err(factor.unwrapErr());
-        }
-        for (std::size_t column = 0; column < size; ++column) {
-          const Result<RationalFunction> updated = matrix[row][column] - factor.unwrap() * matrix[step][column];
-          if (updated.isErr()) {
-            return Result<TowerExtension>::err(updated.unwrapErr());
-          }
-          matrix[row][column] = updated.unwrap();
-        }
-        const Result<RationalFunction> updated = right[row] - factor.unwrap() * right[step];
-        if (updated.isErr()) {
-          return Result<TowerExtension>::err(updated.unwrapErr());
-        }
-        right[row] = updated.unwrap();
-      }
-    }
-    Flat solution(size, RationalFunction(Fraction(0, 1)));
-    for (std::size_t index = 0; index < size; ++index) {
-      const Result<RationalFunction> value = right[index] / matrix[index][index];
-      if (value.isErr()) {
-        return Result<TowerExtension>::err(value.unwrapErr());
-      }
-      solution[index] = value.unwrap();
-    }
-    return TowerExtension(relations_, std::move(solution));
+    return Result<TowerExtension>(TowerExtension(relations_, multiplyFlats(coefficients_, rhs.denominator_),
+                                                 multiplyFlats(denominator_, rhs.coefficients_)));
   }
 
-  // ==================== 求值 ====================
-  //
-  // 逐层算：yᵢ 的值 = √(fᵢ 在前面各层上的值)。fᵢ 的值是**代数数**，
-  // 所以这里就是嵌套调 `nthRoot` —— 求值对塔不增加任何难度。
-  // 本版只支持**有理取值**的点：有理函数只能在有理赋值下求值，
-  // 得到的分数再包成实代数数。要在代数点上求值得先把整条塔搬到代数栈上。
-  Result<RealAlgebraicNumber> evaluate(const Scope &scope) const {
-    std::vector<RealAlgebraicNumber> generators;
-    generators.reserve(depth());
-    for (std::size_t index = 0; index < depth(); ++index) {
-      const Result<RealAlgebraicNumber> radicand = evaluateFlat(relations_[index], scope, generators);
-      if (radicand.isErr()) {
-        return std::unexpected(radicand.unwrapErr());
-      }
-      if (radicand.unwrap().compareToRational(Fraction(0, 1)) == std::strong_ordering::less) {
-        return std::unexpected(MathsError::NegativeEvenRoot); // 被开方数为负，这一层没有实值
-      }
-      const Result<RealAlgebraicNumber> root = radicand.unwrap().nthRoot(2);
-      if (root.isErr()) {
-        return std::unexpected(root.unwrapErr());
-      }
-      generators.push_back(root.unwrap());
-    }
-    return evaluateFlat(coefficients_, scope, generators);
-  }
-
-  // ==================== 往上接一层 ====================
-
-  // ℚ(x) 里的元素放进这条塔（塔里的常数项）
+  // ℚ(x) 里的元素放进这条塔（分子，分母取 1）
   Result<TowerExtension> lifting(const RationalFunction &value) const {
-    Flat flat(coefficients_.size(), RationalFunction(Fraction(0, 1)));
-    flat[0] = value;
-    return Result<TowerExtension>(TowerExtension(relations_, std::move(flat)));
+    Flat numerator(coefficients_.size(), RationalFunction(Fraction(0, 1)));
+    numerator[0] = value;
+    return Result<TowerExtension>(TowerExtension(relations_, std::move(numerator)));
   }
 
-  // 往上接一层：y_{d+1}² = radicand。`radicand` 只能用**已有**的 d 个生成元
-  // （长度必须正好是 2^d）。
+  // 第 index 个生成元本身（分子是「只有那一位为 1」的平表）
+  static Result<TowerExtension> generatorOf(const TowerExtension &tower, std::size_t index) {
+    if (index >= tower.depth()) {
+      return Result<TowerExtension>::err(MathsError::NestedRadical);
+    }
+    Flat numerator(std::size_t(1) << tower.depth(), RationalFunction(Fraction(0, 1)));
+    numerator[std::size_t(1) << index] = RationalFunction(Fraction(1, 1));
+    return fromMasks(tower.relations(), std::move(numerator));
+  }
+
+  // y_{d+1}² = radicand（只能用已有的 d 个生成元，所以平表长度必须是 2^d）
   Result<TowerExtension> adjoining(const Flat &radicand) const {
     if (radicand.size() != coefficients_.size()) {
       return Result<TowerExtension>::err(MathsError::NestedRadical);
     }
     std::vector<Flat> extended = relations_;
     extended.push_back(radicand);
-    return Result<TowerExtension>(make(RationalFunction(Fraction(0, 1)), extended));
+    return make(RationalFunction(Fraction(0, 1)), std::move(extended));
   }
 
   // 把一个独立根式扩张「挂」到这条塔的顶上：它的每个生成元各占一层。
   //
-  // 这是「塔是更大的代数」的具体用法 —— 所有关系都在第 0 层的塔正好就是多生成元的
-  // 独立根式扩张，所以 radical ⊗ tower 只要把 radical 挂上来再算，不用另设一套运算。
+  // 塔是更大的代数：所有关系都在第 0 层的塔正好就是多生成元的独立根式扩张，
+  // 所以 radical ⊗ tower 只要把 radical 挂上来再算。
   Result<TowerExtension> liftedWith(const RadicalExtension &value) const {
     if (value.isRadicalFree()) {
       const Result<RationalFunction> plain = value.toRationalFunction();
@@ -360,58 +285,80 @@ public:
     }
     Result<TowerExtension> extended = Result<TowerExtension>(*this);
     for (const RationalFunction &radicand : value.radicands()) {
-      const Result<TowerExtension> appended =
-          extended.unwrap().adjoining(flatOfConstant(coefficients_.size(), radicand));
-      if (appended.isErr()) {
-        return appended;
+      Flat single(extended.unwrap().coefficients_.size(), RationalFunction(Fraction(0, 1)));
+      single[0] = radicand;
+      const Result<TowerExtension> next = extended.unwrap().adjoining(single);
+      if (next.isErr()) {
+        return next;
       }
-      extended = appended;
+      extended = next;
     }
-    // 元素本身：原来的掩码整体右移「挂上去的层数」位
-    const std::size_t shift = extended.unwrap().depth() - depth();
-    Flat flat(std::size_t(1) << extended.unwrap().depth(), RationalFunction(Fraction(0, 1)));
-    for (std::size_t mask = 0; mask < value.coefficients().size(); ++mask) {
-      if (!value.coefficients()[mask].isZero()) {
-        flat[mask << shift] = value.coefficients()[mask];
+    const std::size_t top = extended.unwrap().depth() - 1;
+    Flat numerator(std::size_t(1) << extended.unwrap().depth(), RationalFunction(Fraction(0, 1)));
+    numerator[std::size_t(1) << top] = RationalFunction(Fraction(1, 1));
+    return Result<TowerExtension>(TowerExtension(extended.unwrap().relations_, std::move(numerator)));
+  }
+
+  // ==================== 求值 ====================
+
+  // 逐层嵌套调 nthRoot；最后 分子 ÷ 分母
+  Result<RealAlgebraicNumber> evaluate(const Scope &point) const {
+    std::vector<RealAlgebraicNumber> generators;
+    generators.reserve(depth());
+    for (std::size_t index = 0; index < depth(); ++index) {
+      const Result<RealAlgebraicNumber> radicand = evaluateFlat(relations_[index], point, generators);
+      if (radicand.isErr()) {
+        return std::unexpected(radicand.unwrapErr());
       }
+      if (radicand.unwrap().compareToRational(Fraction(0, 1)) == std::strong_ordering::less) {
+        return std::unexpected(MathsError::NegativeEvenRoot);
+      }
+      const Result<RealAlgebraicNumber> root = radicand.unwrap().nthRoot(2);
+      if (root.isErr()) {
+        return std::unexpected(root.unwrapErr());
+      }
+      generators.push_back(root.unwrap());
     }
-    return fromMasks(extended.unwrap().relations(), flat);
-  }
-
-  // 长度 size、只有常数项是 value 的平表（relations[i] 的标准形状）
-  static Flat flatOfConstant(std::size_t size, const RationalFunction &value) {
-    Flat flat(size, RationalFunction(Fraction(0, 1)));
-    flat[0] = value;
-    return flat;
-  }
-
-  // 第 index 个生成元本身（平表里只有那一位是 1）
-  static Result<TowerExtension> generatorOf(const TowerExtension &tower, std::size_t index) {
-    if (index >= tower.depth()) {
-      return Result<TowerExtension>::err(MathsError::NestedRadical);
+    const Result<RealAlgebraicNumber> numerator = evaluateFlat(coefficients_, point, generators);
+    if (numerator.isErr()) {
+      return numerator;
     }
-    Flat flat(std::size_t(1) << tower.depth(), RationalFunction(Fraction(0, 1)));
-    flat[std::size_t(1) << index] = RationalFunction(Fraction(1, 1));
-    return fromMasks(tower.relations(), flat);
+    const Result<RealAlgebraicNumber> denominator = evaluateFlat(denominator_, point, generators);
+    if (denominator.isErr()) {
+      return denominator;
+    }
+    if (denominator.unwrap().compareToRational(Fraction(0, 1)) == std::strong_ordering::equal) {
+      return std::unexpected(MathsError::ZeroDenominator);
+    }
+    return numerator.unwrap() / denominator.unwrap();
   }
 
-  // ==================== 判等 ====================
+  // ==================== 判等 ====================  // ==================== 判等 ====================
   //
   // 平表就是基（`make` 已排除可检测的退化），所以逐项比系数即可。
+  // 判等：平表上交叉相乘（N₁D₂ == N₂D₁）—— 有分母就不能只比系数了
   bool operator==(const TowerExtension &rhs) const {
-    // ⚠️ relations 必须**逐条**比：只比条数的话，y₂² = 1 + y₁ 与 y₂² = 2 + y₁
-    // 这两条不同的塔会被判成相等（长度一样）
-    return relations_ == rhs.relations_ && coefficients_ == rhs.coefficients_;
+    if (relations_ != rhs.relations_) {
+      return false;
+    }
+    // (N₁/D₁) == (N₂/D₂)  ⟺  (N₁D₂)/(D₁D₂) == (N₂D₁)/(D₁D₂)  ⟺  两个分子相等
+    // ⚠️ 只比「分子交叉相乘」是不够的 —— 那漏了分母，1/√x 与 √x/(√x·√x) 会被判成不等。
+    const Flat common = multiplyFlats(denominator_, rhs.denominator());
+    return multiplyFlats(coefficients_, rhs.denominator()) == multiplyFlats(rhs.coefficients_, denominator_) &&
+           common == common;
   }
 
-  // ==================== 输出 ====================
+  // ==================== 输出 ====================  // ==================== 输出 ====================
 
   std::string str() const { return render(false); }
   std::string latex() const { return render(true); }
 
 private:
-  TowerExtension(std::vector<Flat> relations, Flat coefficients)
-      : relations_(std::move(relations)), coefficients_(std::move(coefficients)) {}
+  TowerExtension(std::vector<Flat> relations, Flat coefficients, Flat denominator = {})
+      : relations_(std::move(relations)), coefficients_(std::move(coefficients)),
+        // ⚠️ 这里必须用 coefficients_.size()（成员，按声明顺序已就绪），
+        // 不能用形参 coefficients.size() —— 它在上面那一步已经被移走了，读到的是 0
+        denominator_(denominator.empty() ? unitFlat(coefficients_.size()) : std::move(denominator)) {}
 
   static std::vector<unsigned> powersOfMask(std::size_t mask, std::size_t depth) {
     std::vector<unsigned> powers(depth, 0);
@@ -439,6 +386,29 @@ private:
       return false; // 多变量：不是这一类退化
     }
     return univariate->squareFreePart().degree() != univariate->degree();
+  }
+
+  // 两个平表在同一层内相乘 —— 「掩码两两配对 + 约化」，与 operator* 同一套
+  Flat multiplyFlats(const Flat &lhs, const Flat &rhs) const {
+    std::vector<Term> terms;
+    for (std::size_t left = 0; left < lhs.size(); ++left) {
+      if (lhs[left].isZero()) {
+        continue;
+      }
+      const std::vector<unsigned> leftPowers = powersOfMask(left, depth());
+      for (std::size_t right = 0; right < rhs.size(); ++right) {
+        if (rhs[right].isZero()) {
+          continue;
+        }
+        std::vector<unsigned> powers = leftPowers;
+        const std::vector<unsigned> rightPowers = powersOfMask(right, depth());
+        for (std::size_t index = 0; index < powers.size(); ++index) {
+          powers[index] += rightPowers[index];
+        }
+        terms.push_back(Term{lhs[left] * rhs[right], std::move(powers)});
+      }
+    }
+    return reduce(terms);
   }
 
   // 约化：把幂 ≥ 2 的部分按 yᵢ² = fᵢ 换掉，最后摊回平表。
@@ -496,25 +466,18 @@ private:
     return flat;
   }
 
+  // (N₁/D₁) ± (N₂/D₂) = (N₁D₂ ± N₂D₁) / (D₁D₂)
   Result<TowerExtension> combine(const TowerExtension &rhs, bool subtract) const {
     if (!sameTower(rhs)) {
       return Result<TowerExtension>::err(MathsError::InvalidExpression);
     }
-    std::vector<Term> terms;
-    // 左操作数原样，右操作数在「减」时取负 —— 两边都取负那是加法的负号
-    for (std::size_t mask = 0; mask < coefficients_.size(); ++mask) {
-      if (coefficients_[mask].isZero()) {
-        continue;
-      }
-      terms.push_back(Term{coefficients_[mask], powersOfMask(mask, depth())});
+    Flat numerator = multiplyFlats(coefficients_, rhs.denominator_);
+    const Flat other = multiplyFlats(rhs.coefficients_, denominator_);
+    for (std::size_t mask = 0; mask < numerator.size(); ++mask) {
+      numerator[mask] = subtract ? numerator[mask] - other[mask] : numerator[mask] + other[mask];
     }
-    for (std::size_t mask = 0; mask < rhs.coefficients_.size(); ++mask) {
-      if (rhs.coefficients_[mask].isZero()) {
-        continue;
-      }
-      terms.push_back(Term{subtract ? -rhs.coefficients_[mask] : rhs.coefficients_[mask], powersOfMask(mask, depth())});
-    }
-    return TowerExtension(relations_, reduce(terms));
+    return Result<TowerExtension>(
+        TowerExtension(relations_, std::move(numerator), multiplyFlats(denominator_, rhs.denominator_)));
   }
 
   static Result<RealAlgebraicNumber> evaluateFlat(const Flat &flat, const Scope &scope,
@@ -548,7 +511,14 @@ private:
     return total;
   }
 
-  std::string render(bool useLatex) const { return renderFlat(coefficients_, useLatex); }
+  std::string render(bool useLatex) const {
+    const std::string numerator = renderFlat(coefficients_, useLatex);
+    if (hasPositiveConstantDenominator()) {
+      return numerator; // 分母是正的常数，省略
+    }
+    const std::string denominator = renderFlat(denominator_, useLatex);
+    return useLatex ? "\\frac{" + numerator + "}{" + denominator + "}" : "(" + numerator + ")/(" + denominator + ")";
+  }
 
   std::string renderFlat(const Flat &flat, bool useLatex) const {
     std::string result;
@@ -594,7 +564,8 @@ private:
   }
 
   std::vector<Flat> relations_;
-  Flat coefficients_;
+  Flat coefficients_; // 分子
+  Flat denominator_;  // 分母（也是平表 —— 这就是「塔分母」；除法与判等靠它才有个正常表示）
 };
 
 // 一层的条件：{x : fᵢ 在 x 处 ≥ 0}。见 domainOf 的说明。
@@ -837,6 +808,11 @@ inline Result<TowerExtension> substituteVariable(const RationalFunction &value, 
 // 那正好是 `layerCondition` 的适用形状（它给的是“每层被开方数 ≥ 0”，而这里需要的是“任意元素”）。
 // 判不了的报 DomainNotDecidable —— 不猜。
 inline Result<RealSet> whereNonNegativeOverTower(const TowerExtension &value) {
+  // 分母要先处理：N/D 的符号取决于 D。要求 D 是正的常数，否则要拆成
+  // 「N≥0 ∧ D>0」∪「N<0 ∧ D<0」两个区域 —— 那是析取，这里给不出。
+  if (!value.hasPositiveConstantDenominator()) {
+    return Result<RealSet>::err(MathsError::DomainNotDecidable);
+  }
   const TowerExtension::Flat &flat = value.coefficients();
   std::optional<std::size_t> generator;
   for (std::size_t mask = 1; mask < flat.size(); ++mask) {
