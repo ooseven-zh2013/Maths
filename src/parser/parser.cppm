@@ -960,12 +960,32 @@ constexpr std::size_t kMaxSquareRadicals = 4;
 // 为什么必须把标记带出来：`|g|` 在 **g 恒非负** 时内部只剩一支
 // （`|(x-1)^2/2|` 就是），而「一个本来就单支的分段」跟它结构上完全一样 ——
 // 光看 `PiecewiseFunction` 分辨不出来。展示形态要一致，只能靠输入形态。
+// 定义在文件后半段（它依赖塔），但下面那两档解析都要用到
+inline Result<TowerExtension> parseTowerExpression(std::string_view text);
+
 struct PiecewiseParseResult {
   PiecewiseFunction value;
   bool writtenAsAbsoluteValue{false};
 };
 
+namespace tower_parser_detail {
+// 定义在下面那个命名空间里（它要用到塔），这里先声明 —— parsePiecewiseExpressionDetailed
+// 夹在两处之间。
+inline Result<PiecewiseParseResult> parseAbsoluteValueOverTower(std::string_view text);
+} // namespace tower_parser_detail
+
 inline Result<PiecewiseParseResult> parsePiecewiseExpressionDetailed(std::string_view text) {
+  // 整条式子就是一个「内部带根号的绝对值」时走塔那一档（`|x-2\sqrt{x}|` 这类）。
+  // 形状不匹配 → InvalidExpression，继续走下面的 `√(g²)` 改写路线；
+  // 形状对但判不了符号 → 如实报错，不静默退回。
+  const Result<PiecewiseParseResult> overTower = tower_parser_detail::parseAbsoluteValueOverTower(text);
+  if (overTower.isOk()) {
+    return overTower.unwrap();
+  }
+  if (overTower.unwrapErr() != MathsError::InvalidExpression) {
+    return std::unexpected(overTower.unwrapErr());
+  }
+
   // 原文里有没有根号 —— 用来把「根号里含多个变量」翻译成「绝对值这边只支持一元」：
   // `|a+b|` 走的是内部形式 `√((a+b)²)`，用户压根没打根号，报「根号里含多个变量」
   // 会让人莫名其妙。查的是**原文**，不是改写后那份。
@@ -1099,6 +1119,65 @@ inline Result<PiecewiseFunction> parsePiecewiseExpression(std::string_view text)
 // ==================== 套嵌根号 → 塔 ====================
 
 namespace tower_parser_detail {
+
+// 整条式子恰好是 `|g|`（g 里带根号）时，按符号分支给出分段函数。
+//
+// 为什么不能走「改写成 `√(g²)`」那条路：g 自带根号时内部形式会**套嵌**，代数函数域装不下；
+// 就算硬塞进塔，`y² = (√x)²` 造出的那一层是**退化**的 —— 两个生成元表示同一个根，
+// y 到底是 +y₁ 还是 −y₁ 说不清。
+//
+// 直接对 g 分支就没这个问题：`|g| = { g 当 g≥0 ; −g 当 g<0 }`。
+// 形状不匹配时返回 InvalidExpression，让调用方继续走原来的改写路线；
+// 形状对但判不了符号时如实报错，不静默退回。
+inline Result<PiecewiseParseResult> parseAbsoluteValueOverTower(std::string_view text) {
+  const std::string normalized = expression_detail::normalizeLatex(text);
+  if (normalized.size() < 2 || normalized.front() != '|' || normalized.back() != '|') {
+    return Result<PiecewiseParseResult>::err(MathsError::InvalidExpression);
+  }
+  const std::string inner = normalized.substr(1, normalized.size() - 2);
+  if (inner.find('|') != std::string::npos || inner.find("\\sqrt") == std::string::npos) {
+    return Result<PiecewiseParseResult>::err(MathsError::InvalidExpression);
+  }
+  const Result<TowerExtension> value = parseTowerExpression(inner);
+  if (value.isErr()) {
+    return Result<PiecewiseParseResult>::err(value.unwrapErr());
+  }
+  const Result<RealSet> nonNegative = whereNonNegativeOverTower(value.unwrap());
+  if (nonNegative.isErr()) {
+    return Result<PiecewiseParseResult>::err(nonNegative.unwrapErr());
+  }
+  const Result<RealSet> domain = domainOf(value.unwrap());
+  if (domain.isErr()) {
+    return Result<PiecewiseParseResult>::err(domain.unwrapErr());
+  }
+  const Result<RealSet> inside = nonNegative.unwrap().intersect(domain.unwrap());
+  if (inside.isErr()) {
+    return Result<PiecewiseParseResult>::err(inside.unwrapErr());
+  }
+  // 外面那支 = 定义域 ∩（g≥0 的补集）
+  const Result<RealSet> rest = inside.unwrap().complement();
+  if (rest.isErr()) {
+    return Result<PiecewiseParseResult>::err(rest.unwrapErr());
+  }
+  const Result<RealSet> outside = rest.unwrap().intersect(domain.unwrap());
+  if (outside.isErr()) {
+    return Result<PiecewiseParseResult>::err(outside.unwrapErr());
+  }
+  const Result<RealFunction> positive = RealFunction::make(FunctionRule::towerOf(value.unwrap()), inside.unwrap());
+  if (positive.isErr()) {
+    return Result<PiecewiseParseResult>::err(positive.unwrapErr());
+  }
+  const Result<RealFunction> negative =
+      RealFunction::make(FunctionRule::towerOf(value.unwrap().negate()), outside.unwrap());
+  if (negative.isErr()) {
+    return Result<PiecewiseParseResult>::err(negative.unwrapErr());
+  }
+  const Result<PiecewiseFunction> built = PiecewiseFunction::make({positive.unwrap(), negative.unwrap()});
+  if (built.isErr()) {
+    return Result<PiecewiseParseResult>::err(built.unwrapErr());
+  }
+  return Result<PiecewiseParseResult>(PiecewiseParseResult{built.unwrap(), true});
+}
 
 // 最里层的那个 `\sqrt{...}`（内容里不再有根号）。
 // 找到就返回它在 text 里的 [spanBegin, spanEnd) 跨度（spanEnd 落在 `}` 之后）与内容。

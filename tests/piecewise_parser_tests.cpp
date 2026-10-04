@@ -142,8 +142,20 @@ int main() {
     CHECK_ERR(parsePiecewiseExpression("\\sqrt{ab}"), MathsError::MultiVariableRadical);
     // 先撞上的是套嵌：内部形式是 \sqrt{((a+b)-2\sqrt{ab})^2}，外层根号里已经有根号了
     CHECK_ERR(parsePiecewiseExpression("|a+b-2\\sqrt{ab}|"), MathsError::NestedRadical);
-    // 根式套根式：|x-2\sqrt{x}| 的内部形式 √((x-2√x)²) 就套上了
-    CHECK_ERR(parsePiecewiseExpression("|x-2\\sqrt{x}|"), MathsError::NestedRadical);
+    // 根式套根式**曾经**报 NestedRadical（内部形式 √((x-2√x)²) 套上了）。
+    // 现在改成**直接对 g 分支**，所以它能解析：
+    //   |x-2√x| = { x-2√x 当 x-2√x ≥ 0 ; 2√x-x 当其余 }
+    // 而 x-2√x ≥ 0 ⟺ x = 0 或 x ≥ 4，定义域 [0,+∞) 去掉负支那段。
+    {
+      const PiecewiseParseResult abs = parsePiecewiseExpressionDetailed("|x-2\\sqrt{x}|").unwrap();
+      CHECK_TRUE(abs.writtenAsAbsoluteValue);
+      CHECK_TRUE(abs.value.branchCount() == std::size_t(2));
+      CHECK_EQ(abs.value.branch(0).domain().latex(), std::string("\\{0\\} \\cup [4, +\\infty)"));
+      CHECK_EQ(abs.value.branch(1).domain().latex(), std::string("(0, 4)"));
+      // ⚠️ `asAbsoluteValue()` 这里**给不出**幅度：它要求规则能降成单一有理函数，
+      // 而分支的规则是塔元素。所以展示形态由 app 侧从「正支的规则」直接取（见
+      // apps/simplify 的 absoluteValueText）。
+    }
 
     // 同一类输入必须给同一种展示形态。`|g|` 在 g **恒非负**时内部只剩一支
     // （|(x-1)^2/2| 就是），这时光看分支结构分辨不出「这是 |g|」——

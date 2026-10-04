@@ -84,6 +84,11 @@ std::optional<std::string> absoluteValueText(const PiecewiseFunction &value, boo
   if (const std::optional<RationalFunction> magnitude = value.asAbsoluteValue()) {
     return "|" + magnitude->latex() + "|";
   }
+  // `asAbsoluteValue()` 要规则能降成单一有理函数；塔元素做不到，那条路给不出幅度。
+  // 这时直接看**形状**：两支且互为相反数 → 就是 |g|，幅度就是正支的规则。
+  if (writtenAsAbsoluteValue && value.branchCount() == 2 && value.branch(1).rule() == -value.branch(0).rule()) {
+    return "|" + value.branch(0).ruleLatex() + "|";
+  }
   if (writtenAsAbsoluteValue && value.branchCount() == 1) {
     return "|" + value.branch(0).ruleLatex() + "|";
   }
