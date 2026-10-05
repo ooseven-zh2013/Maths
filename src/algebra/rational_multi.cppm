@@ -101,7 +101,7 @@ public:
     if (bottom.isErr()) {
       return std::unexpected(bottom.unwrapErr());
     }
-    const Result<MultiRationalFunction> product = make(top.unwrap(), bottom.unwrap());
+    Result<MultiRationalFunction> product = make(top.unwrap(), bottom.unwrap());
     if (product.isErr()) {
       return product;
     }
@@ -130,7 +130,7 @@ public:
     if (bottom.isErr()) {
       return std::unexpected(bottom.unwrapErr());
     }
-    const Result<MultiRationalFunction> quotient = make(top.unwrap(), bottom.unwrap());
+    Result<MultiRationalFunction> quotient = make(top.unwrap(), bottom.unwrap());
     if (quotient.isErr()) {
       return quotient;
     }

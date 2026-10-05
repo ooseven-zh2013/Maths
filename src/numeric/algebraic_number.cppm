@@ -483,7 +483,7 @@ public:
       common = std::lcm(common, value.getDenominator());
       algebraic_detail::guard(Fraction(common, 1LL));
     }
-    const UnivariatePolynomial integerScaled = scale(Fraction(common, 1LL));
+    UnivariatePolynomial integerScaled = scale(Fraction(common, 1LL));
 
     unsigned long long divisor = 0;
     for (const Fraction &value : integerScaled.coeffs_) {

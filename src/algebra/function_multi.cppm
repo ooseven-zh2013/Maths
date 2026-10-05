@@ -151,7 +151,7 @@ private:
   }
 
   std::string render(bool useLatex) const {
-    const std::string body = useLatex ? rule_.latex() : rule_.str();
+    std::string body = useLatex ? rule_.latex() : rule_.str();
     if (domain_.isTrivial()) {
       return body;
     }

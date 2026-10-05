@@ -235,7 +235,7 @@ public:
 
     const Result<RealSet> pulled = inner.preimage(domain_);
     if (pulled.isErr()) {
-      const Result<RealSet> natural = definitionDomainOf(rule_, variable_);
+      Result<RealSet> natural = definitionDomainOf(rule_, variable_);
       if (natural.isErr() || !(natural.unwrap() == domain_)) {
         return std::unexpected(pulled.unwrapErr());
       }
@@ -420,7 +420,7 @@ private:
   // 只收**与自变量同名**的约束；不同名说明那个变量已经被约得不再是自变量
   // （如 `√x·(y/y)` 在 x 上看），那种参数上的条件留给调用方按约束处理。
   static Result<RealSet> definitionDomainOf(const FunctionRule &rule, const Variable &variable) {
-    const Result<RealSet> natural = rule.domain();
+    Result<RealSet> natural = rule.domain();
     if (natural.isErr()) {
       return std::unexpected(natural.unwrapErr());
     }

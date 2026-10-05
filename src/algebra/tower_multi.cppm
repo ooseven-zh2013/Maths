@@ -420,7 +420,7 @@ private:
   }
 
   std::string render(bool useLatex) const {
-    const std::string numerator = renderFlat(coefficients_, useLatex);
+    std::string numerator = renderFlat(coefficients_, useLatex);
     if (hasUnitDenominator()) {
       return numerator;
     }

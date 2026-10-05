@@ -132,11 +132,11 @@ inline Result<RealSet> solveInequality(const RationalFunction &function, Relatio
     return std::unexpected(MathsError::InvalidExpression); // 多变量
   }
 
-  const Result<RealSet> solution = RealSet::solve(*polynomial, relation);
+  Result<RealSet> solution = RealSet::solve(*polynomial, relation);
   if (solution.isErr()) {
     return solution;
   }
-  const Result<RealSet> domain = domainOf(function);
+  Result<RealSet> domain = domainOf(function);
   if (domain.isErr()) {
     return domain;
   }
@@ -157,7 +157,7 @@ inline Result<RealSet> domainOf(const RationalFunction &function) {
   if (!denominator) {
     return std::unexpected(MathsError::InvalidExpression); // 多变量
   }
-  const Result<RealSet> zeros = RealSet::solve(*denominator, Relation::Equal);
+  Result<RealSet> zeros = RealSet::solve(*denominator, Relation::Equal);
   if (zeros.isErr()) {
     return zeros;
   }

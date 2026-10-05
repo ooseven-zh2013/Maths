@@ -220,7 +220,7 @@ public:
     if (unified.isErr()) {
       return std::unexpected(unified.unwrapErr());
     }
-    const Result<RadicalExtension> reciprocal = unified.unwrap().second.inverse();
+    Result<RadicalExtension> reciprocal = unified.unwrap().second.inverse();
     if (reciprocal.isErr()) {
       return reciprocal;
     }
@@ -704,7 +704,7 @@ inline Result<RealSet> domainOf(const RadicalExtension &expression) {
 
   Result<RealSet> domain = RealSet::realLine();
   for (const RationalFunction &radicand : expression.radicands()) {
-    const Result<RealSet> condition = solveInequality(radicand, Relation::GreaterEqual);
+    Result<RealSet> condition = solveInequality(radicand, Relation::GreaterEqual);
     if (condition.isErr()) {
       return condition;
     }
@@ -718,7 +718,7 @@ inline Result<RealSet> domainOf(const RadicalExtension &expression) {
     if (coefficient.isZero()) {
       continue;
     }
-    const Result<RealSet> condition = domainOf(coefficient);
+    Result<RealSet> condition = domainOf(coefficient);
     if (condition.isErr()) {
       return condition;
     }

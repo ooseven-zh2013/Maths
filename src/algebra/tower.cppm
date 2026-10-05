@@ -526,7 +526,7 @@ private:
   }
 
   std::string render(bool useLatex) const {
-    const std::string numerator = renderFlat(coefficients_, useLatex);
+    std::string numerator = renderFlat(coefficients_, useLatex);
     if (hasPositiveConstantDenominator()) {
       return numerator; // 分母是正的常数，省略
     }
