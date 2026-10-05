@@ -300,6 +300,21 @@ std::optional<InputExpression> readExpression() {
     if (tower.unwrapErr() != MathsError::InvalidExpression) {
       reported = tower.unwrapErr();
     }
+    // ⚠️ 「这一档表示不了」的错误码同样要透出，不能让它们退回「不支持的表达式」。
+    //
+    // `NotUnivariate` 就是这样漏掉的：`|x-y|` 在四档里都因为「含多个自变量」被拒，
+    // 而四档**本来就不该收多元** —— 于是这个「装不下」的信息被兜底错误码吃掉了，
+    // 用户只看到「不支持的表达式」，完全不知道是哪个表示装不下。
+    //
+    // 这里能加是安全的：这段代码只在**所有档都失败**之后才跑，
+    // 所以「五档说多元」不会盖掉「三档收下了」——那种情况根本不会走到这里。
+    if (reported == MathsError::InvalidExpression) {
+      if (piecewiseError == MathsError::NotUnivariate) {
+        reported = piecewiseError;
+      } else if (algebraicError == MathsError::DomainNotDecidable) {
+        reported = algebraicError;
+      }
+    }
     // 只报**原因**，不报「该怎么办」—— 原因本身已经够具体（每个限制都有专属错误码），
     // 补救办法写在 docs/apps/simplify.md 里，不必每次敲一遍。
     // 「根号里不能再套根号」是**内部形式**的说法 —— 用户写的是 `|\sqrt{x}|`，只写了一个根号。
@@ -464,12 +479,37 @@ bool isRadicalRelevant(const ExpressionType &expression, const std::vector<Const
 // 这件事两种表示都答得上来，其余逻辑完全一样。
 template <typename ExpressionType>
 void readConstraints(const ExpressionType &expression, Scope &scope, std::vector<Constraint> &constraints) {
+  // 逗号后面还没处理的片段。一行写多条（`x=3, y=4`）时用它排到下一轮。
+  std::string queued;
   while (true) {
-    std::cout << "条件> ";
     std::string line;
-    if (!readLine(line)) {
-      std::cout << '\n';
-      return;
+    if (queued.empty()) {
+      std::cout << "条件> ";
+      if (!readLine(line)) {
+        std::cout << '\n';
+        return;
+      }
+    } else {
+      line = queued;
+      queued.clear();
+    }
+
+    // ⚠️ 一行里可以写多条：`x=3, y=4` 与分两行等价。
+    //
+    // 塔那一档（多元取点）本来就收这个写法，只有 Expression 这条路把整行当**一条**
+    // 解析，于是 `x=3, y=4` 在 `\sqrt{x+y}` 下能用、在 `x+y` 下报「不支持的表达式」。
+    // 同一句话在两条路上含义不同是最糟的，所以这里也拆。
+    // 逗号右边先存进 `queued`，下一轮先处理它 —— 免得拆完还得再读一行。
+    {
+      const std::size_t at = line.find(',');
+      if (at != std::string::npos) {
+        const std::string head = stripSpaces(line.substr(0, at));
+        const std::string tail = stripSpaces(line.substr(at + 1));
+        if (!head.empty() && !tail.empty()) {
+          queued = tail;
+          line = head;
+        }
+      }
     }
 
     const std::string trimmed = stripSpaces(line);
