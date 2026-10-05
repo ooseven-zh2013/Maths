@@ -113,22 +113,23 @@ jobs:
 
   # 静态检查（clang-tidy）。
   #
-  # ⚠️ 这里踩过一个很深的坑，别再改回 pip 的 `clang-tidy` wheel：
+  # ⚠️ 这里踩过两个坑，都别再改回去：
   #
-  #   PyPI 的 clang-tidy wheel **不是从 git 检出构建的官方版**（包 `data/bin/` 下只有
-  #   clang-tidy.exe，没有配套 clang），它内部 clang 的 VCS 分支信息是**空的**。
-  #   而 mcpp 的 clang 20.1.7 编出的 BMI 头部记着 commit hash（`6146a88f…`），
-  #   clang 读模块文件时会比对分支 —— 于是每个文件都报
-  #     module file '…/std.pcm' built from a different branch (…) than the compiler ()
-  #   31 个文件 31 个「有问题」，**全是假的**。与版本对齐无关（20.1.0 对 20.1.7 已同 major.minor）。
+  # 1. **不能用 PyPI 的 `clang-tidy` wheel。** 它不是从 git 检出构建的官方版，
+  #    内部 clang 的 VCS 分支信息是**空的**（包 `data/bin/` 下也只有 clang-tidy.exe，
+  #    没有配套 clang）。mcpp 的 clang 编出的 BMI 头部记着 commit hash，
+  #    读模块文件时要比对分支 ⇒ 每个文件都报
+  #      module file '…/std.pcm' built from a different branch (…) than the compiler ()
+  #    31 个文件 31 个「有问题」，**全是假的**。与版本对齐无关（20.1.0 对 20.1.7 已同 major.minor）。
   #
-  #   换官方发布包就对了：llvmorg-20.1.7 的 tarball 是从那个 tag 的 git 检出构建的，
-  #   内嵌的分支与 mcpp 的 clang 一致，BMI 就能读。
+  # 2. **不能在 ubuntu 上找官方包。** llvmorg-20.1.7 的 GitHub release 里
+  #    **没有 x86_64 Linux 预编译包**（只有 armv7a），releases.llvm.org 上也没有。
+  #    有的是 `x86_64-pc-windows-msvc` —— 所以这个 job 跑在 **windows-latest** 上。
   #
-  # 失败时长这样：满屏 `built from a different branch` ⇒ 版本或来源又不对了，别去改代码。
+  # 失败时长这样：满屏 `built from a different branch` ⇒ 来源/版本又不对了，**别去改代码**。
   tidy:
     name: clang-tidy
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 60          # 28 个模块文件 × 约 1 分钟
     steps:
       - name: Checkout
@@ -142,25 +143,25 @@ jobs:
       - name: Install mcpp
         run: pip install --upgrade mcpp-bin
 
-      # 官方发布包（与 mcpp 的 llvm@20.1.7 同一个 tag 构建 ⇒ 分支信息一致 ⇒ 能读 BMI）
+      # 官方发布包：从 llvmorg-20.1.7 这个 tag 的 git 检出构建 ⇒ 分支信息与 mcpp 的 clang 一致
       - name: Fetch LLVM 20.1.7 release
+        shell: bash
         run: |
           set -e
-          url=https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.7/clang+llvm-20.1.7-x86_64-linux-gnu-ubuntu-18.04.tar.xz
-          curl -fsSL "$url" -o /tmp/llvm.tar.xz
-          # 解压到 workspace 里，路径与下面 env 的 CLANG_TIDY 一致（别一边 $HOME 一边 workspace）
-          mkdir -p "$GITHUB_WORKSPACE/llvm"
-          tar -xJf /tmp/llvm.tar.xz -C "$GITHUB_WORKSPACE/llvm" --strip-components=1
-          "$GITHUB_WORKSPACE/llvm/bin/clang-tidy" --version | head -2
+          url=https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.7/clang+llvm-20.1.7-x86_64-pc-windows-msvc.tar.xz
+          curl -fsSL "$url" -o "$RUNNER_TEMP/llvm.tar.xz"
+          mkdir -p "$RUNNER_TEMP/llvm"
+          tar -xf "$RUNNER_TEMP/llvm.tar.xz" -C "$RUNNER_TEMP/llvm" --strip-components=1
+          "$RUNNER_TEMP/llvm/bin/clang-tidy.exe" --version | head -2
 
-      # BMI 由 mcpp 的 clang 编，所以必须先 build
+      # BMI 由 mcpp 的 clang 编，所以必须先 build（且目标要与 tidy 同为 windows）
       - name: Build
         run: mcpp build
 
       - name: Run clang-tidy
+        shell: bash
         env:
-          CLANG_TIDY: ${{ github.workspace }}/llvm/bin/clang-tidy
-          PYTHON: python3
+          CLANG_TIDY: ${{ env.RUNNER_TEMP }}\llvm\bin\clang-tidy.exe
         run: sh scripts/run-tidy.sh
 
 # 静态检查的第一层：构建时的编译器告警（见 mcpp.toml 的 -Wall -Wextra -Wpedantic -Wshadow）。
