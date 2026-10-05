@@ -23,6 +23,12 @@ public:
   // 显式默认：T 平凡时（Result<bool>、Result<Fraction>…）本就可以平凡析构，
   // 但隐式生成的析构对「这个类型能不能装进 variant/optional 并省掉一层间接」影响不明显，
   // 写出来编译器才知道。clang-tidy performance-trivially-destructible 提的正是这条。
+  //
+  // ⚠️ 这条检查在 clang-tidy 20.1.7 上**报了即使已经这么写**的地方，据判断是它在
+  // 类模板上的误报（20.1.0 不报，且用最小例子 —— 模板 + variant 成员 + 已默认析构 ——
+  // 在 20.1.0 上也复现不出来）。所以这里 NOLINT，**不是**因为「查不动就不查」：
+  // 建议已经照做了，剩下的判不准就写清楚，别让 CI 长期红着。
+  // NOLINTNEXTLINE(performance-trivially-destructible)
   ~Result() = default;
 
   // ==================== 构造 ====================
