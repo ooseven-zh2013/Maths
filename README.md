@@ -84,6 +84,9 @@ const Fraction value = (a / Fraction(1, 2)).unwrap();  // 失败则抛 MathsExce
 
 只要一个模块时按需单写（见上面「构建与运行」的例子）—— 编译更快、依赖更清楚。
 
+⚠️ 标「—」的几行**还没有独立的文档页**，行为说明散在对应源文件的文件头注释里
+（那些注释是随代码走的权威出处）。
+
 | 模块 | 模块名 | 说明 | 文档 |
 | --- | --- | --- | --- |
 | 精确数值 | `maths.numbers` | `Integer`、`Fraction` | [文档](docs/src/numeric/numbers.md) |
@@ -99,6 +102,14 @@ const Fraction value = (a / Fraction(1, 2)).unwrap();  // 失败则抛 MathsExce
 | 根式扩张 | `maths.algebra:radical` | `√x`、`√(x²+1) + √(x²+2)` 这类含变量根号的精确表示与运算 | [文档](docs/src/algebra/radical.md) |
 | 一元函数 | `maths.algebra:function` | 一元实函数 `RealFunction`：规则 + `RealSet` 定义域，求值、四则、复合、集合拉回、像集 | [文档](docs/src/algebra/function.md) |
 | 分段函数 | `maths.algebra:piecewise` | 分段函数：绝对值、逐点取大取小（规则装不下拐弯的函数，这类要靠分支装）| [文档](docs/src/algebra/piecewise.md) |
+| 多变量有理函数 | `maths.algebra:rational_multi` | `MultiRationalFunction`：`ℚ(x₁,…,xₙ)` 上的分式 | — |
+| 多元约束 | `maths.algebra:domain_multi` | 多元定义域与取值点 | — |
+| 半代数区域 | `maths.algebra:region_multi` | `Region`（约束系统的析取范式）与 `admits(point)` | — |
+| 多元规则 | `maths.algebra:rule` | `MultiRule`：多元有理 or 多元塔 | — |
+| 多元函数 | `maths.algebra:function_multi` | 多元函数：规则 + 多元区域定义域 | — |
+| 多元分段函数 | `maths.algebra:piecewise_multi` | 多元分段；**多元绝对值 `\|x-y\|` 靠它**（拆 `{f≥0}` 与 `{f<0}` 两支）| — |
+| 套嵌根式（塔） | `maths.algebra:tower` | `TowerExtension`：`\sqrt{1+\sqrt{x}}` 这类套嵌；元素是**平表之比** | [文档](docs/src/algebra/tower.md) |
+| 多元套嵌根式 | `maths.algebra:tower_multi` | `MultiTowerExtension`：多元的塔 | — |
 | 聚合 | `maths.algebra:aggregate` | 集合 → 数：求和 / 求积 / 最值 / 平均 / 方差 / 标准差、上确界与下确界 | [文档](docs/src/algebra/aggregate.md) |
 | 表达式解析 | `maths.parser` | 文本与 LaTeX → 式子、代入条件解析、代数版入口 | [文档](docs/src/parser/expression_parser.md) |
 | 错误码 | `maths.error` | `MathsError`、`MathsException` | [文档](docs/src/core/maths_error.md) |
