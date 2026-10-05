@@ -24,10 +24,22 @@ public:
   // 但隐式生成的析构对「这个类型能不能装进 variant/optional 并省掉一层间接」影响不明显，
   // 写出来编译器才知道。clang-tidy performance-trivially-destructible 提的正是这条。
   //
-  // ⚠️ 这条检查在 clang-tidy 20.1.7 上**报了即使已经这么写**的地方，据判断是它在
-  // 类模板上的误报（20.1.0 不报，且用最小例子 —— 模板 + variant 成员 + 已默认析构 ——
-  // 在 20.1.0 上也复现不出来）。所以这里 NOLINT，**不是**因为「查不动就不查」：
-  // 建议已经照做了，剩下的判不准就写清楚，别让 CI 长期红着。
+  // ⚠️ 下面这个 NOLINT 是**上游已知 bug**，不是「查不动就不查」。已查证：
+  //
+  //   llvm/llvm-project PR #178471（issue #178102，2026-01-28 修）：
+  //   「C++20 modules 下，当一个类**同时经 #include 与 module import** 可见时，
+  //     它的析构函数会在 redeclaration chain 里出现多次，其中一个实例
+  //     `isFirstDecl()` 为 false，这条检查就误以为它是「out-of-line 的 defaulted 析构」
+  //     而报出来。**该场景只在 modules 下发生**。」
+  //
+  // 本项目正是 C++20 modules，所以必中。现象完全吻合：
+  //   · clang-tidy 20.1.7 报，20.1.0 不报（redeclaration chain 的 AST 行为不同）
+  //   · 报的位置正是这个**已经写了 `= default`** 的析构
+  //   · 最小例子复现不出 —— 缺「同时经 include 与 import 可见」这一环
+  //
+  // 修法在上游（把 `isFirstDecl()` 换成 `isOutOfLine()`），但那版是 22.x ——
+  // 而 22.x 读不了本工具链 20.1.7 的 BMI（见 .github/workflows/ci.yml 的说明），
+  // 所以升级不是选项。NOLINT 是这里唯一正确的选择。
   // NOLINTNEXTLINE(performance-trivially-destructible)
   ~Result() = default;
 
