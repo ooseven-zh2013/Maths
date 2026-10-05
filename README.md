@@ -73,6 +73,17 @@ const Fraction value = (a / Fraction(1, 2)).unwrap();  // 失败则抛 MathsExce
 
 ## 模块
 
+**`import maths;` 一次导入全部模块** —— 下表所有名字都从它导出，直接 `import maths;`
+就能用，不必逐个写。伞模块是**两级**的：
+
+    maths                      （8 个 export import）
+     ├─ maths.numbers / maths.real_set / maths.algebraic_number
+     ├─ maths.error / maths.result / maths.random
+     ├─ maths.algebra          （再转发 19 个分区模块）
+     └─ maths.parser
+
+只要一个模块时按需单写（见上面「构建与运行」的例子）—— 编译更快、依赖更清楚。
+
 | 模块 | 模块名 | 说明 | 文档 |
 | --- | --- | --- | --- |
 | 精确数值 | `maths.numbers` | `Integer`、`Fraction` | [文档](docs/src/numeric/numbers.md) |
@@ -97,6 +108,9 @@ const Fraction value = (a / Fraction(1, 2)).unwrap();  // 失败则抛 MathsExce
 
 依赖方向单向：`maths.error → maths.result → maths.numbers → maths.algebra → maths.parser`
 （`maths.random` 依赖 `maths.numbers`）。
+
+伞模块 `maths` 位于这条链的**最上层**，只做转发、不含实现 —— 所以它没有依赖方向上的包袱，
+但也别在库内部 `import maths;`（会造成循环），内部一律用具体的分区模块。
 
 ## 示例程序
 
