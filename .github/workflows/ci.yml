@@ -144,15 +144,21 @@ jobs:
         run: pip install --upgrade mcpp-bin
 
       # 官方发布包：从 llvmorg-20.1.7 这个 tag 的 git 检出构建 ⇒ 分支信息与 mcpp 的 clang 一致
+      #
+      # ⚠️ 路径**必须用相对路径或 $(pwd)**，不能直接用 $RUNNER_TEMP：
+      #    Windows 上它是 `D://a//_temp` 这种反斜杠盘符路径，Git Bash 的 tar 会把 `D:`
+      #    当成**远端主机名** → `tar: Cannot connect to D: resolve failed`（踩过）。
       - name: Fetch LLVM 20.1.7 release
         shell: bash
         run: |
           set -e
           url=https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.7/clang+llvm-20.1.7-x86_64-pc-windows-msvc.tar.xz
-          curl -fsSL "$url" -o "$RUNNER_TEMP/llvm.tar.xz"
-          mkdir -p "$RUNNER_TEMP/llvm"
-          tar -xf "$RUNNER_TEMP/llvm.tar.xz" -C "$RUNNER_TEMP/llvm" --strip-components=1
-          "$RUNNER_TEMP/llvm/bin/clang-tidy.exe" --version | head -2
+          mkdir -p llvm-tmp
+          curl -fsSL "$url" -o llvm-tmp/llvm.tar.xz
+          tar -xf llvm-tmp/llvm.tar.xz -C llvm-tmp --strip-components=1
+          ./llvm-tmp/bin/clang-tidy.exe --version | head -2
+          # 给下一步的 CLANG_TIDY 也得是 POSIX 路径（run-tidy.sh 拿它做 `[ -x ]` 测）
+          echo "CLANG_TIDY=$(pwd)/llvm-tmp/bin/clang-tidy.exe" >> "$GITHUB_ENV"
 
       # BMI 由 mcpp 的 clang 编，所以必须先 build（且目标要与 tidy 同为 windows）
       - name: Build
@@ -160,8 +166,6 @@ jobs:
 
       - name: Run clang-tidy
         shell: bash
-        env:
-          CLANG_TIDY: ${{ env.RUNNER_TEMP }}\llvm\bin\clang-tidy.exe
         run: sh scripts/run-tidy.sh
 
 # 静态检查的第一层：构建时的编译器告警（见 mcpp.toml 的 -Wall -Wextra -Wpedantic -Wshadow）。
