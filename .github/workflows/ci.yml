@@ -111,46 +111,25 @@ jobs:
           files=$(find src tests apps -type f \( -name '*.cppm' -o -name '*.cpp' -o -name '*.hpp' \))
           clang-format --dry-run --Werror $files
 
-  # 静态检查。与 format 一样只在 Linux 上跑，且**必须用与工具链同版本的 clang-tidy**。
-  #
-  # 曾经删掉过这个 job：mcpp 的 llvm 包是精简版、**不含 clang-tidy**，CI 上装不到，
-  # 只能对着旧版 clang 的 BMI 刷出 "module file uses an older format" 之类的假错误。
-  # 现在有办法了 —— PyPI 上的 `clang-tidy` wheel 自带可执行文件与资源目录，
-  # 版本与 llvm@20.1.7 对齐（补丁号不同没关系，同 major.minor 就能读 BMI）。
-  tidy:
-    name: clang-tidy
-    runs-on: ubuntu-latest
-    timeout-minutes: 60          # 28 个模块文件 × 约 1 分钟，留足余量
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install mcpp
-        run: pip install --upgrade mcpp-bin
-
-      # 版本与工具链对齐：llvm@20.1.7 对应的 clang-tidy 就是 20.1.0（PyPI 上没有 20.1.7）。
-      # ⚠️ 换 mcpp 的 llvm 版本时这里要一起换，否则读不了 BMI、满屏假错误。
-      - name: Install clang-tidy
-        run: pip install "clang-tidy==20.1.0"
-
-      # tidy 读的是编译数据库，所以必须先 build 出 compile_commands.json 与 BMI
-      - name: Build
-        run: mcpp build
-
-      # 不用传 CLANG_TIDY：脚本找不到时会自己从 Python 包里认 clang_tidy/data/bin/clang-tidy
-      # （在 workflow 里塞一段「算 exe 路径」的 Python 一行式太脆，折行或引号一出错就很难查）
-      #
-      # 脚本里已经处理了「一个文件都没查到」的情况（直接非零退出）——
-      # 拿「没检查」当「检查通过」是最糟的失败模式。
-      - name: Run clang-tidy
-        run: sh scripts/run-tidy.sh
-
-# 说明：静态检查有两个层次，构建时的编译器告警与 clang-tidy 是互补的 ——
-#   -Wall -Wextra -Wpedantic -Wshadow（见 mcpp.toml）：快，每次构建都在跑，但只看编译器自己会的
-#   clang-tidy（见上面的 tidy job）：慢，读 BMI，能做跨过程的语义检查
-# 两个都留着：前者挡低级错误，后者今天就抓到一个真 UB。
+# 静态检查只有一层：构建时的编译器告警（见 mcpp.toml 的 -Wall -Wextra -Wpedantic -Wshadow）。
+#
+# **clang-tidy 的 job 加过，2026-10-05 又撤掉了** —— 试出来的结论记在这，免得再试一遍：
+#
+#   PyPI 的 `clang-tidy` wheel 里那个 clang **不是从 git 检出构建的官方版，没嵌 VCS 分支信息**。
+#   而 mcpp 的真 clang 20.1.7 编出的 BMI 头部记着 commit hash，clang 读模块文件时会比对
+#   「built from a different branch」—— 编译器那半边是空的，于是**每个文件都报**
+#     module file '.../std.pcm' built from a different branch (…) than the compiler ()
+#   31 个文件 31 个「有问题」，全是假的。
+#
+# 这与版本对齐无关（20.1.0 对 20.1.7 已经同 major.minor），是**构建来源**的差别。
+# 本机 Windows 上却能正常读 —— 同一份 wheel，所以这大概是平台差异而非运气，
+# 但反正 CI（Linux）上这条路过不去。
+#
+# 所以静态检查靠两层：
+#   - 构建时的 -Wall -Wextra -Wpedantic -Wshadow：每次构建都在跑，挡住低级错误
+#   - 本地 `sh scripts/run-tidy.sh`：能跑（读得了 BMI），比 CI 严得多。
+#     它抓过一个真 UB —— `1 << (index - 1)` 里 `index == 0` 的判断写在移位之后，
+#     size_t 回绕成 SIZE_MAX，那是未定义行为，bugprone/performance 都没报，只有
+#     clang-analyzer-core.BitwiseShift 报了。`.clang-tidy` 里现在开着 clang-analyzer-*。
+#
+# 要在 CI 上恢复 tidy，得先有一个**从 git 检出构建**的 clang-tidy 20.1.x 可用。
