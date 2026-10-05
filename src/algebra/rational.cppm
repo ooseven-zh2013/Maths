@@ -120,7 +120,7 @@ public:
   // 只提供系数本身这一版：再提供 Integer 版本会让 RationalFunctionOf(5) 产生歧义
   // （int 到 Fraction 与 int 到 Integer 都是一次用户定义转换）。需要 Integer 时
   // 显式写 RationalFunctionOf(Fraction::fromInteger(value))。
-  RationalFunctionOf(Coefficient value) : numerator(MonomialType(value)) {}
+  RationalFunctionOf(Coefficient value) : numerator(MonomialType(std::move(value))) {}
 
   // 完整构造：分母为零多项式时返回 MathsError::ZeroDenominator
   static Result<RationalFunctionOf> make(PolynomialType numerator_, PolynomialType denominator_) {

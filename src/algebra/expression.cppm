@@ -325,10 +325,16 @@ public:
 
   MonomialOf() = default; // 零单项式
 
-  // 系数按值传参即可（Fraction 与实代数数都是廉价可拷贝的），std::move 不会带来收益
-  MonomialOf(Coefficient _coeff) : coeff(_coeff) { normalize(); }
+  // 系数**按值**收，然后移动进成员。
+  //
+  // 原先注释写的是「按值传即可，std::move 不会带来收益」—— 那只对 Fraction 这种
+  // 廉价类型成立，而这是模板：Coefficient 换成任何重类型，移动就是实打实的省一次拷贝。
+  // 按值收参已经让调用方付过一次拷贝了，成员这里再拷一次是白付。
+  MonomialOf(Coefficient _coeff) : coeff(std::move(_coeff)) { normalize(); }
 
-  MonomialOf(Coefficient _coeff, VarPowers _factors) : coeff(_coeff), factors(std::move(_factors)) { normalize(); }
+  MonomialOf(Coefficient _coeff, VarPowers _factors) : coeff(std::move(_coeff)), factors(std::move(_factors)) {
+    normalize();
+  }
 
   const Coefficient &getCoefficient() const { return coeff; }
   const VarPowers &getFactors() const { return factors; }

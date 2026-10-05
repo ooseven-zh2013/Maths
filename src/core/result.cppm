@@ -20,6 +20,11 @@ template <class T> class [[nodiscard]] Result {
 public:
   using ValueType = T;
 
+  // 显式默认：T 平凡时（Result<bool>、Result<Fraction>…）本就可以平凡析构，
+  // 但隐式生成的析构对「这个类型能不能装进 variant/optional 并省掉一层间接」影响不明显，
+  // 写出来编译器才知道。clang-tidy performance-trivially-destructible 提的正是这条。
+  ~Result() = default;
+
   // ==================== 构造 ====================
 
   Result(const T &value) : data_(std::in_place_index<0>, value) {}
