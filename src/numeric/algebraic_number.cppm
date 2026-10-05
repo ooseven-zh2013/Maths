@@ -317,7 +317,7 @@ public:
       root[index] = (coefficient(half + index) - known) * inverseDivisor.unwrap();
     }
 
-    const UnivariatePolynomial candidate(std::move(root));
+    UnivariatePolynomial candidate(std::move(root));
     if (!(candidate * candidate == *this)) {
       return std::nullopt;
     }
@@ -1974,9 +1974,9 @@ private:
     for (;;) {
       skipSpaces();
       char operation = peek();
-      // NOLINTNEXTLINE(bugprone-branch-clone) —— 与下面的隐含乘法分支体相同，
-      // 但**不能合并**：这一支要消费 token，那一支只设符号。合到一条条件里会改求值顺序。
-      if (takeToken("\\cdot") || takeToken("\\times")) {
+      if (takeToken("\\cdot") ||
+          takeToken(
+              "\\times")) { // NOLINT(bugprone-branch-clone) —— 隐含乘法那支分支体相同但**不能合并**（合并改求值顺序）
         operation = '*';
       } else if (takeToken("\\div")) {
         operation = '/';
