@@ -374,22 +374,22 @@ private:
     }
 
     // 被开方数按同一套语法递归解析，然后要求它**不含变量**
-    const Result<RationalFunctionOf<Coefficient>> radicand = ParserOf<Coefficient>(radicandText).parse();
+    Result<RationalFunctionOf<Coefficient>> radicand = ParserOf<Coefficient>(radicandText).parse();
     if (radicand.isErr()) {
       return radicand;
     }
-    const Result<MonomialOf<Coefficient>> numerator = radicand.unwrap().getNumerator().toMonomial();
-    const Result<MonomialOf<Coefficient>> denominator = radicand.unwrap().getDenominator().toMonomial();
+    Result<MonomialOf<Coefficient>> numerator = radicand.unwrap().getNumerator().toMonomial();
+    Result<MonomialOf<Coefficient>> denominator = radicand.unwrap().getDenominator().toMonomial();
     if (numerator.isErr() || !numerator.unwrap().isConstant() || denominator.isErr() ||
         !denominator.unwrap().isConstant()) {
       return std::unexpected(MathsError::InvalidExpression); // \sqrt{x} 这类：本库表示不了
     }
 
-    const Result<Coefficient> value = numerator.unwrap().getCoefficient() / denominator.unwrap().getCoefficient();
+    Result<Coefficient> value = numerator.unwrap().getCoefficient() / denominator.unwrap().getCoefficient();
     if (value.isErr()) {
       return std::unexpected(value.unwrapErr());
     }
-    const Result<Coefficient> root = coefficientNthRoot(value.unwrap(), degree);
+    Result<Coefficient> root = coefficientNthRoot(value.unwrap(), degree);
     if (root.isErr()) {
       return std::unexpected(root.unwrapErr());
     }
@@ -540,12 +540,12 @@ private:
 
 // 是否为「恰好等于某个变量」的表达式，要求系数为 1、指数为 1、且分母为 1
 inline std::optional<Variable> asSingleVariable(const RationalFunction &value) {
-  const Result<Monomial> denominator = value.getDenominator().toMonomial();
+  Result<Monomial> denominator = value.getDenominator().toMonomial();
   if (denominator.isErr() || !denominator.unwrap().isConstant() || denominator.unwrap().getCoefficient() != 1LL) {
     return std::nullopt;
   }
 
-  const Result<Monomial> numerator = value.getNumerator().toMonomial();
+  Result<Monomial> numerator = value.getNumerator().toMonomial();
   if (numerator.isErr() || numerator.unwrap().getCoefficient() != 1LL) {
     return std::nullopt;
   }
@@ -559,7 +559,7 @@ inline std::optional<Variable> asSingleVariable(const RationalFunction &value) {
 
 // 是否为常数（空 Scope 下可求值即说明不含变量）
 inline std::optional<Fraction> asConstant(const RationalFunction &value) {
-  const Result<Fraction> evaluated = value.evaluate(Scope());
+  Result<Fraction> evaluated = value.evaluate(Scope());
   if (evaluated.isErr()) {
     return std::nullopt;
   }
@@ -704,7 +704,7 @@ private:
     }
     RadicalExtension result(Fraction(1, 1));
     for (unsigned long long step = 0; step < exponent.unwrap(); ++step) {
-      const Result<RadicalExtension> next = result * base.unwrap();
+      Result<RadicalExtension> next = result * base.unwrap();
       if (next.isErr()) {
         return next;
       }
@@ -773,7 +773,7 @@ private:
       if (radicandText.find("\\sqrt") != std::string::npos) {
         return std::unexpected(MathsError::NestedRadical); // 根式套根式：代数函数域装不下
       }
-      const Result<RationalFunction> radicand = ParserOf<Fraction>(radicandText).parse();
+      Result<RationalFunction> radicand = ParserOf<Fraction>(radicandText).parse();
       if (radicand.isErr()) {
         return std::unexpected(radicand.unwrapErr());
       }
@@ -799,7 +799,7 @@ private:
     if (chunk.find_first_not_of(" \t") == std::string_view::npos) {
       return std::unexpected(MathsError::InvalidExpression);
     }
-    const Result<RationalFunction> parsed = ParserOf<Fraction>(chunk).parse();
+    Result<RationalFunction> parsed = ParserOf<Fraction>(chunk).parse();
     if (parsed.isErr()) {
       return std::unexpected(parsed.unwrapErr());
     }
@@ -927,8 +927,8 @@ inline std::optional<RationalFunction> squareRootOf(const RationalFunction &valu
   if (!numeratorRoot.has_value() || !denominatorRoot.has_value()) {
     return std::nullopt;
   }
-  const Result<RationalFunction> assembled = RationalFunction::make(
-      fromUnivariatePolynomial(*numeratorRoot, variable), fromUnivariatePolynomial(*denominatorRoot, variable));
+  Result<RationalFunction> assembled = RationalFunction::make(fromUnivariatePolynomial(*numeratorRoot, variable),
+                                                              fromUnivariatePolynomial(*denominatorRoot, variable));
   if (assembled.isErr()) {
     return std::nullopt;
   }
@@ -978,7 +978,7 @@ inline Result<PiecewiseParseResult> parsePiecewiseExpressionDetailed(std::string
   // 整条式子就是一个「内部带根号的绝对值」时走塔那一档（`|x-2\sqrt{x}|` 这类）。
   // 形状不匹配 → InvalidExpression，继续走下面的 `√(g²)` 改写路线；
   // 形状对但判不了符号 → 如实报错，不静默退回。
-  const Result<PiecewiseParseResult> overTower = tower_parser_detail::parseAbsoluteValueOverTower(text);
+  Result<PiecewiseParseResult> overTower = tower_parser_detail::parseAbsoluteValueOverTower(text);
   if (overTower.isOk()) {
     return overTower.unwrap();
   }
@@ -997,9 +997,9 @@ inline Result<PiecewiseParseResult> parsePiecewiseExpressionDetailed(std::string
   const std::string normalized = expression_detail::normalizeLatex(radical_branch_detail::rewriteAbsoluteValues(text));
 
   // 先按常规路径试一次：没有完全平方的根号时直接成功，旧行为原封不动地保留
-  const Result<RadicalExtension> direct = parseRadicalExpression(normalized);
+  Result<RadicalExtension> direct = parseRadicalExpression(normalized);
   if (direct.isOk()) {
-    const Result<RealFunction> single = RealFunction::make(direct.unwrap());
+    Result<RealFunction> single = RealFunction::make(direct.unwrap());
     if (single.isErr()) {
       return std::unexpected(reported(single.unwrapErr()));
     }
@@ -1059,7 +1059,7 @@ inline Result<PiecewiseParseResult> parsePiecewiseExpressionDetailed(std::string
     cursor = position;
   }
 
-  const Result<RadicalExtension> parsed = parseRadicalExpression(rewritten);
+  Result<RadicalExtension> parsed = parseRadicalExpression(rewritten);
   if (parsed.isErr()) {
     return std::unexpected(reported(parsed.unwrapErr()));
   }
@@ -1072,34 +1072,34 @@ inline Result<PiecewiseParseResult> parsePiecewiseExpressionDetailed(std::string
     Result<RealSet> domain = Result<RealSet>(RealSet::realLine());
     for (std::size_t index = 0; index < squares.size(); ++index) {
       const bool negative = (mask & (std::size_t(1) << index)) != 0;
-      const Result<void> assigned =
+      Result<void> assigned =
           scope.assign(Variable(squares[index].placeholder), negative ? -squares[index].root : squares[index].root);
       if (assigned.isErr()) {
         return std::unexpected(assigned.unwrapErr());
       }
-      const Result<RealSet> condition =
+      Result<RealSet> condition =
           solveInequality(squares[index].root, negative ? Relation::Less : Relation::GreaterEqual);
       if (condition.isErr()) {
         return std::unexpected(condition.unwrapErr());
       }
-      const Result<RealSet> narrowed = domain.unwrap().intersect(condition.unwrap());
+      Result<RealSet> narrowed = domain.unwrap().intersect(condition.unwrap());
       if (narrowed.isErr()) {
         return std::unexpected(narrowed.unwrapErr());
       }
       domain = narrowed.unwrap();
     }
 
-    const Result<RadicalExtension> substituted = parsed.unwrap().substitute(scope);
+    Result<RadicalExtension> substituted = parsed.unwrap().substitute(scope);
     if (substituted.isErr()) {
       return std::unexpected(substituted.unwrapErr());
     }
-    const Result<RealFunction> branch = RealFunction::make(substituted.unwrap(), domain.unwrap());
+    Result<RealFunction> branch = RealFunction::make(substituted.unwrap(), domain.unwrap());
     if (branch.isErr()) {
       return std::unexpected(branch.unwrapErr());
     }
     branches.push_back(branch.unwrap()); // 符号互相冲突的那些支定义域为空，由 make 丢掉
   }
-  const Result<PiecewiseFunction> built = PiecewiseFunction::make(std::move(branches));
+  Result<PiecewiseFunction> built = PiecewiseFunction::make(std::move(branches));
   if (built.isErr()) {
     return std::unexpected(built.unwrapErr());
   }
@@ -1109,7 +1109,7 @@ inline Result<PiecewiseParseResult> parsePiecewiseExpressionDetailed(std::string
 
 // 只要分段本身时的便捷入口
 inline Result<PiecewiseFunction> parsePiecewiseExpression(std::string_view text) {
-  const Result<PiecewiseParseResult> detailed = parsePiecewiseExpressionDetailed(text);
+  Result<PiecewiseParseResult> detailed = parsePiecewiseExpressionDetailed(text);
   if (detailed.isErr()) {
     return std::unexpected(detailed.unwrapErr());
   }
@@ -1138,41 +1138,40 @@ inline Result<PiecewiseParseResult> parseAbsoluteValueOverTower(std::string_view
   if (inner.find('|') != std::string::npos || inner.find("\\sqrt") == std::string::npos) {
     return Result<PiecewiseParseResult>::err(MathsError::InvalidExpression);
   }
-  const Result<TowerExtension> value = parseTowerExpression(inner);
+  Result<TowerExtension> value = parseTowerExpression(inner);
   if (value.isErr()) {
     return Result<PiecewiseParseResult>::err(value.unwrapErr());
   }
-  const Result<RealSet> nonNegative = whereNonNegativeOverTower(value.unwrap());
+  Result<RealSet> nonNegative = whereNonNegativeOverTower(value.unwrap());
   if (nonNegative.isErr()) {
     return Result<PiecewiseParseResult>::err(nonNegative.unwrapErr());
   }
-  const Result<RealSet> domain = domainOf(value.unwrap());
+  Result<RealSet> domain = domainOf(value.unwrap());
   if (domain.isErr()) {
     return Result<PiecewiseParseResult>::err(domain.unwrapErr());
   }
-  const Result<RealSet> inside = nonNegative.unwrap().intersect(domain.unwrap());
+  Result<RealSet> inside = nonNegative.unwrap().intersect(domain.unwrap());
   if (inside.isErr()) {
     return Result<PiecewiseParseResult>::err(inside.unwrapErr());
   }
   // 外面那支 = 定义域 ∩（g≥0 的补集）
-  const Result<RealSet> rest = inside.unwrap().complement();
+  Result<RealSet> rest = inside.unwrap().complement();
   if (rest.isErr()) {
     return Result<PiecewiseParseResult>::err(rest.unwrapErr());
   }
-  const Result<RealSet> outside = rest.unwrap().intersect(domain.unwrap());
+  Result<RealSet> outside = rest.unwrap().intersect(domain.unwrap());
   if (outside.isErr()) {
     return Result<PiecewiseParseResult>::err(outside.unwrapErr());
   }
-  const Result<RealFunction> positive = RealFunction::make(FunctionRule::towerOf(value.unwrap()), inside.unwrap());
+  Result<RealFunction> positive = RealFunction::make(FunctionRule::towerOf(value.unwrap()), inside.unwrap());
   if (positive.isErr()) {
     return Result<PiecewiseParseResult>::err(positive.unwrapErr());
   }
-  const Result<RealFunction> negative =
-      RealFunction::make(FunctionRule::towerOf(value.unwrap().negate()), outside.unwrap());
+  Result<RealFunction> negative = RealFunction::make(FunctionRule::towerOf(value.unwrap().negate()), outside.unwrap());
   if (negative.isErr()) {
     return Result<PiecewiseParseResult>::err(negative.unwrapErr());
   }
-  const Result<PiecewiseFunction> built = PiecewiseFunction::make({positive.unwrap(), negative.unwrap()});
+  Result<PiecewiseFunction> built = PiecewiseFunction::make({positive.unwrap(), negative.unwrap()});
   if (built.isErr()) {
     return Result<PiecewiseParseResult>::err(built.unwrapErr());
   }
@@ -1265,16 +1264,16 @@ inline Result<TowerExtension> parseTowerExpression(std::string_view text) {
   // 由内往外往上接层
   Result<TowerExtension> tower = TowerExtension::rational(RationalFunction(Fraction(0, 1)));
   for (std::size_t index = 0; index < placeholders.size(); ++index) {
-    const Result<RationalFunction> parsed = expression_detail::ParserOf<Fraction>(radicands[index]).parse();
+    Result<RationalFunction> parsed = expression_detail::ParserOf<Fraction>(radicands[index]).parse();
     if (parsed.isErr()) {
       return std::unexpected(parsed.unwrapErr());
     }
     const std::vector<Variable> used(placeholders.begin(), placeholders.begin() + static_cast<std::ptrdiff_t>(index));
-    const Result<TowerExtension> radicand = evaluateOverPlaceholders(parsed.unwrap(), used, tower.unwrap());
+    Result<TowerExtension> radicand = evaluateOverPlaceholders(parsed.unwrap(), used, tower.unwrap());
     if (radicand.isErr()) {
       return radicand;
     }
-    const Result<TowerExtension> appended = tower.unwrap().adjoiningElement(radicand.unwrap());
+    Result<TowerExtension> appended = tower.unwrap().adjoiningElement(radicand.unwrap());
     if (appended.isErr()) {
       return std::unexpected(appended.unwrapErr());
     }
@@ -1282,7 +1281,7 @@ inline Result<TowerExtension> parseTowerExpression(std::string_view text) {
   }
 
   // 整条式子：代掉全部占位变量
-  const Result<RationalFunction> whole = expression_detail::ParserOf<Fraction>(remaining).parse();
+  Result<RationalFunction> whole = expression_detail::ParserOf<Fraction>(remaining).parse();
   if (whole.isErr()) {
     return std::unexpected(whole.unwrapErr());
   }
@@ -1377,11 +1376,11 @@ Result<MultiTowerExtension> substitutePlaceholders(const MultiRationalFunction &
           if (term.isErr()) {
             return term;
           }
-          const Result<MultiTowerExtension> generator = MultiTowerExtension::generatorOf(tower, index);
+          Result<MultiTowerExtension> generator = MultiTowerExtension::generatorOf(tower, index);
           if (generator.isErr()) {
             return generator;
           }
-          const Result<MultiTowerExtension> product = term.unwrap() * generator.unwrap();
+          Result<MultiTowerExtension> product = term.unwrap() * generator.unwrap();
           if (product.isErr()) {
             return product;
           }
@@ -1395,24 +1394,24 @@ Result<MultiTowerExtension> substitutePlaceholders(const MultiRationalFunction &
         total = term.unwrap();
         continue;
       }
-      const Result<MultiTowerExtension> sum = total.value() + term.unwrap();
+      Result<MultiTowerExtension> sum = total.value() + term.unwrap();
       if (sum.isErr()) {
         return sum;
       }
       total = sum.unwrap();
     }
     if (!total.has_value()) {
-      const Result<MultiTowerExtension> zero = tower.lifting(MultiRationalFunction(Fraction(0, 1)));
+      Result<MultiTowerExtension> zero = tower.lifting(MultiRationalFunction(Fraction(0, 1)));
       return zero;
     }
     return Result<MultiTowerExtension>(total.value());
   };
 
-  const Result<MultiTowerExtension> numerator = expand(value.numerator());
+  Result<MultiTowerExtension> numerator = expand(value.numerator());
   if (numerator.isErr()) {
     return numerator;
   }
-  const Result<MultiTowerExtension> denominator = expand(value.denominator());
+  Result<MultiTowerExtension> denominator = expand(value.denominator());
   if (denominator.isErr()) {
     return denominator;
   }
@@ -1454,21 +1453,21 @@ inline Result<MultiTowerExtension> parseMultiTowerExpression(std::string_view te
   // 由内往外往上接层
   Result<MultiTowerExtension> tower = MultiTowerExtension::rational(MultiRationalFunction(Fraction(0, 1)));
   for (std::size_t index = 0; index < placeholders.size(); ++index) {
-    const Result<RationalFunction> parsed = expression_detail::ParserOf<Fraction>(radicands[index]).parse();
+    Result<RationalFunction> parsed = expression_detail::ParserOf<Fraction>(radicands[index]).parse();
     if (parsed.isErr()) {
       return std::unexpected(parsed.unwrapErr());
     }
-    const Result<MultiRationalFunction> asMulti =
+    Result<MultiRationalFunction> asMulti =
         MultiRationalFunction::make(parsed.unwrap().getNumerator(), parsed.unwrap().getDenominator());
     if (asMulti.isErr()) {
       return std::unexpected(asMulti.unwrapErr());
     }
     const std::vector<Variable> used(placeholders.begin(), placeholders.begin() + static_cast<std::ptrdiff_t>(index));
-    const Result<MultiTowerExtension> radicand = substitutePlaceholders(asMulti.unwrap(), used, tower.unwrap());
+    Result<MultiTowerExtension> radicand = substitutePlaceholders(asMulti.unwrap(), used, tower.unwrap());
     if (radicand.isErr()) {
       return radicand;
     }
-    const Result<MultiTowerExtension> appended = tower.unwrap().adjoiningElement(radicand.unwrap());
+    Result<MultiTowerExtension> appended = tower.unwrap().adjoiningElement(radicand.unwrap());
     if (appended.isErr()) {
       return std::unexpected(appended.unwrapErr());
     }
@@ -1476,11 +1475,11 @@ inline Result<MultiTowerExtension> parseMultiTowerExpression(std::string_view te
   }
 
   // 整条式子：代掉全部占位变量
-  const Result<RationalFunction> whole = expression_detail::ParserOf<Fraction>(remaining).parse();
+  Result<RationalFunction> whole = expression_detail::ParserOf<Fraction>(remaining).parse();
   if (whole.isErr()) {
     return std::unexpected(whole.unwrapErr());
   }
-  const Result<MultiRationalFunction> asMulti =
+  Result<MultiRationalFunction> asMulti =
       MultiRationalFunction::make(whole.unwrap().getNumerator(), whole.unwrap().getDenominator());
   if (asMulti.isErr()) {
     return std::unexpected(asMulti.unwrapErr());
@@ -1542,7 +1541,7 @@ inline Result<MultiPiecewiseFunction> parseMultiPiecewiseExpression(std::string_
     // 这里要的是**多元**有理函数，所以再走一次 make —— 与 parseMultiTowerExpression 同一手法。
     Result<MultiRationalFunction> body = Result<MultiRationalFunction>::err(MathsError::InvalidExpression);
     if (radicand.size() >= 2 && radicand.compare(radicand.size() - 2, 2, "^2") == 0) {
-      const Result<RationalFunction> parsed = parseExpression(radicand.substr(0, radicand.size() - 2));
+      Result<RationalFunction> parsed = parseExpression(radicand.substr(0, radicand.size() - 2));
       if (parsed.isOk()) {
         body = MultiRationalFunction::make(parsed.unwrap().getNumerator(), parsed.unwrap().getDenominator());
       }
@@ -1584,7 +1583,7 @@ inline Result<MultiPiecewiseFunction> parseMultiPiecewiseExpression(std::string_
       }
       // g = N/D：符号条件用 N·D（同号），分母不能为 0
       const MultiRationalFunction &value = squares[index].body_value;
-      const Result<Polynomial> product = value.numerator() * value.denominator();
+      Result<Polynomial> product = value.numerator() * value.denominator();
       if (product.isErr()) {
         return std::unexpected(product.unwrapErr());
       }
@@ -1592,16 +1591,16 @@ inline Result<MultiPiecewiseFunction> parseMultiPiecewiseExpression(std::string_
           ConstraintSystem({AtomConstraint(product.unwrap(), negative ? Relation::Less : Relation::GreaterEqual)}));
       system = system.andWith(ConstraintSystem({AtomConstraint(value.denominator(), Relation::NotEqual)}));
     }
-    const Result<RationalFunction> parsed = parseExpression(substituted);
+    Result<RationalFunction> parsed = parseExpression(substituted);
     if (parsed.isErr()) {
       return std::unexpected(parsed.unwrapErr());
     }
-    const Result<MultiRationalFunction> rule =
+    Result<MultiRationalFunction> rule =
         MultiRationalFunction::make(parsed.unwrap().getNumerator(), parsed.unwrap().getDenominator());
     if (rule.isErr()) {
       return std::unexpected(rule.unwrapErr());
     }
-    const Result<Region> domain = Region::fromSystem(system);
+    Result<Region> domain = Region::fromSystem(system);
     if (domain.isErr()) {
       return std::unexpected(domain.unwrapErr());
     }
@@ -1687,8 +1686,8 @@ inline std::optional<Variable> parseErase(std::string_view text) {
     return std::nullopt;
   }
 
-  const Result<RationalFunction> leftHand = parseExpression(text.substr(0, equals));
-  const Result<RationalFunction> rightHand = parseExpression(text.substr(equals + 1));
+  Result<RationalFunction> leftHand = parseExpression(text.substr(0, equals));
+  Result<RationalFunction> rightHand = parseExpression(text.substr(equals + 1));
   if (leftHand.isErr() || rightHand.isErr()) {
     return std::nullopt;
   }
