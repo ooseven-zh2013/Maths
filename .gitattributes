@@ -1,0 +1,21 @@
+# 行尾一律 LF。
+#
+# 为什么显式写：仓库原先没有这个文件，靠各人本地的 core.autocrlf 兜着 ——
+# 而本机是 `true`（Windows），于是同一份文件在不同人机器上行尾不同，
+# 全文件 diff 能把真正的改动淹掉。
+#
+# CI 的三个 job 都在 Linux 上跑，`packaging` 直接执行 `scripts/*.sh`。
+# CRLF 的后果不是「不报错」而是**悄悄跑到一半炸**（`#!/bin/sh` 后缀带回车，
+# 报 `sh: 1: ./x.sh\r: not found`），所以这里钉死。
+#
+# ⚠️ 这**不覆盖编码问题**。Windows 脚本含中文仍必须加 UTF-8 BOM
+# （CI runner 按 ANSI 解码会把中文注释打乱、报出莫名其妙的解析错误）——
+# 那件事靠编辑器/写入方式保证，行尾管不到。
+* text=auto eol=lf
+*.sh text eol=lf
+*.cppm text eol=lf
+*.cpp text eol=lf
+*.hpp text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
