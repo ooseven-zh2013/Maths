@@ -107,7 +107,7 @@ const Fraction value = (a / Fraction(1, 2)).unwrap();  // 失败则抛 MathsExce
 | 半代数区域 | `maths.algebra:region_multi` | `Region`（约束系统的析取范式）与 `admits(point)` | — |
 | 多元规则 | `maths.algebra:rule` | `MultiRule`：多元有理 or 多元塔 | — |
 | 多元函数 | `maths.algebra:function_multi` | 多元函数：规则 + 多元区域定义域 | — |
-| 多元分段函数 | `maths.algebra:piecewise_multi` | 多元分段；**多元绝对值 `\|x-y\|` 靠它**（拆 `{f≥0}` 与 `{f<0}` 两支）| — |
+| 多元分段函数 | `maths.algebra:piecewise_multi` | 多元分段；**多元绝对值 `\|x-y\|` 靠它**（拆 `{f≥0}` 与 `{f<0}` 两支）| [文档](docs/src/algebra/piecewise_multi.md) |
 | 套嵌根式（塔） | `maths.algebra:tower` | `TowerExtension`：`\sqrt{1+\sqrt{x}}` 这类套嵌；元素是**平表之比** | [文档](docs/src/algebra/tower.md) |
 | 多元套嵌根式 | `maths.algebra:tower_multi` | `MultiTowerExtension`：多元的塔 | — |
 | 聚合 | `maths.algebra:aggregate` | 集合 → 数：求和 / 求积 / 最值 / 平均 / 方差 / 标准差、上确界与下确界 | [文档](docs/src/algebra/aggregate.md) |
