@@ -68,9 +68,13 @@ failed=0
 for file in $files; do
   [ -f "$file" ] || continue
   # --quiet：只报真实问题，不逐条列被抑制的十万条模块噪声
-  # ⚠️ --warnings-as-errors 缺了不可：clang-tidy 默认只对 **error** 返回非零，
-  # 警告一律放过 —— 脚本会报「0 个有问题」而实际有 38 条。踩过。
-  if ! "$TIDY" "$file" -p . --quiet --warnings-as-errors; then
+  # ⚠️ 两个都缺不得：
+  #   --warnings-as-errors 缺了 → clang-tidy 默认只对 **error** 返回非零，警告一律放过，
+  #     脚本会报「0 个有问题」而实际有 38 条。踩过。
+  #   它**必须带值**（clang-tidy 20）→ 只写开关会报「requires a value!」，
+  #     那样每个文件都算「有问题」，28 个全红但全是用法错。踩过。
+  #   星号要引号包住，否则被 shell 当通配符展开。
+  if ! "$TIDY" "$file" -p . --quiet --warnings-as-errors='*'; then
     failed=$((failed + 1))
   fi
 done
