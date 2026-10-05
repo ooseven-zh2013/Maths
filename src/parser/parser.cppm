@@ -1488,6 +1488,128 @@ inline Result<MultiTowerExtension> parseMultiTowerExpression(std::string_view te
   return substitutePlaceholders(asMulti.unwrap(), placeholders, tower.unwrap());
 }
 
+// ==================== 多元分段函数 ====================
+//
+// `|f|` 在多元里是能表示的：`{ f : {f ≥ 0} , −f : {f < 0} }`。
+//
+// ⚠️ 别把它当成「需要 CAD」。**表示本身不需要判定符号** —— 那两支的定义域
+// 就是符号本身写着呢。只有「化简」（合并区域、判哪支是空集）才需要符号判定。
+// 而 `g = N/D` 的符号条件精确且廉价：`g ≥ 0` ⟺ `N·D ≥ 0 ∧ D ≠ 0`（同号）。
+//
+// （一元那边 `squareRootOf` 里写着「多变量：分段函数是一元的，装不下」——
+//   那句判断是错的：多元分段类型就在同一个库里，连分支两两不交的校验都写好了，
+//   只是没人写这个解析器。)
+inline Result<MultiPiecewiseFunction> parseMultiPiecewiseExpression(std::string_view text) {
+  if (text.find('|') == std::string_view::npos) {
+    return std::unexpected(MathsError::InvalidExpression); // 没绝对值就不是这一档
+  }
+  // `|g|` → `\sqrt{g^2}`。之后只认「内容字面以 ^2 结尾」的根号 —— 那是
+  // rewriteAbsoluteValues 自己造出来的形态，认它就够了，不去做多项式开方（那是因式分解）。
+  const std::string normalized = expression_detail::normalizeLatex(radical_branch_detail::rewriteAbsoluteValues(text));
+  if (normalized.find("\\sqrt") == std::string::npos) {
+    return std::unexpected(MathsError::InvalidExpression);
+  }
+
+  struct SquareRoot {
+    std::string name; // 占位名（不含花括号）
+    std::string body; // 开方前的式子原文
+    MultiRationalFunction body_value;
+  };
+  std::vector<SquareRoot> squares;
+  std::string rewritten;
+  std::size_t cursor = 0;
+  while (true) {
+    const std::size_t at = normalized.find("\\sqrt", cursor);
+    if (at == std::string::npos) {
+      rewritten += normalized.substr(cursor);
+      break;
+    }
+    // ⚠️ `\sqrt` 是 **5** 个字符。写成 6 会越过 `{` 落在 `(` 上，
+    // takeBracedGroup 立刻失败 —— 表现为「一个平方根号都找不到」。
+    constexpr std::size_t kRadicalKeyword = 5;
+    std::size_t position = at + kRadicalKeyword;
+    while (position < normalized.size() && std::isspace(static_cast<unsigned char>(normalized[position])) != 0) {
+      ++position;
+    }
+    std::string radicand;
+    if (position >= normalized.size() || normalized[position] == '[' ||
+        !expression_detail::takeBracedGroup(normalized, position, radicand)) {
+      rewritten += normalized.substr(cursor, position - cursor);
+      cursor = position;
+      continue;
+    }
+    // 有理解析出来的 numerator/denominator 是 `Result<Polynomial>`（多项式乘法可能失败），
+    // 这里要的是**多元**有理函数，所以再走一次 make —— 与 parseMultiTowerExpression 同一手法。
+    Result<MultiRationalFunction> body = Result<MultiRationalFunction>::err(MathsError::InvalidExpression);
+    if (radicand.size() >= 2 && radicand.compare(radicand.size() - 2, 2, "^2") == 0) {
+      const Result<RationalFunction> parsed = parseExpression(radicand.substr(0, radicand.size() - 2));
+      if (parsed.isOk()) {
+        body = MultiRationalFunction::make(parsed.unwrap().getNumerator(), parsed.unwrap().getDenominator());
+      }
+    }
+    if (body.isErr()) {
+      rewritten += normalized.substr(at, position - at); // 不是完全平方：原样留给别的档
+      cursor = position;
+      continue;
+    }
+    if (squares.size() >= radical_branch_detail::kMaxSquareRadicals) {
+      return std::unexpected(MathsError::RadicandIsSquare); // 分支数会爆，明确拒绝
+    }
+    std::string name = "zabs";
+    name += static_cast<char>('a' + squares.size());
+    while (normalized.find("{" + name + "}") != std::string::npos) {
+      name += "z"; // 原文里占了这个名字
+    }
+    rewritten += "{" + name + "}";
+    squares.push_back({name, radicand.substr(0, radicand.size() - 2), body.unwrap()});
+    cursor = position;
+  }
+
+  if (squares.empty()) {
+    return std::unexpected(MathsError::InvalidExpression);
+  }
+
+  // 枚举 ±：第 index 位取负的那支要求 g_index < 0，其余要求 ≥ 0
+  std::vector<MultiPiecewiseFunction::Branch> branches;
+  for (std::size_t mask = 0; mask < (std::size_t(1) << squares.size()); ++mask) {
+    std::string substituted = rewritten;
+    ConstraintSystem system;
+    for (std::size_t index = 0; index < squares.size(); ++index) {
+      const bool negative = (mask & (std::size_t(1) << index)) != 0;
+      const std::string token = "{" + squares[index].name + "}";
+      const std::string replacement = negative ? "-(" + squares[index].body + ")" : "(" + squares[index].body + ")";
+      for (std::size_t at = substituted.find(token); at != std::string::npos;
+           at = substituted.find(token, at + replacement.size())) {
+        substituted.replace(at, token.size(), replacement);
+      }
+      // g = N/D：符号条件用 N·D（同号），分母不能为 0
+      const MultiRationalFunction &value = squares[index].body_value;
+      const Result<Polynomial> product = value.numerator() * value.denominator();
+      if (product.isErr()) {
+        return std::unexpected(product.unwrapErr());
+      }
+      system = system.andWith(
+          ConstraintSystem({AtomConstraint(product.unwrap(), negative ? Relation::Less : Relation::GreaterEqual)}));
+      system = system.andWith(ConstraintSystem({AtomConstraint(value.denominator(), Relation::NotEqual)}));
+    }
+    const Result<RationalFunction> parsed = parseExpression(substituted);
+    if (parsed.isErr()) {
+      return std::unexpected(parsed.unwrapErr());
+    }
+    const Result<MultiRationalFunction> rule =
+        MultiRationalFunction::make(parsed.unwrap().getNumerator(), parsed.unwrap().getDenominator());
+    if (rule.isErr()) {
+      return std::unexpected(rule.unwrapErr());
+    }
+    const Result<Region> domain = Region::fromSystem(system);
+    if (domain.isErr()) {
+      return std::unexpected(domain.unwrapErr());
+    }
+    branches.push_back(MultiPiecewiseFunction::Branch{MultiRule(rule.unwrap()), domain.unwrap()});
+  }
+  return MultiPiecewiseFunction::make(std::move(branches));
+}
+
 struct Assignment {
   Variable variable;
   RationalFunction value; // 右边可以是含其它变量的表达式，如 s = v*t

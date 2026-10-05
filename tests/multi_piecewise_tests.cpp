@@ -43,6 +43,43 @@ int main() {
   std::cout << "=== 多元规则与多元分段测试 ===" << std::endl;
   std::cout << std::unitbuf;
 
+  // ---------- 多元绝对值：|f| = { f : {f≥0} , −f : {f<0} } ----------
+  //
+  // ⚠️ 这**不需要 CAD**。两支的定义域就是符号本身写着呢；而 `g = N/D` 的符号条件
+  // 精确且廉价：`g ≥ 0` ⟺ `N·D ≥ 0 ∧ D ≠ 0`（同号），全程只有多项式乘法。
+  // 以前这个入口根本不存在，一元那边的注释还写着「多变量：分段函数装不下」。
+  {
+    const MultiPiecewiseFunction difference = parseMultiPiecewiseExpression("|x-y|").unwrap();
+    CHECK_TRUE(difference.at(point(3, 1)).unwrap() == RealAlgebraicNumber(Fraction(2, 1)));
+    CHECK_TRUE(difference.at(point(1, 3)).unwrap() == RealAlgebraicNumber(Fraction(2, 1)));
+    CHECK_TRUE(difference.at(point(2, 2)).unwrap() == RealAlgebraicNumber(Fraction(0, 1))); // 折线上
+    // 两支的定义域真的互斥，而且覆盖整个平面
+    CHECK_TRUE(difference.branches().size() == std::size_t(2));
+    CHECK_TRUE(difference.admits(point(3, 1)).unwrap());
+    CHECK_TRUE(difference.admits(point(-3, -1)).unwrap());
+    // 恒真的原子不印出来（`|x-y|` 的分母是 1，`1 ≠ 0` 不该出现）
+    CHECK_TRUE(difference.latex().find("ne 0") == std::string::npos);
+    CHECK_TRUE(difference.latex().find("quad") != std::string::npos);
+
+    const MultiPiecewiseFunction product = parseMultiPiecewiseExpression("|x*y-1|").unwrap();
+    CHECK_TRUE(product.at(point(3, 1)).unwrap() == RealAlgebraicNumber(Fraction(2, 1)));
+    CHECK_TRUE(product.at(point(2, 2)).unwrap() == RealAlgebraicNumber(Fraction(3, 1))); // 正支
+    CHECK_TRUE(product.at(point(1, 1)).unwrap() == RealAlgebraicNumber(Fraction(0, 1)));
+
+    // 带分母的：`|x/y-1|` —— N·D ≥ 0 ∧ D ≠ 0 那个技巧
+    const MultiPiecewiseFunction quotient = parseMultiPiecewiseExpression("|x/y-1|").unwrap();
+    CHECK_TRUE(quotient.at(point(3, 1)).unwrap() == RealAlgebraicNumber(Fraction(2, 1)));
+    CHECK_TRUE(quotient.at(point(1, 3)).unwrap() == RealAlgebraicNumber(Fraction(2, 3)));
+    CHECK_TRUE(quotient.at(point(2, 2)).unwrap() == RealAlgebraicNumber(Fraction(0, 1)));
+    // 分母条件**不是**恒真，必须留着
+    CHECK_TRUE(quotient.latex().find("y \\ne 0") != std::string::npos);
+    // y = 0 不在定义域里
+    CHECK_TRUE(!quotient.admits(point(1, 0)).unwrap());
+
+    // 没有绝对值就不是这一档
+    CHECK_ERR(parseMultiPiecewiseExpression("x-y"), MathsError::InvalidExpression);
+  }
+
   // ---------- MultiRule：两种形态 ----------
   {
     const MultiRule rational(mrf("x", "y"));

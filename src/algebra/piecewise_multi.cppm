@@ -166,7 +166,17 @@ public:
           if (overlap.isErr()) {
             return std::unexpected(overlap.unwrapErr());
           }
-          if (!overlap.unwrap().isEmptyRegion().unwrap()) {
+          // ⚠️ **判不出 ≠ 重叠。**
+          //
+          // `isEmptyRegion()` 判不出来时返回 `DomainNotDecidable`（多元多项式不等式
+          // 有无可行解不是本库能定的事）。原来这里直接 `.unwrap()` —— 对错误结果
+          // unwrap 就是 abort（0xC0000409），多元绝对值因此必崩。
+          //
+          // 判不出就当「不重叠」放行：这个检查本来就是尽力而为（支数一多就跳过），
+          // 而且解析器造出来的分支**按构造就互斥** —— 同一个多项式上一支要 `≥ 0`、
+          // 另一支要 `< 0`。只有「能证明非空」才算歧义并拒收。
+          const Result<bool> empty = overlap.unwrap().isEmptyRegion();
+          if (empty.isOk() && !empty.unwrap()) {
             return Result<MultiPiecewiseFunction>::err(MathsError::InvalidExpression);
           }
         }
@@ -217,7 +227,8 @@ private:
     std::string result;
     for (std::size_t index = 0; index < branches_.size(); ++index) {
       if (index > 0) {
-        result += useLatex ? "\\\\\\\\" : " , ";
+        // ⚠️ 别用 `\\\\`（LaTeX 的换行）当分隔符 —— 它在数学式里没有意义。
+        result += useLatex ? ";\\quad " : " , ";
       }
       const Branch &branch = branches_[index];
       result += (useLatex ? branch.rule.latex() : branch.rule.str());

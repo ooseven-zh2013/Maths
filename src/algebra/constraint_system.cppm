@@ -92,6 +92,36 @@ public:
   // 原子是 `expression ⋈ 0`，右边那个 0 也写出来，读起来才完整
   std::string latex() const { return expression_.latex() + " " + relationLatex(relation_) + " 0"; }
 
+  // 恒真吗：表达式是常数、且那个常数满足这条关系（`1 ≠ 0`、`0 ≥ 0`……）
+  //
+  // ⚠️ `holdsFor` 在 domain_multi 里（本模块看不见它），所以这里内联一份 ——
+  // 六条关系逐一写，别去引入跨模块的依赖。
+  bool isTautology() const {
+    if (!expression_.variables().empty()) {
+      return false;
+    }
+    const Result<Fraction> value = expression_.evaluate(Scope());
+    if (value.isErr()) {
+      return false;
+    }
+    const Fraction constant = value.unwrap();
+    switch (relation_) {
+    case Relation::Equal:
+      return constant == Fraction(0, 1);
+    case Relation::NotEqual:
+      return constant != Fraction(0, 1);
+    case Relation::Less:
+      return constant < Fraction(0, 1);
+    case Relation::LessEqual:
+      return constant <= Fraction(0, 1);
+    case Relation::Greater:
+      return constant > Fraction(0, 1);
+    case Relation::GreaterEqual:
+      return constant >= Fraction(0, 1);
+    }
+    return false;
+  }
+
 private:
   static bool satisfies(Relation relation, const Fraction &value) {
     const bool positive = value > 0LL;
@@ -228,15 +258,26 @@ public:
   }
 
   std::string latex() const {
-    if (atoms_.empty()) {
+    // ⚠️ 恒真的原子不印出来。
+    //
+    // 符号条件天然会带一条 `分母 ≠ 0`，而分母是 1 的情形（`|x-y|`）就是 `1 ≠ 0` ——
+    // 恒真，印出来只是噪音。判法：表达式是常数、且那个常数确实满足这条关系。
+    std::vector<const AtomConstraint *> shown;
+    for (const AtomConstraint &atom : atoms_) {
+      if (atom.isTautology()) {
+        continue;
+      }
+      shown.push_back(&atom);
+    }
+    if (shown.empty()) {
       return "\\text{恒真}";
     }
     std::string result;
-    for (std::size_t index = 0; index < atoms_.size(); ++index) {
+    for (std::size_t index = 0; index < shown.size(); ++index) {
       if (index != 0) {
         result += " \\land ";
       }
-      result += atoms_[index].latex();
+      result += shown[index]->latex();
     }
     return result;
   }
