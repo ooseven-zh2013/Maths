@@ -25,7 +25,7 @@ RealSet closed(long long low, long long high) { return RealSet::closedInterval(n
 } // namespace
 
 int main() {
-  std::cout << "=== 一元实函数 RealFunction（集合 → 实数）测试 ===" << std::endl;
+  std::cout << "=== 一元实函数 RealFunction（集合 → 实数）测试 ===" << '\n';
   std::cout << std::unitbuf; // 崩溃时也能看到已输出的断言结果
 
   // ---------- 构造：自变量与定义域都是推出来的 ----------

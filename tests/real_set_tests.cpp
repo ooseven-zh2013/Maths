@@ -26,7 +26,7 @@ bool isPositiveInfinity(const Bound &bound) { return bound.isInfinite() && bound
 } // namespace
 
 int main() {
-  std::cout << "=== 实点集 RealSet 测试 ===" << std::endl;
+  std::cout << "=== 实点集 RealSet 测试 ===" << '\n';
   std::cout << std::unitbuf;
 
   // ---------- 实根的精确隔离 ----------

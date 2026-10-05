@@ -23,7 +23,7 @@ AlgebraicPolynomial linearWithAlgebraicCoefficient() {
 } // namespace
 
 int main() {
-  std::cout << "=== 代数系数代数式 / 代数 Scope 测试 ===" << std::endl;
+  std::cout << "=== 代数系数代数式 / 代数 Scope 测试 ===" << '\n';
   std::cout << std::unitbuf; // 崩溃时也能看到已输出的断言结果
 
   // ---------- 构造与输出 ----------

@@ -28,7 +28,7 @@ RealSet atMostOne() {
 } // namespace
 
 int main() {
-  std::cout << "=== 取值范围约束 Constraint / RangeConstraint 测试 ===" << std::endl;
+  std::cout << "=== 取值范围约束 Constraint / RangeConstraint 测试 ===" << '\n';
   std::cout << std::unitbuf;
 
   // ---------- 一元有理函数的不等式 ----------

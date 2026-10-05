@@ -30,7 +30,7 @@ RealSet closed(long long low, long long high) { return RealSet::closedInterval(n
 } // namespace
 
 int main() {
-  std::cout << "=== 聚合 Aggregate（集合 → 数）测试 ===" << std::endl;
+  std::cout << "=== 聚合 Aggregate（集合 → 数）测试 ===" << '\n';
   std::cout << std::unitbuf; // 崩溃时也能看到已输出的断言结果
 
   // ---------- 求和 / 求积 ----------

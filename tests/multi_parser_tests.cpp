@@ -19,7 +19,7 @@ Scope point(long long x, long long y) {
 } // namespace
 
 int main() {
-  std::cout << "=== 多元解析器 parseMultiTowerExpression 测试 ===" << std::endl;
+  std::cout << "=== 多元解析器 parseMultiTowerExpression 测试 ===" << '\n';
   std::cout << std::unitbuf;
 
   // ---------- 单层：√(x²+y²) ----------

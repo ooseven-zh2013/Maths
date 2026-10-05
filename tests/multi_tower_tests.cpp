@@ -46,7 +46,7 @@ RealAlgebraicNumber valueAt(const MultiTowerExtension &value, long long x, long 
 } // namespace
 
 int main() {
-  std::cout << "=== 多元塔 MultiTowerExtension 测试 ===" << std::endl;
+  std::cout << "=== 多元塔 MultiTowerExtension 测试 ===" << '\n';
   std::cout << std::unitbuf;
 
   // ---------- 深度 1：√(x²+y²) ----------

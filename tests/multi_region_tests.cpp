@@ -27,7 +27,7 @@ Scope point(long long x, long long y) {
 } // namespace
 
 int main() {
-  std::cout << "=== 多元区域 Region 测试 ===" << std::endl;
+  std::cout << "=== 多元区域 Region 测试 ===" << '\n';
   std::cout << std::unitbuf;
 
   // ---------- 整空间 ----------
@@ -105,7 +105,7 @@ int main() {
   // ---------- 渲染 ----------
   {
     const Region single = Region::fromSystem(branch({{"x", Relation::GreaterEqual}})).unwrap();
-    CHECK_TRUE(single.latex().find("x") != std::string::npos);
+    CHECK_TRUE(single.latex().find('x') != std::string::npos);
     const Region both = single.unite(Region::fromSystem(branch({{"y", Relation::GreaterEqual}})).unwrap()).unwrap();
     CHECK_TRUE(both.latex().find("cup") != std::string::npos);
     CHECK_TRUE(Region::wholeSpace().unwrap().latex() == std::string("\\mathbb{R}^{n}"));

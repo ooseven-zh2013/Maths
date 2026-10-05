@@ -12,7 +12,7 @@ namespace {
 
 Polynomial poly(const char *latex) { return parseExpression(latex).unwrap().getNumerator(); }
 
-ConstraintSystem system(std::vector<std::pair<std::string, Relation>> atoms) {
+ConstraintSystem system(const std::vector<std::pair<std::string, Relation>> &atoms) {
   std::vector<AtomConstraint> built;
   for (const auto &[latex, relation] : atoms) {
     built.push_back(AtomConstraint(poly(latex.c_str()), relation));
@@ -27,7 +27,7 @@ MultiRationalFunction frac(const char *numerator, const char *denominator) {
 } // namespace
 
 int main() {
-  std::cout << "=== 多元定义域与判空测试 ===" << std::endl;
+  std::cout << "=== 多元定义域与判空测试 ===" << '\n';
   std::cout << std::unitbuf;
 
   // ---------- 定义域 = {Q ≠ 0} ----------

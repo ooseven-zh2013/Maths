@@ -49,7 +49,7 @@ RealAlgebraicNumber valueAt(const TowerExtension &value, long long x) {
 } // namespace
 
 int main() {
-  std::cout << "=== 塔式扩张 TowerExtension 测试 ===" << std::endl;
+  std::cout << "=== 塔式扩张 TowerExtension 测试 ===" << '\n';
   std::cout << std::unitbuf; // 崩溃时也能看到已输出的断言结果
 
   // ---------- 深度 0：退化成有理函数 ----------

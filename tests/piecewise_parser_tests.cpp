@@ -17,7 +17,7 @@ RealAlgebraicNumber number(long long numerator, long long denominator = 1) {
 } // namespace
 
 int main() {
-  std::cout << "=== 根式 → 分段函数（被开方数是完全平方）测试 ===" << std::endl;
+  std::cout << "=== 根式 → 分段函数（被开方数是完全平方）测试 ===" << '\n';
   std::cout << std::unitbuf; // 崩溃时也能看到已输出的断言结果
 
   // ---------- √(x²) 就是 |x| ----------

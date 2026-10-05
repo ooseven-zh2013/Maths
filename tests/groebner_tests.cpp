@@ -39,7 +39,7 @@ std::optional<Polynomial> findWithVariables(const std::vector<Polynomial> &basis
 } // namespace
 
 int main() {
-  std::cout << "=== Gröbner 基测试 ===" << std::endl;
+  std::cout << "=== Gröbner 基测试 ===" << '\n';
   std::cout << std::unitbuf;
 
   // ---------- 首项与单项式序 ----------

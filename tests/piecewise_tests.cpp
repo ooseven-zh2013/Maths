@@ -25,7 +25,7 @@ RealSet interval(long long low, long long high) { return RealSet::closedInterval
 } // namespace
 
 int main() {
-  std::cout << "=== 分段函数 PiecewiseFunction（绝对值等）测试 ===" << std::endl;
+  std::cout << "=== 分段函数 PiecewiseFunction（绝对值等）测试 ===" << '\n';
   std::cout << std::unitbuf; // 崩溃时也能看到已输出的断言结果
 
   // ---------- |x| 的构造与结构 ----------

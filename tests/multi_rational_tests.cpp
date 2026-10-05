@@ -22,7 +22,7 @@ MultiRationalFunction value(const char *latex) { return MultiRationalFunction(po
 } // namespace
 
 int main() {
-  std::cout << "=== 多元有理函数 MultiRationalFunction 测试 ===" << std::endl;
+  std::cout << "=== 多元有理函数 MultiRationalFunction 测试 ===" << '\n';
   std::cout << std::unitbuf;
 
   // ---------- 构造与观察 ----------

@@ -23,7 +23,7 @@ RealAlgebraicNumber sqrtOf(long long value) { return RealAlgebraicNumber::square
 } // namespace
 
 int runTests() {
-  std::cout << "=== 实代数数 RealAlgebraicNumber 测试 ===" << std::endl;
+  std::cout << "=== 实代数数 RealAlgebraicNumber 测试 ===" << '\n';
   std::cout << std::unitbuf; // 崩溃时也能看到已输出的断言结果
 
   // ---------- 一元多项式基础 ----------
@@ -426,7 +426,7 @@ int main() {
   try {
     return runTests();
   } catch (const std::exception &error) {
-    std::cout << "未捕获异常: " << error.what() << std::endl;
+    std::cout << "未捕获异常: " << error.what() << '\n';
     return 1;
   }
 }

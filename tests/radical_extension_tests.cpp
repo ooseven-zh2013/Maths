@@ -22,7 +22,7 @@ RadicalExtension twoRadicals() {
 } // namespace
 
 int main() {
-  std::cout << "=== 根式扩张 RadicalExtension（多重根号）测试 ===" << std::endl;
+  std::cout << "=== 根式扩张 RadicalExtension（多重根号）测试 ===" << '\n';
   std::cout << std::unitbuf; // 崩溃时也能看到已输出的断言结果
 
   // ---------- 构造与拒收 ----------

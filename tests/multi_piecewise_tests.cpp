@@ -40,7 +40,7 @@ Scope point(long long x, long long y) {
 } // namespace
 
 int main() {
-  std::cout << "=== 多元规则与多元分段测试 ===" << std::endl;
+  std::cout << "=== 多元规则与多元分段测试 ===" << '\n';
   std::cout << std::unitbuf;
 
   // ---------- 多元绝对值：|f| = { f : {f≥0} , −f : {f<0} } ----------
@@ -179,7 +179,7 @@ int main() {
                 MultiPiecewiseFunction::Branch{MultiRule(mrf("-x")), region({{"-x-1", Relation::GreaterEqual}})},
             })
             .unwrap();
-    CHECK_TRUE(absolute.latex().find("x") != std::string::npos);
+    CHECK_TRUE(absolute.latex().find('x') != std::string::npos);
     CHECK_TRUE(MultiPiecewiseFunction().latex() == std::string("\\varnothing"));
   }
 

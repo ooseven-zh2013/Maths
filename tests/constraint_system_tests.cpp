@@ -23,7 +23,7 @@ Scope point(std::initializer_list<std::pair<const char *, long long>> values) {
 } // namespace
 
 int main() {
-  std::cout << "=== 多维点集：约束式表示测试 ===" << std::endl;
+  std::cout << "=== 多维点集：约束式表示测试 ===" << '\n';
   std::cout << std::unitbuf;
 
   // ---------- 原子约束的成员判定 ----------

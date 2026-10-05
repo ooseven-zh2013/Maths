@@ -51,7 +51,7 @@ ConstraintSystem atom(const char *latex, Relation relation) {
 } // namespace
 
 int main() {
-  std::cout << "=== 多元函数 MultiFunction 测试 ===" << std::endl;
+  std::cout << "=== 多元函数 MultiFunction 测试 ===" << '\n';
   std::cout << std::unitbuf;
 
   // ---------- 构造与定义域 ----------
@@ -135,7 +135,7 @@ int main() {
   // ---------- 渲染 ----------
   {
     CHECK_TRUE(MultiFunction::make(poly("x+y")).unwrap().latex() == std::string("x + y"));
-    CHECK_TRUE(MultiFunction::make(poly("x+y"), atom("x", Relation::GreaterEqual)).unwrap().latex().find("x") !=
+    CHECK_TRUE(MultiFunction::make(poly("x+y"), atom("x", Relation::GreaterEqual)).unwrap().latex().find('x') !=
                std::string::npos);
   }
 
