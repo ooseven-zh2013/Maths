@@ -39,6 +39,17 @@ public:
   static Result<Region> fromSystem(ConstraintSystem system) { return Result<Region>(Region({std::move(system)})); }
 
   const std::vector<ConstraintSystem> &branches() const { return branches_; }
+
+  // 这个区域里出现过哪些变量（各支的并集）—— app 要靠它知道该问哪几个取值
+  std::set<Variable> variables() const {
+    std::set<Variable> all;
+    for (const ConstraintSystem &branch : branches_) {
+      for (const Variable &variable : branch.variables()) {
+        all.insert(variable);
+      }
+    }
+    return all;
+  }
   bool isWholeSpace() const { return branches_.empty(); }
   // 整空间、或有一支的约束为空 → 整空间
   bool isTrivial() const;

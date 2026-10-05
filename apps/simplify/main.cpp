@@ -177,8 +177,10 @@ std::optional<std::string> radicalHint(std::string_view text) {
 //                             那不是单个式子、分段才装得下，所以单独一档
 // 最后一档 `MultiTowerExtension` 是**多元**的（变量不止一个）。它只在「代入求值」上
 // 与前几档不同：条件要给**一个点**（x=3, y=4），而一元那边给 x = 值就够了。
+// 第六个变体是多元分段（`|x-y|`）：单变量的一元分段装不下多元绝对值，
+// 而多元有理函数 / 多元塔都装不下「按符号分区域」这件事。
 using Expression = std::variant<RationalFunction, RealAlgebraicNumber, AlgebraicRationalFunction, RadicalExtension,
-                                PiecewiseFunction, TowerExtension, MultiTowerExtension>;
+                                PiecewiseFunction, TowerExtension, MultiTowerExtension, MultiPiecewiseFunction>;
 
 struct InputExpression {
   Expression value;
@@ -247,6 +249,22 @@ std::optional<InputExpression> readExpression() {
       printField("解析为", multi.unwrap().latex(), true);
       printField("变量", variableListLatex(multi.unwrap().variables()), true);
       return InputExpression{multi.unwrap(), trim(line)};
+    }
+
+    // 多元的**绝对值**（`|x-y|`、`|x*y-1|`）：拆成 {f≥0} 与 {f<0} 两支，各带一个区域。
+    //
+    // 位置要紧：必须在多元塔**之后**（`|x-y|` 里没有根号，塔那一档本来就拒），
+    // 也必须在下面那个一元分段**之前** —— 一元分段见多元会报 `NotUnivariate`，
+    // 那个诊断只对「一元函数」的输入才有意义。
+    const Result<MultiPiecewiseFunction> multiAbsolute = parseMultiPiecewiseExpression(line);
+    if (multiAbsolute.isOk()) {
+      printField("解析为", trim(line), true);
+      printField("变量",
+                 variableListLatex(multiAbsolute.unwrap().branches().empty()
+                                       ? std::set<Variable>{}
+                                       : multiAbsolute.unwrap().branches().front().domain.variables()),
+                 true);
+      return InputExpression{multiAbsolute.unwrap(), trim(line), true};
     }
 
     const Result<PiecewiseParseResult> piecewise = parsePiecewiseExpressionDetailed(line);
@@ -932,6 +950,35 @@ int main() {
       return 0;
     }
     const Result<RealAlgebraicNumber> value = multi->evaluate(point.unwrap());
+    if (value.isErr()) {
+      printField("无法代入", std::string(describe(value.unwrapErr())));
+      return 0;
+    }
+    printField("精确值", exactValueLatex(value.unwrap()));
+  } else if (const MultiPiecewiseFunction *multiAbsolute = std::get_if<MultiPiecewiseFunction>(&input->value)) {
+    // 多元绝对值：和多元塔一样，条件要给一个**点**（x=3, y=4）。
+    // 点落在哪一支就取那一支 —— 分支的定义域就是符号本身，所以不需要「判符号」。
+    std::set<Variable> variables;
+    for (const MultiPiecewiseFunction::Branch &branch : multiAbsolute->branches()) {
+      variables = branch.domain.variables();
+      if (!variables.empty()) {
+        break;
+      }
+    }
+    const Result<Scope> point = readPoint(variables);
+
+    std::cout << "\n--- 结果 ---\n";
+    printField("式子", input->text);
+    printField("变量", variableListLatex(variables));
+    if (point.isErr()) {
+      printField("无法代入", "这个式子有 " + std::to_string(variables.size()) + " 个变量，要一次给全");
+      return 0;
+    }
+    if (!multiAbsolute->admits(point.unwrap()).unwrap()) {
+      printField("无法代入", "这个点不在定义域内");
+      return 0;
+    }
+    const Result<RealAlgebraicNumber> value = multiAbsolute->at(point.unwrap());
     if (value.isErr()) {
       printField("无法代入", std::string(describe(value.unwrapErr())));
       return 0;
