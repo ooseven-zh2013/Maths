@@ -49,7 +49,7 @@ public:
   // ==================== 构造 ====================
 
   // 归一化：丢掉空定义域的分支、把后面分支与前面对不交的部分减掉。
-  static Result<PiecewiseFunction> make(std::vector<RealFunction> cases) {
+  static Result<PiecewiseFunction> make(const std::vector<RealFunction> &cases) {
     std::vector<RealFunction> accepted;
     std::optional<Variable> variable;
     for (const RealFunction &candidate : cases) {

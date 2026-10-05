@@ -42,7 +42,7 @@ public:
   }
 
   // 显式给定义域：与天然定义域**取交**
-  static Result<MultiFunction> make(MultiRationalFunction rule, ConstraintSystem domain) {
+  static Result<MultiFunction> make(const MultiRationalFunction &rule, const ConstraintSystem &domain) {
     const Result<MultiFunction> base = make(std::move(rule));
     if (base.isErr()) {
       return std::unexpected(base.unwrapErr());

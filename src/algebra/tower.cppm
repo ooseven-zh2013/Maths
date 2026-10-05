@@ -94,7 +94,7 @@ public:
     if (flat.size() != (std::size_t(1) << depth)) {
       return Result<TowerExtension>::err(MathsError::InvalidExpression);
     }
-    const Result<TowerExtension> zero = make(RationalFunction(Fraction(0, 1)), relations);
+    Result<TowerExtension> zero = make(RationalFunction(Fraction(0, 1)), relations);
     if (zero.isErr()) {
       return std::unexpected(zero.unwrapErr());
     }
@@ -122,7 +122,7 @@ public:
     if (numerator.size() != width || denominator.size() != width) {
       return Result<TowerExtension>::err(MathsError::InvalidExpression);
     }
-    const Result<TowerExtension> zero = make(RationalFunction(Fraction(0, 1)), std::move(relations));
+    Result<TowerExtension> zero = make(RationalFunction(Fraction(0, 1)), std::move(relations));
     if (zero.isErr()) {
       return std::unexpected(zero.unwrapErr());
     }
@@ -291,7 +291,7 @@ public:
   // 所以 radical ⊗ tower 只要把 radical 挂上来再算。
   Result<TowerExtension> liftedWith(const RadicalExtension &value) const {
     if (value.isRadicalFree()) {
-      const Result<RationalFunction> plain = value.toRationalFunction();
+      Result<RationalFunction> plain = value.toRationalFunction();
       if (plain.isErr()) {
         return Result<TowerExtension>::err(plain.unwrapErr());
       }
@@ -301,7 +301,7 @@ public:
     for (const RationalFunction &radicand : value.radicands()) {
       Flat single(extended.unwrap().coefficients_.size(), RationalFunction(Fraction(0, 1)));
       single[0] = radicand;
-      const Result<TowerExtension> next = extended.unwrap().adjoining(single);
+      Result<TowerExtension> next = extended.unwrap().adjoining(single);
       if (next.isErr()) {
         return next;
       }
@@ -320,24 +320,24 @@ public:
     std::vector<RealAlgebraicNumber> generators;
     generators.reserve(depth());
     for (std::size_t index = 0; index < depth(); ++index) {
-      const Result<RealAlgebraicNumber> radicand = evaluateFlat(relations_[index], point, generators);
+      Result<RealAlgebraicNumber> radicand = evaluateFlat(relations_[index], point, generators);
       if (radicand.isErr()) {
         return std::unexpected(radicand.unwrapErr());
       }
       if (radicand.unwrap().compareToRational(Fraction(0, 1)) == std::strong_ordering::less) {
         return std::unexpected(MathsError::NegativeEvenRoot);
       }
-      const Result<RealAlgebraicNumber> root = radicand.unwrap().nthRoot(2);
+      Result<RealAlgebraicNumber> root = radicand.unwrap().nthRoot(2);
       if (root.isErr()) {
         return std::unexpected(root.unwrapErr());
       }
       generators.push_back(root.unwrap());
     }
-    const Result<RealAlgebraicNumber> numerator = evaluateFlat(coefficients_, point, generators);
+    Result<RealAlgebraicNumber> numerator = evaluateFlat(coefficients_, point, generators);
     if (numerator.isErr()) {
       return numerator;
     }
-    const Result<RealAlgebraicNumber> denominator = evaluateFlat(denominator_, point, generators);
+    Result<RealAlgebraicNumber> denominator = evaluateFlat(denominator_, point, generators);
     if (denominator.isErr()) {
       return denominator;
     }
@@ -501,7 +501,7 @@ private:
       if (flat[mask].isZero()) {
         continue;
       }
-      const Result<Fraction> coefficient = flat[mask].evaluate(scope);
+      Result<Fraction> coefficient = flat[mask].evaluate(scope);
       if (coefficient.isErr()) {
         return std::unexpected(coefficient.unwrapErr());
       }
@@ -510,13 +510,13 @@ private:
         if ((mask & (std::size_t(1) << index)) == 0) {
           continue;
         }
-        const Result<RealAlgebraicNumber> product = term * generators[index];
+        Result<RealAlgebraicNumber> product = term * generators[index];
         if (product.isErr()) {
           return std::unexpected(product.unwrapErr());
         }
         term = product.unwrap();
       }
-      const Result<RealAlgebraicNumber> sum = total + term;
+      Result<RealAlgebraicNumber> sum = total + term;
       if (sum.isErr()) {
         return std::unexpected(sum.unwrapErr());
       }
@@ -605,8 +605,16 @@ inline Result<RealSet> layerCondition(std::size_t index, const TowerExtension::F
     return solveInequality(relation[0], Relation::GreaterEqual);
   }
   // fᵢ = a + b·y_{i−1}：b 必须是常数项之外的**唯一**一项，且 y_{i−1} 本身要有理被开方数
+  //
+  // ⚠️ `index == 0` 必须**先判**，再算 `1 << (index - 1)`。
+  // `index` 是 std::size_t，0 减 1 回绕成 SIZE_MAX，移位量成了 2^64−1 —— 那是未定义行为。
+  // 原来这个判断写在移位**之后**的 `||` 里，x86 上移位量被截成 63 位所以不崩，
+  // 一直没人发现（clang-tidy 的 clang-analyzer-core.BitwiseShift 报出来了）。
+  if (index == 0) {
+    return Result<RealSet>::err(MathsError::DomainNotDecidable);
+  }
   const std::size_t previousBit = std::size_t(1) << (index - 1);
-  if (*generator != previousBit || index == 0) {
+  if (*generator != previousBit) {
     return Result<RealSet>::err(MathsError::DomainNotDecidable);
   }
   if (relations[index - 1].size() != 1 || relations[index - 1][0].isZero()) {
@@ -618,25 +626,25 @@ inline Result<RealSet> layerCondition(std::size_t index, const TowerExtension::F
   // 记 r = a/b（**不是 b/a**！），于是 h = −a/b = −r，三条判据都写成关于 r 的：
   //   b>0 → √f ≥ −r ⟺ (r ≥ 0) ∨ (f ≥ r²)
   //   b<0 → √f ≤ −r ⟺ (r ≤ 0) ∧ (f ≤ r²)
-  const Result<RationalFunction> ratio = a / b;
+  Result<RationalFunction> ratio = a / b;
   if (ratio.isErr()) {
     return Result<RealSet>::err(ratio.unwrapErr());
   }
-  const Result<RationalFunction> residual = relations[index - 1][0] - ratio.unwrap() * ratio.unwrap();
+  Result<RationalFunction> residual = relations[index - 1][0] - ratio.unwrap() * ratio.unwrap();
   if (residual.isErr()) {
     return Result<RealSet>::err(residual.unwrapErr());
   }
 
   // b > 0 → √f ≥ −a/b；b < 0 → √f ≤ −a/b；b = 0 → a ≥ 0
   // 而 √f ≥ h ⟺ h ≤ 0 ∨ f ≥ h²，√f ≤ h ⟺ h ≥ 0 ∧ f ≤ h²，h = −a/b
-  const Result<RealSet> positive = solveInequality(b, Relation::Greater);
-  const Result<RealSet> negative = solveInequality(b, Relation::Less);
-  const Result<RealSet> zero = solveInequality(b, Relation::Equal);
-  const Result<RealSet> ratioNonNegative = solveInequality(ratio.unwrap(), Relation::GreaterEqual);
-  const Result<RealSet> residualNonNegative = solveInequality(residual.unwrap(), Relation::GreaterEqual);
-  const Result<RealSet> ratioNonPositive = solveInequality(ratio.unwrap(), Relation::LessEqual);
-  const Result<RealSet> residualNonPositive = solveInequality(residual.unwrap(), Relation::LessEqual);
-  const Result<RealSet> aNonNegative = solveInequality(a, Relation::GreaterEqual);
+  Result<RealSet> positive = solveInequality(b, Relation::Greater);
+  Result<RealSet> negative = solveInequality(b, Relation::Less);
+  Result<RealSet> zero = solveInequality(b, Relation::Equal);
+  Result<RealSet> ratioNonNegative = solveInequality(ratio.unwrap(), Relation::GreaterEqual);
+  Result<RealSet> residualNonNegative = solveInequality(residual.unwrap(), Relation::GreaterEqual);
+  Result<RealSet> ratioNonPositive = solveInequality(ratio.unwrap(), Relation::LessEqual);
+  Result<RealSet> residualNonPositive = solveInequality(residual.unwrap(), Relation::LessEqual);
+  Result<RealSet> aNonNegative = solveInequality(a, Relation::GreaterEqual);
   for (const Result<RealSet> *step : {&positive, &negative, &zero, &ratioNonNegative, &residualNonNegative,
                                       &ratioNonPositive, &residualNonPositive, &aNonNegative}) {
     if (step->isErr()) {
@@ -644,24 +652,24 @@ inline Result<RealSet> layerCondition(std::size_t index, const TowerExtension::F
     }
   }
   // √f ≥ −a/b  ⟺  (−a/b ≤ 0) ∨ (f ≥ (a/b)²)，而 (−a/b ≤ 0) ⟺ a/b ≥ 0
-  const Result<RealSet> atLeast = RealSet(ratioNonNegative.unwrap().unite(residualNonNegative.unwrap()));
+  Result<RealSet> atLeast = RealSet(ratioNonNegative.unwrap().unite(residualNonNegative.unwrap()));
   // √f ≤ −a/b  ⟺  (−a/b ≥ 0) ∧ (f ≤ (a/b)²)，而 (−a/b ≥ 0) ⟺ a/b ≤ 0
-  const Result<RealSet> atMost = ratioNonPositive.unwrap().intersect(residualNonPositive.unwrap());
+  Result<RealSet> atMost = ratioNonPositive.unwrap().intersect(residualNonPositive.unwrap());
   if (atLeast.isErr()) {
     return atLeast;
   }
   if (atMost.isErr()) {
     return atMost;
   }
-  const Result<RealSet> upperBranch = positive.unwrap().intersect(atLeast.unwrap());
+  Result<RealSet> upperBranch = positive.unwrap().intersect(atLeast.unwrap());
   if (upperBranch.isErr()) {
     return upperBranch;
   }
-  const Result<RealSet> lowerBranch = negative.unwrap().intersect(atMost.unwrap());
+  Result<RealSet> lowerBranch = negative.unwrap().intersect(atMost.unwrap());
   if (lowerBranch.isErr()) {
     return lowerBranch;
   }
-  const Result<RealSet> flatBranch = zero.unwrap().intersect(aNonNegative.unwrap());
+  Result<RealSet> flatBranch = zero.unwrap().intersect(aNonNegative.unwrap());
   if (flatBranch.isErr()) {
     return flatBranch;
   }
@@ -715,11 +723,11 @@ inline Result<TowerExtension> evaluateOverPlaceholders(const RationalFunction &v
           if (term.isErr()) {
             return term;
           }
-          const Result<TowerExtension> generator = TowerExtension::generatorOf(tower, index);
+          Result<TowerExtension> generator = TowerExtension::generatorOf(tower, index);
           if (generator.isErr()) {
             return generator;
           }
-          const Result<TowerExtension> product = term.unwrap() * generator.unwrap();
+          Result<TowerExtension> product = term.unwrap() * generator.unwrap();
           if (product.isErr()) {
             return product;
           }
@@ -733,7 +741,7 @@ inline Result<TowerExtension> evaluateOverPlaceholders(const RationalFunction &v
         total = term.unwrap();
         continue;
       }
-      const Result<TowerExtension> sum = total.value() + term.unwrap();
+      Result<TowerExtension> sum = total.value() + term.unwrap();
       if (sum.isErr()) {
         return sum;
       }
@@ -745,11 +753,11 @@ inline Result<TowerExtension> evaluateOverPlaceholders(const RationalFunction &v
     return Result<TowerExtension>(total.value());
   };
 
-  const Result<TowerExtension> numerator = expand(value.getNumerator());
+  Result<TowerExtension> numerator = expand(value.getNumerator());
   if (numerator.isErr()) {
     return numerator;
   }
-  const Result<TowerExtension> denominator = expand(value.getDenominator());
+  Result<TowerExtension> denominator = expand(value.getDenominator());
   if (denominator.isErr()) {
     return denominator;
   }
@@ -778,7 +786,7 @@ inline Result<TowerExtension> substituteVariable(const RationalFunction &value, 
         if (term.isErr()) {
           return term;
         }
-        const Result<TowerExtension> product = term.unwrap() * replacement;
+        Result<TowerExtension> product = term.unwrap() * replacement;
         if (product.isErr()) {
           return product;
         }
@@ -791,7 +799,7 @@ inline Result<TowerExtension> substituteVariable(const RationalFunction &value, 
         total = term.unwrap();
         continue;
       }
-      const Result<TowerExtension> sum = total.value() + term.unwrap();
+      Result<TowerExtension> sum = total.value() + term.unwrap();
       if (sum.isErr()) {
         return sum;
       }
@@ -803,11 +811,11 @@ inline Result<TowerExtension> substituteVariable(const RationalFunction &value, 
     return Result<TowerExtension>(total.value());
   };
 
-  const Result<TowerExtension> numerator = overTower(value.getNumerator());
+  Result<TowerExtension> numerator = overTower(value.getNumerator());
   if (numerator.isErr()) {
     return numerator;
   }
-  const Result<TowerExtension> denominator = overTower(value.getDenominator());
+  Result<TowerExtension> denominator = overTower(value.getDenominator());
   if (denominator.isErr()) {
     return denominator;
   }
@@ -864,7 +872,7 @@ inline Result<RealSet> domainOf(const TowerExtension &value) {
     if (layer.isErr()) {
       return layer;
     }
-    const Result<RealSet> narrowed = domain.unwrap().intersect(layer.unwrap());
+    Result<RealSet> narrowed = domain.unwrap().intersect(layer.unwrap());
     if (narrowed.isErr()) {
       return narrowed;
     }

@@ -68,7 +68,9 @@ failed=0
 for file in $files; do
   [ -f "$file" ] || continue
   # --quiet：只报真实问题，不逐条列被抑制的十万条模块噪声
-  if ! "$TIDY" "$file" -p . --quiet; then
+  # ⚠️ --warnings-as-errors 缺了不可：clang-tidy 默认只对 **error** 返回非零，
+  # 警告一律放过 —— 脚本会报「0 个有问题」而实际有 38 条。踩过。
+  if ! "$TIDY" "$file" -p . --quiet --warnings-as-errors; then
     failed=$((failed + 1))
   fi
 done

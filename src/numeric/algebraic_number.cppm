@@ -301,7 +301,7 @@ public:
     std::vector<Fraction> root(half + 1, Fraction(0, 1));
     root[half] = *leading;
     // 除数 2·b_m 固定（b_m ≠ 0），把它的倒数挪到循环外，顺便避开 Fraction 除法返回 Result
-    const Result<Fraction> inverseDivisor = Fraction(1, 1) / (*leading * Fraction(2, 1));
+    Result<Fraction> inverseDivisor = Fraction(1, 1) / (*leading * Fraction(2, 1));
     if (inverseDivisor.isErr()) {
       return std::nullopt;
     }
@@ -459,7 +459,7 @@ public:
     std::vector<Fraction> result(poly.coeffs_.size(), Fraction(0, 1));
     Fraction power(1, 1);
     for (std::size_t index = 0; index < poly.coeffs_.size(); ++index) {
-      const Result<Fraction> scaled = poly.coeffs_[index] / power;
+      Result<Fraction> scaled = poly.coeffs_[index] / power;
       if (scaled.isErr()) {
         return UnivariatePolynomial();
       }
@@ -492,7 +492,7 @@ public:
     if (divisor == 0ULL) {
       return integerScaled;
     }
-    const Result<Fraction> inverse = Fraction(1, 1) / Fraction(algebraic_detail::toSigned(divisor), 1LL);
+    Result<Fraction> inverse = Fraction(1, 1) / Fraction(algebraic_detail::toSigned(divisor), 1LL);
     if (inverse.isErr()) {
       return integerScaled;
     }
@@ -504,7 +504,7 @@ public:
     if (isZero()) {
       return UnivariatePolynomial();
     }
-    const Result<Fraction> quotient = Fraction(1, 1) / leadingCoefficient();
+    Result<Fraction> quotient = Fraction(1, 1) / leadingCoefficient();
     if (quotient.isErr()) {
       return *this;
     }
@@ -538,7 +538,7 @@ public:
           break; // 余式次数已低于除式
         }
         const std::size_t currentDegree = working.size() - 1;
-        const Result<Fraction> factor = working[currentDegree] / leading;
+        Result<Fraction> factor = working[currentDegree] / leading;
         if (factor.isErr()) {
           return std::unexpected(factor.unwrapErr());
         }
@@ -565,7 +565,7 @@ public:
     UnivariatePolynomial current = lhs.primitivePart();
     UnivariatePolynomial next = rhs.primitivePart();
     for (;;) {
-      const Result<std::pair<UnivariatePolynomial, UnivariatePolynomial>> step = divide(current, next);
+      Result<std::pair<UnivariatePolynomial, UnivariatePolynomial>> step = divide(current, next);
       if (step.isErr()) {
         break;
       }
@@ -593,7 +593,7 @@ public:
     if (common.isZero() || common.isConstant()) {
       return monic();
     }
-    const Result<std::pair<UnivariatePolynomial, UnivariatePolynomial>> step = divide(*this, common);
+    Result<std::pair<UnivariatePolynomial, UnivariatePolynomial>> step = divide(*this, common);
     if (step.isErr()) {
       return *this;
     }
@@ -755,7 +755,7 @@ private:
     while (chain.back().degree() > 0) {
       const UnivariatePolynomial previous = chain[chain.size() - 2];
       const UnivariatePolynomial current = chain.back();
-      const Result<std::pair<UnivariatePolynomial, UnivariatePolynomial>> step = divide(previous, current);
+      Result<std::pair<UnivariatePolynomial, UnivariatePolynomial>> step = divide(previous, current);
       if (step.isErr()) {
         return chain;
       }
@@ -875,7 +875,7 @@ private:
         std::vector<Fraction> polynomial(power + 1, Fraction(0, 1));
         for (std::size_t index = 0; index < power; ++index) {
           // v_k = Σ c_i·v_i 且 v_i = λ_i·t^i，于是 t^k = Σ (c_i·λ_i / λ_k)·t^i
-          const Result<Fraction> scaled = ((*coefficients)[index] * scales[index]) / scale;
+          Result<Fraction> scaled = ((*coefficients)[index] * scales[index]) / scale;
           if (scaled.isErr()) {
             return UnivariatePolynomial();
           }
@@ -913,7 +913,7 @@ private:
       divisor = std::gcd(divisor, algebraic_detail::magnitudeOf(value.getNumerator()));
     }
     if (divisor > 1ULL) {
-      const Result<Fraction> inverse = Fraction(1, 1) / Fraction(algebraic_detail::toSigned(divisor), 1LL);
+      Result<Fraction> inverse = Fraction(1, 1) / Fraction(algebraic_detail::toSigned(divisor), 1LL);
       if (inverse.isErr()) {
         return multiplier;
       }
@@ -958,7 +958,7 @@ private:
         if (row == pivotRow || matrix[row][column] == 0LL) {
           continue;
         }
-        const Result<Fraction> factorResult = matrix[row][column] / pivot;
+        Result<Fraction> factorResult = matrix[row][column] / pivot;
         if (factorResult.isErr()) {
           return std::nullopt;
         }
@@ -994,7 +994,7 @@ private:
       if (column == width) {
         continue;
       }
-      const Result<Fraction> value = matrix[row][width] / matrix[row][column];
+      Result<Fraction> value = matrix[row][width] / matrix[row][column];
       if (value.isErr()) {
         return std::nullopt;
       }
@@ -1022,7 +1022,7 @@ public:
 
   // 由「多项式 + 隔离区间」确定一个数：区间内必须恰好含一个实根。
   // 多项式会被平方自由化；若端点恰好是根，会向外挪一点以满足 Sturm 计数的前提。
-  static Result<RealAlgebraicNumber> create(UnivariatePolynomial polynomial, const Fraction &low,
+  static Result<RealAlgebraicNumber> create(const UnivariatePolynomial &polynomial, const Fraction &low,
                                             const Fraction &high) {
     if (high < low) {
       return std::unexpected(MathsError::InvalidRange);
@@ -1303,7 +1303,7 @@ public:
       return std::unexpected(MathsError::DivisionByZero);
     }
     if (isRational()) {
-      const Result<Fraction> reciprocal = Fraction(1, 1) / low_;
+      Result<Fraction> reciprocal = Fraction(1, 1) / low_;
       if (reciprocal.isErr()) {
         return std::unexpected(reciprocal.unwrapErr());
       }
@@ -1315,15 +1315,15 @@ public:
     RealAlgebraicNumber self = *this;
     for (int iteration = 0; iteration < kRefinementLimit; ++iteration) {
       if (self.isRational()) {
-        const Result<Fraction> reciprocal = Fraction(1, 1) / self.low_;
+        Result<Fraction> reciprocal = Fraction(1, 1) / self.low_;
         if (reciprocal.isErr()) {
           return std::unexpected(reciprocal.unwrapErr());
         }
         return RealAlgebraicNumber(reciprocal.unwrap());
       }
       if (self.low_ > 0LL || self.high_ < 0LL) { // 0 不在区间里，倒数定向才安全
-        const Result<Fraction> inverseLow = Fraction(1, 1) / self.high_;
-        const Result<Fraction> inverseHigh = Fraction(1, 1) / self.low_;
+        Result<Fraction> inverseLow = Fraction(1, 1) / self.high_;
+        Result<Fraction> inverseHigh = Fraction(1, 1) / self.low_;
         if (inverseLow.isErr() || inverseHigh.isErr()) {
           return std::unexpected(MathsError::DivisionByZero);
         }
@@ -1338,7 +1338,7 @@ public:
 
   friend Result<RealAlgebraicNumber> operator/(const RealAlgebraicNumber &lhs, const RealAlgebraicNumber &rhs) {
     if (lhs.isRational() && rhs.isRational()) {
-      const Result<Fraction> quotient = lhs.low_ / rhs.low_;
+      Result<Fraction> quotient = lhs.low_ / rhs.low_;
       if (quotient.isErr()) {
         return std::unexpected(quotient.unwrapErr());
       }
@@ -1346,13 +1346,13 @@ public:
     }
     // 除以有理数：α / c = α · (1/c)，同样不必进环上的线性代数
     if (rhs.isRational()) {
-      const Result<Fraction> factor = Fraction(1, 1) / rhs.low_;
+      Result<Fraction> factor = Fraction(1, 1) / rhs.low_;
       if (factor.isErr()) {
         return std::unexpected(MathsError::DivisionByZero);
       }
       return lhs.scaledByRational(factor.unwrap());
     }
-    const Result<RealAlgebraicNumber> reciprocal = rhs.inverse();
+    Result<RealAlgebraicNumber> reciprocal = rhs.inverse();
     if (reciprocal.isErr()) {
       return reciprocal;
     }
@@ -1494,7 +1494,7 @@ public:
       // 统一成 (-b ± √(b²-4ac)) / (2a)，被开方数同样先提出平方因子。
       const Fraction leading = poly_.leadingCoefficient();
       const Fraction middle = poly_.coefficient(1);
-      const Result<Fraction> discriminant = middle * middle - leading * poly_.constantTerm() * Fraction(4, 1);
+      Result<Fraction> discriminant = middle * middle - leading * poly_.constantTerm() * Fraction(4, 1);
       if (discriminant.isErr()) {
         return algebraic_detail::fractionLatex(shift) + sign + root;
       }
@@ -1515,7 +1515,7 @@ private:
     const Fraction leading = polynomial.leadingCoefficient();
     Fraction largest(0, 1);
     for (std::size_t power = 0; power < polynomial.degree(); ++power) {
-      const Result<Fraction> ratio = polynomial.coefficient(power) / leading;
+      Result<Fraction> ratio = polynomial.coefficient(power) / leading;
       if (ratio.isErr()) {
         continue; // leading 非零由调用方保证
       }
@@ -1545,7 +1545,7 @@ private:
 
     const Fraction middle = (low + high) * Fraction(1, 2);
     if (polynomial.evaluate(middle) == 0LL) {
-      const Result<std::pair<UnivariatePolynomial, UnivariatePolynomial>> division =
+      Result<std::pair<UnivariatePolynomial, UnivariatePolynomial>> division =
           UnivariatePolynomial::divide(polynomial, UnivariatePolynomial::linearRoot(middle));
       if (division.isErr()) {
         return;
@@ -1590,7 +1590,7 @@ private:
     // （⁴√2 是 [3/4, 9/4]），取幂后区间会同时罩住 ± 两个根，于是特例白白放弃、
     // 掉进通用乘积（α·α² 那条路还会抛 ZeroDenominator）。
     // nthRootOf 走 nthRootBounds + 单调二分，对区间宽度不敏感。
-    const Result<RealAlgebraicNumber> root =
+    Result<RealAlgebraicNumber> root =
         nthRootOf(algebraic_detail::powInt(radical->second, reducedPower), reducedDegree);
     if (root.isErr()) {
       return std::nullopt; // 例如偶次根下为负，交回通用路线
@@ -1619,15 +1619,15 @@ private:
     }
     const Fraction leading = poly_.leadingCoefficient();
     const Fraction middle = poly_.coefficient(1);
-    const Result<Fraction> discriminant = middle * middle - leading * poly_.constantTerm() * Fraction(4, 1);
+    Result<Fraction> discriminant = middle * middle - leading * poly_.constantTerm() * Fraction(4, 1);
     if (discriminant.isErr()) {
       return std::nullopt;
     }
-    const Result<Fraction> radicand = discriminant.unwrap() / (leading * leading * Fraction(4, 1));
+    Result<Fraction> radicand = discriminant.unwrap() / (leading * leading * Fraction(4, 1));
     if (radicand.isErr() || radicand.unwrap().isNegative()) {
       return std::nullopt; // 判别式为负：没有实根，这个数不是实数
     }
-    const Result<Fraction> shift = (Fraction(0, 1) - middle) / (leading * Fraction(2, 1));
+    Result<Fraction> shift = (Fraction(0, 1) - middle) / (leading * Fraction(2, 1));
     if (shift.isErr()) {
       return std::nullopt;
     }
@@ -1655,7 +1655,7 @@ private:
       return {Fraction(1, 1), radicand};
     }
     const Fraction factorValue(static_cast<long long>(factor), 1);
-    const Result<Fraction> reduced = radicand / (factorValue * factorValue);
+    Result<Fraction> reduced = radicand / (factorValue * factorValue);
     if (reduced.isErr()) {
       return {Fraction(1, 1), radicand};
     }
@@ -1684,7 +1684,7 @@ private:
         return std::nullopt;
       }
     }
-    const Result<Fraction> radicand = (Fraction(0, 1) - poly_.constantTerm()) / poly_.leadingCoefficient();
+    Result<Fraction> radicand = (Fraction(0, 1) - poly_.constantTerm()) / poly_.leadingCoefficient();
     if (radicand.isErr()) {
       return std::nullopt; // 首项系数非零，实际到不了这里，兜底
     }
@@ -1974,6 +1974,8 @@ private:
     for (;;) {
       skipSpaces();
       char operation = peek();
+      // NOLINTNEXTLINE(bugprone-branch-clone) —— 与下面的隐含乘法分支体相同，
+      // 但**不能合并**：这一支要消费 token，那一支只设符号。合到一条条件里会改求值顺序。
       if (takeToken("\\cdot") || takeToken("\\times")) {
         operation = '*';
       } else if (takeToken("\\div")) {
@@ -2013,7 +2015,7 @@ private:
     if (!takeChar('^')) {
       return base;
     }
-    const Result<std::pair<long long, long long>> exponent = parseRationalExponent();
+    Result<std::pair<long long, long long>> exponent = parseRationalExponent();
     if (exponent.isErr()) {
       return std::unexpected(exponent.unwrapErr());
     }
@@ -2042,11 +2044,11 @@ private:
       return RealAlgebraicNumber(Fraction(1, 1)); // p = 0 → a^0 = 1（含 a = 0，0^0 按 1 处理）
     }
 
-    const Result<RealAlgebraicNumber> root = base.nthRoot(static_cast<unsigned>(reducedDenominator));
+    Result<RealAlgebraicNumber> root = base.nthRoot(static_cast<unsigned>(reducedDenominator));
     if (root.isErr()) {
       return std::unexpected(root.unwrapErr());
     }
-    const Result<RealAlgebraicNumber> powered = root.unwrap().pow(static_cast<unsigned>(magnitude));
+    Result<RealAlgebraicNumber> powered = root.unwrap().pow(static_cast<unsigned>(magnitude));
     if (powered.isErr()) {
       return std::unexpected(powered.unwrapErr());
     }
@@ -2309,7 +2311,7 @@ private:
     }
     skipSpaces();
     if (peek() != '/') {
-      const Result<std::pair<long long, long long>> single = combineRationalText(numeratorText, std::string_view("1"));
+      Result<std::pair<long long, long long>> single = combineRationalText(numeratorText, std::string_view("1"));
       return single;
     }
     ++position_;

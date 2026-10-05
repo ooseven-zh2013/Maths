@@ -347,7 +347,7 @@ public:
       for (const RealAlgebraicNumber &root : roots) {
         points.push_back(Interval{Bound::finite(root, true), Bound::finite(root, true)});
       }
-      const Result<RealSet> zeroSet = make(std::move(points));
+      Result<RealSet> zeroSet = make(std::move(points));
       if (zeroSet.isErr()) {
         return zeroSet;
       }
@@ -368,7 +368,7 @@ public:
     std::vector<Interval> result;
     const std::size_t segments = roots.size() + 1;
     for (std::size_t index = 0; index < segments; ++index) {
-      const Result<Fraction> sample = sampleIn(index, roots);
+      Result<Fraction> sample = sampleIn(index, roots);
       if (sample.isErr()) {
         return std::unexpected(sample.unwrapErr());
       }
@@ -472,7 +472,7 @@ private:
     std::string result;
     result += openLeft;
     result += lower;
-    result += useLatex ? ", " : ", ";
+    result += ", ";
     result += upper;
     result += openRight;
     return result;

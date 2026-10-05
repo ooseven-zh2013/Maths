@@ -51,7 +51,7 @@ public:
     if (flat.size() != (std::size_t(1) << relations.size())) {
       return Result<MultiTowerExtension>::err(MathsError::InvalidExpression);
     }
-    const Result<MultiTowerExtension> zero = make(MultiRationalFunction(Fraction(0, 1)), std::move(relations));
+    Result<MultiTowerExtension> zero = make(MultiRationalFunction(Fraction(0, 1)), std::move(relations));
     if (zero.isErr()) {
       return std::unexpected(zero.unwrapErr());
     }
@@ -82,7 +82,7 @@ public:
     if (numerator.size() != width || denominator.size() != width) {
       return Result<MultiTowerExtension>::err(MathsError::InvalidExpression);
     }
-    const Result<MultiTowerExtension> zero = make(MultiRationalFunction(Fraction(0, 1)), std::move(relations));
+    Result<MultiTowerExtension> zero = make(MultiRationalFunction(Fraction(0, 1)), std::move(relations));
     if (zero.isErr()) {
       return std::unexpected(zero.unwrapErr());
     }
@@ -200,24 +200,24 @@ public:
     std::vector<RealAlgebraicNumber> generators;
     generators.reserve(depth());
     for (std::size_t index = 0; index < depth(); ++index) {
-      const Result<RealAlgebraicNumber> radicand = evaluateFlat(relations_[index], point, generators);
+      Result<RealAlgebraicNumber> radicand = evaluateFlat(relations_[index], point, generators);
       if (radicand.isErr()) {
         return std::unexpected(radicand.unwrapErr());
       }
       if (radicand.unwrap().compareToRational(Fraction(0, 1)) == std::strong_ordering::less) {
         return std::unexpected(MathsError::NegativeEvenRoot);
       }
-      const Result<RealAlgebraicNumber> root = radicand.unwrap().nthRoot(2);
+      Result<RealAlgebraicNumber> root = radicand.unwrap().nthRoot(2);
       if (root.isErr()) {
         return std::unexpected(root.unwrapErr());
       }
       generators.push_back(root.unwrap());
     }
-    const Result<RealAlgebraicNumber> numerator = evaluateFlat(coefficients_, point, generators);
+    Result<RealAlgebraicNumber> numerator = evaluateFlat(coefficients_, point, generators);
     if (numerator.isErr()) {
       return numerator;
     }
-    const Result<RealAlgebraicNumber> denominator = evaluateFlat(denominator_, point, generators);
+    Result<RealAlgebraicNumber> denominator = evaluateFlat(denominator_, point, generators);
     if (denominator.isErr()) {
       return denominator;
     }
@@ -289,7 +289,7 @@ private:
         if (rhs[right].isZero()) {
           continue;
         }
-        const Result<MultiRationalFunction> product = lhs[left] * rhs[right];
+        Result<MultiRationalFunction> product = lhs[left] * rhs[right];
         if (product.isErr()) {
           continue;
         }
@@ -341,7 +341,7 @@ private:
             for (std::size_t position = 0; position < lower.size(); ++position) {
               spawned[position] += lower[position];
             }
-            const Result<MultiRationalFunction> product = term.coefficient * relations_[index][mask];
+            Result<MultiRationalFunction> product = term.coefficient * relations_[index][mask];
             if (product.isErr()) {
               continue; // 乘法只在极端边界失败，跳过这项
             }
@@ -395,7 +395,7 @@ private:
       if (flat[mask].isZero()) {
         continue;
       }
-      const Result<Fraction> rational = flat[mask].evaluate(point);
+      Result<Fraction> rational = flat[mask].evaluate(point);
       if (rational.isErr()) {
         return std::unexpected(rational.unwrapErr());
       }
@@ -404,13 +404,13 @@ private:
         if ((mask & (std::size_t(1) << index)) == 0) {
           continue;
         }
-        const Result<RealAlgebraicNumber> product = term * generators[index];
+        Result<RealAlgebraicNumber> product = term * generators[index];
         if (product.isErr()) {
           return std::unexpected(product.unwrapErr());
         }
         term = product.unwrap();
       }
-      const Result<RealAlgebraicNumber> sum = total + term;
+      Result<RealAlgebraicNumber> sum = total + term;
       if (sum.isErr()) {
         return std::unexpected(sum.unwrapErr());
       }
