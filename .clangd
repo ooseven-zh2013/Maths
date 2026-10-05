@@ -30,31 +30,32 @@ CompileFlags:
     - "-std=c++23"       # 有数据库时是重复的，给没有 compile_commands.json 的场景兜底
   Remove:
     - "-Werror"          # 不把警告当错误，避免编辑器里一行警告红一片
-    # 下面三条是模块缓存的路径标志。留着它们，clangd 就会去啃版本对不上的 .pcm：
-    # std.pcm 加载失败 → 整个 .cpp 的 std 名字全变未定义（实测一个文件衍生 20 条错）。
-    # 剥掉后 clangd 走自己的模块发现逻辑，只在 import 处报一条 module_not_found。
-    - "-fmodule-file=*"
-    - "-fprebuilt-module-path=*"
-    - "-fmodule-output=*"
+    # ⚠️ 这里**曾经**剥掉过 `-fmodule-file=*` / `-fprebuilt-module-path=*` /
+    # `-fmodule-output=*` 三条模块缓存标志，为的是让 clangd 别去啃版本对不上的 .pcm
+    # —— 当时本机是 clangd 22，工具链是 20.1.7，PCM 加载不了，
+    # 一个 .cpp 能衍生 20 条「标识符未定义」。
+    #
+    # 现在不需要了：编辑器改用 **与工具链同版本的 clangd 20.1.7**
+    # （`E://Tools//clangd-20.1.7//`，见 .vscode/settings.json 的 clangd.path），
+    # PCM 直接能读，那三条剥掉反而**害得 `import maths;` 的类型全都没有补全与跳转**。
+    # 工具链换了版本、而这里的版本没跟着换的话，就会退回「一个 .cpp 衍生 20 条错」的老症状
+    # —— 那种错法很有辨识度，看到先查 clangd 版本。
 
 # 索引设置 - 控制代码索引行为
 Index:
   Background: "Build"    # 在后台构建过程中进行索引，提高代码导航性能
 
 # 诊断设置
-Diagnostics:
-  # 检查集**只由仓库根的 .clang-tidy 决定**，这里不再重复声明 —— 原先这里另有一套
-  # Add/Remove，与 .clang-tidy 互相打架：这里打开 readability-implicit-bool-conversion，
-  # .clang-tidy 那边明确关掉，同一份代码两处结论相反。删掉整块，只留一个权威来源。
-  #
-  # 下面 Suppress 的码写的是 clang 诊断名**本身**（下划线形式）。实测写成连字符
-  # （`module-not-found`）不生效。
-  Suppress:
-    # 工具链版本错配的产物，**不是代码缺陷** —— 同样的 import 在 `mcpp build`
-    # （clang 20.1.7）下完全正常，只在编辑器里成了 error。
-    # ⚠️ 代价：模块名**真写错**（比如 `import math;`）编辑器也不报了。这个洞由
-    # `mcpp build` / CI 兜着 —— 所以别把编辑器当唯一的门。
-    - module_not_found
+#
+# 这里**刻意不设 `Diagnostics`**：
+#   - 检查集只由仓库根的 .clang-tidy 决定（原先这里另有一套 Add/Remove，与它互相
+#     打架：这里打开 readability-implicit-bool-conversion，.clang-tidy 那边明确关掉，
+#     同一份代码两处结论相反）
+#   - 曾经在这里 Suppress 掉 module_not_found（当时 clangd 与工具链版本错配的产物），
+#     同版本 clangd 用上后就不需要了 —— 留着反而会盖住「模块名真写错」这种真错误
+#
+# ⚠️ `Diagnostics:` 底下只剩注释行是不行的 —— clangd 会报
+# `config error: Diagnostics should be a dictionary`。要删就整段删干净。
 
 # 代码提示设置部分 - 在编辑器中显示辅助信息
 InlayHints:
