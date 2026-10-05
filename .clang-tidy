@@ -5,6 +5,10 @@
 Checks: >
   bugprone-*,
   performance-*,
+  # 静态分析器。2026-10-05 加：它抓到过一个 bugprone/performance 都没报的真 UB
+  # ——`1 << (index - 1)` 里 index==0 的判断写在移位之后（size_t 回绕成 SIZE_MAX）。
+  # 实测全项目零误报，所以开着。慢是真慢（模块文件约 57 秒一个），但 CI 慢得起。
+  clang-analyzer-*,
   readability-container-size-empty,
   -bugprone-easily-swappable-parameters,
   -bugprone-exception-escape,

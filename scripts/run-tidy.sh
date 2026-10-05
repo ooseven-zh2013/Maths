@@ -21,9 +21,17 @@ TIDY="${CLANG_TIDY:-E:/Tools/clang-tidy-20.1.0/bin/clang-tidy.exe}"
 PYTHON="${PYTHON:-python3}"
 FILTER="${1:-}"
 
+# 找不到就退而从 Python 包里找 —— CI 上就是这么装的（pip install clang-tidy==20.1.0），
+# 让脚本自己认，比在 workflow 里塞一段「算 exe 路径」的 Python 一行式稳得多。
 if [ ! -x "$TIDY" ]; then
-  echo "找不到 clang-tidy：$TIDY" >&2
-  echo "装法：pip install clang-tidy==20.1.0，再把 site-packages/clang_tidy/data 拷到项目外" >&2
+  TIDY=$("$PYTHON" -c 'import clang_tidy, pathlib, sys
+sys.stdout.write(str(pathlib.Path(clang_tidy.__file__).parent / "data" / "bin" / "clang-tidy"))' 2>/dev/null || true)
+fi
+
+if [ ! -x "$TIDY" ]; then
+  echo "找不到 clang-tidy。试过：$CLANG_TIDY 与 Python 包里的 clang_tidy.data" >&2
+  echo "装法：pip install clang-tidy==20.1.0（版本要与 mcpp 的 llvm 对齐）" >&2
+  echo "或把 site-packages/clang_tidy/data 拷到项目外，然后 export CLANG_TIDY=/path/to/bin/clang-tidy" >&2
   echo "（git-bash 里要给 E:/... 这样的正斜杠绝对路径，原生 Windows 程序不认 /e/...）" >&2
   exit 1
 fi
