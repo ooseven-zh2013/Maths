@@ -1568,6 +1568,35 @@ inline Result<MultiPiecewiseFunction> parseMultiPiecewiseExpression(std::string_
     return std::unexpected(MathsError::InvalidExpression);
   }
 
+  // ⚠️ **完全平方的短路**：`x^2+y^2-2xy` 这种输入，分子是完全平方、分母是正的常数，
+  // 于是 `|f| = f` 恒成立 —— 不必拆成两支。判据是 `squareRootIfSquare`（见 groebner 模块）。
+  //
+  // 为什么这**不是**符号判定：判「f ≥ 0 恒成立」是 CAD 那一类；而判「分子是完全平方」
+  // 只是代数事实，一个 gcd 就够（Yun 平方自由分解的第一步）。**表示与判定是两件事。**
+  //
+  // ⚠️ `squareRootIfSquare` 目前**有漏判**（`x^4`、`x^2y^2` 这类含多重因子的情况还算不对），
+  // 漏判的后果是「该走短路时按分支处理」—— 结果仍然正确，只是没化简。所以别把
+  // 「它说不是平方」当成「这不是平方」。
+  if (squares.size() == std::size_t(1)) {
+    const Result<MultiRationalFunction> single =
+        MultiRationalFunction::make(parseExpression(squares.front().body).unwrap().getNumerator(),
+                                    parseExpression(squares.front().body).unwrap().getDenominator());
+    if (single.isOk()) {
+      const MultiRationalFunction &value = single.unwrap();
+      const std::optional<Polynomial> root = squareRootIfSquare(value.numerator());
+      if (root.has_value() && value.denominator().variables().empty()) {
+        // 分母是常数：只要它为正，f 就恒非负
+        const std::map<VarPowers, Fraction> &terms = value.denominator().getTerms();
+        if (terms.size() == std::size_t(1) && terms.begin()->first.empty() && terms.begin()->second > Fraction(0, 1)) {
+          const Result<Region> whole = Region::wholeSpace();
+          if (whole.isOk()) {
+            return MultiPiecewiseFunction::make({MultiPiecewiseFunction::Branch{MultiRule(value), whole.unwrap()}});
+          }
+        }
+      }
+    }
+  }
+
   // 枚举 ±：第 index 位取负的那支要求 g_index < 0，其余要求 ≥ 0
   std::vector<MultiPiecewiseFunction::Branch> branches;
   for (std::size_t mask = 0; mask < (std::size_t(1) << squares.size()); ++mask) {

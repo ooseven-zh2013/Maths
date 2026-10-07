@@ -251,8 +251,21 @@ inline Result<std::vector<Polynomial>> groebnerBasis(const std::vector<Polynomia
 
   std::vector<Polynomial> basis;
   for (const Polynomial &generator : generators) {
-    if (!generator.isZero()) {
-      basis.push_back(monic(generator, order));
+    if (generator.isZero()) {
+      continue;
+    }
+    const Polynomial normalized = monic(generator, order);
+    // 首一化后相同的元素只留一个 —— 主理想（gcd 就是其中之一元）很常见，
+    // 留着重复项会让下面「最小化」把它们互相约化掉（见那里的说明）。
+    bool duplicate = false;
+    for (const Polynomial &existing : basis) {
+      if (existing == normalized) {
+        duplicate = true;
+        break;
+      }
+    }
+    if (!duplicate) {
+      basis.push_back(normalized);
     }
   }
   if (basis.empty()) {
@@ -326,6 +339,12 @@ inline Result<std::vector<Polynomial>> groebnerBasis(const std::vector<Polynomia
       minimal.push_back(basis[index]);
     }
   }
+  // ⚠️ 兜底：上面的「最小化」对**主理想**会把每个元素都被其余元素约化成 0 ——
+  // gcd(x−y, 2x−2y) 的基是 {x−y, x−y}，首一化后完全相同 ⇒ 互相约化 ⇒ 结果为空。
+  // 而主理想的最小基是 {g}，不是 {} —— 空基会让调用方以为「理想是零理想」。
+  if (minimal.empty() && !basis.empty()) {
+    minimal.push_back(basis.front());
+  }
   return minimal;
 }
 
@@ -359,6 +378,168 @@ inline std::vector<Polynomial> eliminateVariables(const std::vector<Polynomial> 
     }
   }
   return result;
+}
+
+// ==================== 完全平方判定 ====================
+//
+// 「f 是不是常数 × 完全平方」—— 多元绝对值化简要用的就是它：
+// `|x²+y²-2xy|` 里 `x²+y²-2xy = (x-y)²`，于是 `|f| = f` 恒成立，不必拆两支。
+//
+// 判据（Yun 平方自由分解的第一步）：f = c·h² ⟺ w := gcd(f, ∂f/∂x₁, …, ∂f/∂xₙ)
+// 满足 `f / w²` 是非零常数。
+// 理由：h 整除 f，也整除每个偏导（∂(ch²)/∂xᵢ = 2ch·∂h/∂xᵢ）；
+// 而 h 无平方因子时这个 gcd 恰好就是 h。反过来若 f/w² 不是常数，f 就不是平方。
+//
+// 为什么不用 CAD：判「f ≥ 0 恒成立」是符号判定（研究级）；判「f 是平方」只是
+// 代数事实，一个 gcd 就够。**表示与判定是两件事** —— 多元绝对值的分支定义域
+// 本来就写着符号，不需要判非负。
+
+// `VarPowers` 是**有序 vector**（不是 map），所以按变量找指数只能顺序扫。
+inline unsigned long long exponentOf(const VarPowers &powers, const Variable &target) {
+  for (const auto &[variable, exponent] : powers) {
+    if (variable == target) {
+      return exponent;
+    }
+  }
+  return 0;
+}
+
+// 对某个变量求偏导：把每一项的该变量指数减一，指数降到 0 的那一项从 vector 里去掉。
+inline Result<Polynomial> partialDerivative(const Polynomial &value, const Variable &target) {
+  std::map<VarPowers, Fraction> result;
+  for (const auto &[powers, coefficient] : value.getTerms()) {
+    const unsigned long long exponent = exponentOf(powers, target);
+    if (exponent == 0) {
+      continue; // 不含这个变量 ⇒ 偏导为 0
+    }
+    VarPowers reduced;
+    reduced.reserve(powers.size());
+    for (const auto &[variable, power] : powers) {
+      if (variable == target) {
+        if (power > 1) {
+          reduced.emplace_back(variable, power - 1); // 指数 1 的项整个消失
+        }
+        continue;
+      }
+      reduced.emplace_back(variable, power);
+    }
+    result[reduced] = result[reduced] + coefficient * Fraction(static_cast<long long>(exponent), 1);
+  }
+  if (result.empty()) {
+    return Result<Polynomial>::err(MathsError::InvalidExpression); // 偏导恒为 0
+  }
+  Polynomial polynomial;
+  for (const auto &[powers, coefficient] : result) {
+    polynomial.addTerm(powers, coefficient);
+  }
+  return Result<Polynomial>(polynomial);
+}
+
+// 两个多项式的最大公因式。
+//
+// 走 Gröbner：理想 `(f,g)` 在 UFD 里是**主理想**，生成元就是 gcd，
+// 而它就是基里那个首项整除其余全部首项的元素。
+inline Result<Polynomial> polynomialGcd(const Polynomial &lhs, const Polynomial &rhs) {
+  if (lhs.isZero()) {
+    return Result<Polynomial>(rhs);
+  }
+  if (rhs.isZero()) {
+    return Result<Polynomial>(lhs);
+  }
+  constexpr MonomialOrder order = MonomialOrder::Lex;
+  const Result<std::vector<Polynomial>> basis = groebnerBasis({lhs, rhs}, order);
+  if (basis.isErr()) {
+    return std::unexpected(basis.unwrapErr());
+  }
+  const std::vector<Polynomial> &generators = basis.unwrap();
+  if (generators.empty()) {
+    return Result<Polynomial>::err(MathsError::InvalidExpression);
+  }
+  // 唯一的生成元：首项整除所有其它首项
+  std::optional<Polynomial> found;
+  for (const Polynomial &candidate : generators) {
+    const std::optional<std::pair<VarPowers, Fraction>> leading = leadingTerm(candidate, order);
+    if (!leading.has_value()) {
+      continue;
+    }
+    bool dividesAll = true;
+    for (const Polynomial &other : generators) {
+      const std::optional<std::pair<VarPowers, Fraction>> otherLeading = leadingTerm(other, order);
+      if (!otherLeading.has_value()) {
+        continue;
+      }
+      if (!groebner_detail::monomialQuotient(otherLeading->first, leading->first).has_value()) {
+        dividesAll = false;
+        break;
+      }
+    }
+    if (dividesAll) {
+      found = monic(candidate, order);
+      break;
+    }
+  }
+  if (!found.has_value()) {
+    return Result<Polynomial>::err(MathsError::InvalidExpression);
+  }
+  return Result<Polynomial>(found.value());
+}
+
+// 常数多项式是不是 1。
+//
+// ⚠️ 别用 `evaluate(Scope())` —— `Scope` 在 `:scope` 模块，本模块没导入它。
+// 直接看项：常数多项式恰好只有一项且该项的 VarPowers 为空。
+inline bool isConstantOne(const Polynomial &value) {
+  if (!value.variables().empty()) {
+    return false;
+  }
+  const std::map<VarPowers, Fraction> &terms = value.getTerms();
+  if (terms.size() != 1) {
+    return false;
+  }
+  return terms.begin()->first.empty() && terms.begin()->second == Fraction(1, 1);
+}
+
+// f = c·h² 吗？是则返回 h（首一化），否则 nullopt。
+//
+// ⚠️ 返回的是 h 而不是 √c —— 常数因子是否平方（2·x² = (√2x)² 里的 √2）不在这里判断，
+// 因为那要开方；调用方（`|f|` 化简）只需要知道「f 是平方」这件事本身。
+inline std::optional<Polynomial> squareRootIfSquare(const Polynomial &value) {
+  if (value.isZero()) {
+    return Polynomial(); // 0 = 0²
+  }
+  const std::set<Variable> variables = value.variables();
+  if (variables.empty()) {
+    return std::nullopt; // 非零常数：是不是有理数的平方要开方，不在这里判
+  }
+  // w := gcd(f, ∂f/∂x, …)
+  Result<Polynomial> running = Result<Polynomial>(value);
+  for (const Variable &variable : variables) {
+    const Result<Polynomial> derivative = partialDerivative(value, variable);
+    if (derivative.isErr()) {
+      continue; // 这个变量的偏导是 0（例如 f 只含 x 的幂而…不至于），跳过
+    }
+    const Result<Polynomial> next = polynomialGcd(running.unwrap(), derivative.unwrap());
+    if (next.isErr()) {
+      return std::nullopt; // gcd 算不出来（基爆炸等）就只说「判不出」
+    }
+    running = next;
+    if (isConstantOne(running.unwrap())) {
+      return std::nullopt; // gcd 已经是 1 ⇒ f 不可能是平方
+    }
+  }
+  const Result<Polynomial> square = running.unwrap() * running.unwrap();
+  if (square.isErr()) {
+    return std::nullopt;
+  }
+  const Result<MultivariateDivision> division = multivariateDivide(value, {square.unwrap()}, MonomialOrder::Lex);
+  if (division.isErr()) {
+    return std::nullopt;
+  }
+  const Polynomial quotient = division.unwrap().quotients.front();
+  if (!division.unwrap().remainder.isZero() || !quotient.variables().empty()) {
+    return std::nullopt; // 除不尽，或者商不是常数 ⇒ 不是平方
+  }
+  return running.unwrap();
 }
 
 } // namespace maths

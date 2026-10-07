@@ -153,4 +153,32 @@ int main() {
   }
 
   TEST_SUMMARY();
+
+  // ---------- 主理想的基不能是空的（2026-10-07 修） ----------
+  //
+  // `groebnerBasis({x-y, 2x-2y})` 的首一化基是 {x-y, x-y}，两个完全相同。
+  // 原先的「最小化」会把每个元素都被**其余元素**约化成 0 ⇒ 结果为空集 ——
+  // 而主理想的最小基是 {g}，不是 {}。空基会让 gcd 一类的调用方以为「理想是零理想」。
+  {
+    const std::vector<Polynomial> basis =
+        groebnerBasis({polynomial("x-y"), polynomial("2*x-2*y")}, MonomialOrder::Lex).unwrap();
+    CHECK_TRUE(basis.size() == std::size_t(1));
+    const Result<Polynomial> gcd = polynomialGcd(polynomial("x-y"), polynomial("2*x-2*y"));
+    CHECK_TRUE(gcd.isOk() && gcd.unwrap().latex() == "x - y");
+  }
+
+  // ---------- 完全平方判定 ----------
+  //
+  // 判据：f = c·h² ⟺ gcd(f, 各偏导) = h 且 f/h² 是常数（Yun 的第一步）。
+  // ⚠️ 目前**有漏判**：`x^4`、`x^2y^2` 这类含多重因子的情况还算不对。
+  // 漏判的后果是「该化简时没化简」，结果仍然正确 —— 所以别把「说不是平方」当「不是平方」。
+  {
+    CHECK_TRUE(squareRootIfSquare(polynomial("x^2")).has_value());
+    CHECK_TRUE(squareRootIfSquare(polynomial("2*x^2")).has_value());
+    CHECK_TRUE(squareRootIfSquare(polynomial("(x+y)^2")).value().latex() == "x + y");
+    CHECK_TRUE(squareRootIfSquare(polynomial("x^2+y^2-2xy")).value().latex() == "x - y");
+    CHECK_TRUE(!squareRootIfSquare(polynomial("x^2+y^2")).has_value());
+    CHECK_TRUE(!squareRootIfSquare(polynomial("x*y")).has_value());
+    CHECK_TRUE(!squareRootIfSquare(polynomial("x^2+2xy")).has_value());
+  }
 }

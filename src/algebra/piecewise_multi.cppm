@@ -188,12 +188,25 @@ public:
   const std::vector<Branch> &branches() const { return branches_; }
   bool isEmpty() const { return branches_.empty(); }
 
-  // 各支定义域里出现过的变量的并集 —— app 靠它判断该不该走多元那一档
+  // 出现在**规则或定义域**里的变量（并集）—— app 靠它判断该不该走多元那一档。
+  //
+  // ⚠️ 必须把规则里的变量也算进去：完全平方短路出来的分支是「整空间上的 f」，
+  // 整空间区域**没有约束原子**，只看定义域会得到空集 ⇒ app 的
+  // `variables().size() > 1` 守卫会把 `|x²+y²-2xy|` 拒掉（它有 x、y 两个变量）。
   std::set<Variable> variables() const {
     std::set<Variable> all;
     for (const Branch &branch : branches_) {
       for (const Variable &variable : branch.domain.variables()) {
         all.insert(variable);
+      }
+      if (branch.rule.holdsTower()) {
+        for (const Variable &variable : branch.rule.asTower().variables()) {
+          all.insert(variable);
+        }
+      } else {
+        for (const Variable &variable : branch.rule.asRational().variables()) {
+          all.insert(variable);
+        }
       }
     }
     return all;

@@ -987,7 +987,10 @@ int main() {
     printField("分段结果", multiAbsolute->latex());
     printSection("各支");
     for (const MultiPiecewiseFunction::Branch &branch : multiAbsolute->branches()) {
-      printListItem(branch.rule.latex() + "   当 " + branch.domain.latex());
+      // 整空间（完全平方短路出来的那一支）不要印 `\mathbb{R}^{n}` ——
+      // 区域本身没有约束原子、不知道维数，那个 n 是占位的。直接说「恒成立」。
+      const std::string condition = branch.domain.isWholeSpace() ? "恒成立" : branch.domain.latex();
+      printListItem(branch.rule.latex() + "   当 " + condition);
     }
 
     if (!point.has_value()) {

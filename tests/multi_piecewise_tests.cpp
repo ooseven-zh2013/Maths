@@ -87,6 +87,19 @@ int main() {
     CHECK_TRUE(single.at(point(3, 0)).unwrap() == RealAlgebraicNumber(Fraction(3, 1)));
     CHECK_TRUE(single.at(point(0, 0)).unwrap() == RealAlgebraicNumber(Fraction(0, 1)));
 
+    // 完全平方的短路：`|x^2+y^2-2xy|` 里分子是完全平方、分母是正的常数，
+    // 于是 `|f| = f` 恒成立 —— 一支就够，不必拆 `{f≥0}` / `{f<0}`。
+    {
+      const MultiPiecewiseFunction squared = parseMultiPiecewiseExpression("|x^2+y^2-2xy|").unwrap();
+      CHECK_TRUE(squared.branches().size() == std::size_t(1));
+      CHECK_TRUE(squared.branches().front().domain.isWholeSpace());
+      CHECK_TRUE(squared.at(point(3, 4)).unwrap() == RealAlgebraicNumber(Fraction(1, 1))); // (x-y)² = 1
+      CHECK_TRUE(squared.at(point(1, 1)).unwrap() == RealAlgebraicNumber(Fraction(0, 1)));
+      // ⚠️ 变量要算**规则 + 定义域**的并集：整空间区域没有约束原子、只看定义域会得到空集，
+      // 而 app 的 `variables().size() > 1` 守卫会把这个输入拒掉
+      CHECK_TRUE(squared.variables().size() == std::size_t(2));
+    }
+
     // 没有绝对值就不是这一档
     CHECK_ERR(parseMultiPiecewiseExpression("x-y"), MathsError::InvalidExpression);
   }
