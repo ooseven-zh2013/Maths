@@ -256,14 +256,15 @@ std::optional<InputExpression> readExpression() {
     // 位置要紧：必须在多元塔**之后**（`|x-y|` 里没有根号，塔那一档本来就拒），
     // 也必须在下面那个一元分段**之前** —— 一元分段见多元会报 `NotUnivariate`，
     // 那个诊断只对「一元函数」的输入才有意义。
+    //
+    // ⚠️ `variables().size() > 1` 这个守卫**不能省** —— 少了它 `|x|` 会被这一档抢走：
+    // `parseMultiPiecewiseExpression("|x|")` 是**成功**的（它构造得出两支，只是只有 1 个变量），
+    // 于是单变量绝对值被要求给「一次给全的点」，提示变成「还差 x」/「要一次给全」，
+    // 而它本来该走一元分段那档、接受 `x = 5`。判据与上面多元塔那档一致。
     const Result<MultiPiecewiseFunction> multiAbsolute = parseMultiPiecewiseExpression(line);
-    if (multiAbsolute.isOk()) {
+    if (multiAbsolute.isOk() && multiAbsolute.unwrap().variables().size() > std::size_t(1)) {
       printField("解析为", trim(line), true);
-      printField("变量",
-                 variableListLatex(multiAbsolute.unwrap().branches().empty()
-                                       ? std::set<Variable>{}
-                                       : multiAbsolute.unwrap().branches().front().domain.variables()),
-                 true);
+      printField("变量", variableListLatex(multiAbsolute.unwrap().variables()), true);
       return InputExpression{multiAbsolute.unwrap(), trim(line), true};
     }
 

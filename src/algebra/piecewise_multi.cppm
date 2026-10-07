@@ -188,6 +188,17 @@ public:
   const std::vector<Branch> &branches() const { return branches_; }
   bool isEmpty() const { return branches_.empty(); }
 
+  // 各支定义域里出现过的变量的并集 —— app 靠它判断该不该走多元那一档
+  std::set<Variable> variables() const {
+    std::set<Variable> all;
+    for (const Branch &branch : branches_) {
+      for (const Variable &variable : branch.domain.variables()) {
+        all.insert(variable);
+      }
+    }
+    return all;
+  }
+
   // 这个点在函数里吗
   Result<bool> admits(const Scope &point) const {
     for (const Branch &branch : branches_) {

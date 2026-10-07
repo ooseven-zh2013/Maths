@@ -76,6 +76,14 @@ int main() {
     // y = 0 不在定义域里
     CHECK_TRUE(!quotient.admits(point(1, 0)).unwrap());
 
+    // ⚠️ 单变量绝对值**解析得出两支**，所以 app 那一档必须靠 `variables().size() > 1`
+    // 挡一下 —— 少了守卫 `|x|` 会被多元档抢走，然后按多元规则要求「一次给全的点」，
+    // 而它本来该走一元分段那档、接受 `x = 5`。这条断言钉住这个前提。
+    const MultiPiecewiseFunction single = parseMultiPiecewiseExpression("|x|").unwrap();
+    CHECK_TRUE(single.variables().size() == std::size_t(1)); // 只有 x
+    CHECK_TRUE(single.at(point(3, 0)).unwrap() == RealAlgebraicNumber(Fraction(3, 1)));
+    CHECK_TRUE(single.at(point(0, 0)).unwrap() == RealAlgebraicNumber(Fraction(0, 1)));
+
     // 没有绝对值就不是这一档
     CHECK_ERR(parseMultiPiecewiseExpression("x-y"), MathsError::InvalidExpression);
   }
