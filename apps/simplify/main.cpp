@@ -96,6 +96,21 @@ std::optional<std::string> absoluteValueText(const PiecewiseFunction &value, boo
 }
 
 // 变量清单的显示（一元那边只会出现一个，所以以前没写过这个）
+//
+// ⚠️ `\quad` 是 **LaTeX 排版命令**，印到终端上是噪音（`变量: x,\quad y`）。
+// 两份都要：结果区的「变量」这种**给人看的字段**用下面的终端版，
+// latex() 渲染里才用带 `\quad` 的那份。
+std::string variableListText(const std::set<Variable> &variables) {
+  std::string result;
+  for (const Variable &variable : variables) {
+    if (!result.empty()) {
+      result += ", ";
+    }
+    result += variable.str();
+  }
+  return result;
+}
+
 std::string variableListLatex(const std::set<Variable> &variables) {
   std::string result;
   for (const Variable &variable : variables) {
@@ -628,25 +643,35 @@ Result<RealAlgebraicNumber> constraintPointValue(const Constraint &entry) {
 //   - 一行多个赋值（一元是一行一个）
 //   - 不支持 `x = x` 那种删除（多元这边没这个需求）
 //   - 取值只接受**纯有理数** —— 多元塔只在有理取值的点上有值
-Result<Scope> readPoint(const std::set<Variable> &variables) {
+// `std::nullopt` = **用户没要取值点**（直接 `0=0` 或 Ctrl-D）。
+//
+// ⚠️ 这个区分是必要的：**化简不需要代入**。多元两条档（塔 / 分段）以前一律强制
+// 取点，于是 `0=0` 之后报「还差 x」/「要一次给全」—— 那是在要求用户做他没要求的事。
+// 一元那条路本来就没这个问题（无条件就只印化简结果），多元这边要一样。
+//
+// 「给了一半」仍然报错：那是在说「我要取值点」，只是没写完。
+std::optional<Scope> readPoint(const std::set<Variable> &variables) {
   Scope scope;
   printConstraintHelp();
   while (true) {
     std::cout << "条件> ";
     std::string line;
     if (!readLine(line)) {
-      return Result<Scope>::err(MathsError::InvalidRange);
+      return std::nullopt;
     }
     const std::string trimmed = stripSpaces(line);
     if (trimmed == "0=0") {
-      // 没给满就报错，而不是拿部分变量去算 —— 那会算出一个没有意义的值
+      if (scope.empty()) {   // 一个都没给 —— 用户就是不想代入
+        return std::nullopt; // 一个都没给 —— 用户就是不想代入
+      }
+      // 给了一半：报错，而不是拿部分变量去算 —— 那会算出一个没有意义的值
       for (const Variable &variable : variables) {
         if (scope.lookup(variable).isErr()) {
-          printFeedback("不接受", "还差 " + variableListLatex({variable}));
-          return Result<Scope>::err(MathsError::UndefinedVariable);
+          printFeedback("不接受", "还差 " + variableListText({variable}));
+          return std::nullopt;
         }
       }
-      return Result<Scope>(scope);
+      return std::optional<Scope>(scope);
     }
     if (trimmed.empty()) {
       continue;
@@ -659,23 +684,23 @@ Result<Scope> readPoint(const std::set<Variable> &variables) {
       const std::size_t equals = piece.find('=');
       if (equals == std::string::npos) {
         printFeedback("不接受", "多元的条件写成 x=3, y=4 这样");
-        return Result<Scope>::err(MathsError::InvalidExpression);
+        return std::nullopt;
       }
       const std::string name = stripSpaces(piece.substr(0, equals));
       const std::string value = stripSpaces(piece.substr(equals + 1));
       const Result<RationalFunction> parsed = parseExpression(value);
       if (parsed.isErr()) {
         printFeedback("不接受", std::string(describe(parsed.unwrapErr())));
-        return Result<Scope>::err(parsed.unwrapErr());
+        return std::nullopt;
       }
       if (!parsed.unwrap().variables().empty()) {
         printFeedback("不接受", "取值点只接受有理数");
-        return Result<Scope>::err(MathsError::NotARational);
+        return std::nullopt;
       }
       const Result<void> recorded = scope.assign(Variable(name), parsed.unwrap());
       if (recorded.isErr()) {
         printFeedback("不接受", std::string(describe(recorded.unwrapErr())));
-        return Result<Scope>::err(recorded.unwrapErr());
+        return std::nullopt;
       }
       printFeedback("已记录", name + " = " + parsed.unwrap().str());
       if (comma == std::string::npos) {
@@ -941,16 +966,17 @@ int main() {
   } else if (const MultiTowerExtension *multi = std::get_if<MultiTowerExtension>(&input->value)) {
     // 多元：条件要给一个**点**（x=3, y=4），不是一条一元约束
     const std::set<Variable> variables = multi->variables();
-    const Result<Scope> point = readPoint(variables);
+    const std::optional<Scope> point = readPoint(variables);
 
     std::cout << "\n--- 结果 ---\n";
     printField("式子", input->text);
-    printField("变量", variableListLatex(variables));
-    if (point.isErr()) {
-      printField("无法代入", "这个式子有 " + std::to_string(variables.size()) + " 个变量，要一次给全");
+    printField("变量", variableListText(variables));
+    if (!point.has_value()) {
+      // 用户没要取值点（`0=0`）—— **化简已经完成了**，不必报「无法代入」。
+      // 多元塔的化简结果就是它自身：`2*\sqrt{x^2+y^2}` 没什么可再化的。
       return 0;
     }
-    const Result<RealAlgebraicNumber> value = multi->evaluate(point.unwrap());
+    const Result<RealAlgebraicNumber> value = multi->evaluate(point.value());
     if (value.isErr()) {
       printField("无法代入", std::string(describe(value.unwrapErr())));
       return 0;
@@ -959,27 +985,30 @@ int main() {
   } else if (const MultiPiecewiseFunction *multiAbsolute = std::get_if<MultiPiecewiseFunction>(&input->value)) {
     // 多元绝对值：和多元塔一样，条件要给一个**点**（x=3, y=4）。
     // 点落在哪一支就取那一支 —— 分支的定义域就是符号本身，所以不需要「判符号」。
-    std::set<Variable> variables;
-    for (const MultiPiecewiseFunction::Branch &branch : multiAbsolute->branches()) {
-      variables = branch.domain.variables();
-      if (!variables.empty()) {
-        break;
-      }
-    }
-    const Result<Scope> point = readPoint(variables);
+    const std::set<Variable> variables = multiAbsolute->variables();
+    const std::optional<Scope> point = readPoint(variables);
 
     std::cout << "\n--- 结果 ---\n";
     printField("式子", input->text);
-    printField("变量", variableListLatex(variables));
-    if (point.isErr()) {
-      printField("无法代入", "这个式子有 " + std::to_string(variables.size()) + " 个变量，要一次给全");
-      return 0;
+    printField("变量", variableListText(variables));
+
+    // ⚠️ **化简结果无条件也要给** —— 它就是那两支（`{f≥0}` 与 `{f<0}`），
+    // 多元绝对值的「化简」到此为止，后面代入只是**求值**。一元分段那边就是这个顺序
+    // （先印分段结果，条件非空才代入），多元这边以前反过来了。
+    printField("分段结果", multiAbsolute->latex());
+    printSection("各支");
+    for (const MultiPiecewiseFunction::Branch &branch : multiAbsolute->branches()) {
+      printListItem(branch.rule.latex() + "   当 " + branch.domain.latex());
     }
-    if (!multiAbsolute->admits(point.unwrap()).unwrap()) {
+
+    if (!point.has_value()) {
+      return 0; // 用户没要取值点 —— 化简已经给出了
+    }
+    if (!multiAbsolute->admits(point.value()).unwrap()) {
       printField("无法代入", "这个点不在定义域内");
       return 0;
     }
-    const Result<RealAlgebraicNumber> value = multiAbsolute->at(point.unwrap());
+    const Result<RealAlgebraicNumber> value = multiAbsolute->at(point.value());
     if (value.isErr()) {
       printField("无法代入", std::string(describe(value.unwrapErr())));
       return 0;
