@@ -97,25 +97,14 @@ std::optional<std::string> absoluteValueText(const PiecewiseFunction &value, boo
 
 // 变量清单的显示（一元那边只会出现一个，所以以前没写过这个）
 //
-// ⚠️ `\quad` 是 **LaTeX 排版命令**，印到终端上是噪音（`变量: x,\quad y`）。
-// 两份都要：结果区的「变量」这种**给人看的字段**用下面的终端版，
-// latex() 渲染里才用带 `\quad` 的那份。
-std::string variableListText(const std::set<Variable> &variables) {
+// ⚠️ 刻意**只有一份，且用 ", " 而不是 ",\\quad "** —— `\quad` 是 LaTeX 排版命令，
+// 印在终端上是噪音（`变量: x,\quad y`）。曾为此同时留了 latex 版，结果那份
+// **一个调用点都没有** —— 这个程序的输出全进终端，latex 版是纯多余的分叉。
+std::string variableList(const std::set<Variable> &variables) {
   std::string result;
   for (const Variable &variable : variables) {
     if (!result.empty()) {
       result += ", ";
-    }
-    result += variable.str();
-  }
-  return result;
-}
-
-std::string variableListLatex(const std::set<Variable> &variables) {
-  std::string result;
-  for (const Variable &variable : variables) {
-    if (!result.empty()) {
-      result += ",\\quad ";
     }
     result += variable.str();
   }
@@ -262,7 +251,7 @@ std::optional<InputExpression> readExpression() {
     const Result<MultiTowerExtension> multi = parseMultiTowerExpression(line);
     if (multi.isOk() && multi.unwrap().variables().size() > std::size_t(1)) {
       printField("解析为", multi.unwrap().latex(), true);
-      printField("变量", variableListLatex(multi.unwrap().variables()), true);
+      printField("变量", variableList(multi.unwrap().variables()), true);
       return InputExpression{multi.unwrap(), trim(line)};
     }
 
@@ -279,7 +268,7 @@ std::optional<InputExpression> readExpression() {
     const Result<MultiPiecewiseFunction> multiAbsolute = parseMultiPiecewiseExpression(line);
     if (multiAbsolute.isOk() && multiAbsolute.unwrap().variables().size() > std::size_t(1)) {
       printField("解析为", trim(line), true);
-      printField("变量", variableListLatex(multiAbsolute.unwrap().variables()), true);
+      printField("变量", variableList(multiAbsolute.unwrap().variables()), true);
       return InputExpression{multiAbsolute.unwrap(), trim(line), true};
     }
 
@@ -667,7 +656,7 @@ std::optional<Scope> readPoint(const std::set<Variable> &variables) {
       // 给了一半：报错，而不是拿部分变量去算 —— 那会算出一个没有意义的值
       for (const Variable &variable : variables) {
         if (scope.lookup(variable).isErr()) {
-          printFeedback("不接受", "还差 " + variableListText({variable}));
+          printFeedback("不接受", "还差 " + variableList({variable}));
           return std::nullopt;
         }
       }
@@ -970,7 +959,7 @@ int main() {
 
     std::cout << "\n--- 结果 ---\n";
     printField("式子", input->text);
-    printField("变量", variableListText(variables));
+    printField("变量", variableList(variables));
     if (!point.has_value()) {
       // 用户没要取值点（`0=0`）—— **化简已经完成了**，不必报「无法代入」。
       // 多元塔的化简结果就是它自身：`2*\sqrt{x^2+y^2}` 没什么可再化的。
@@ -990,7 +979,7 @@ int main() {
 
     std::cout << "\n--- 结果 ---\n";
     printField("式子", input->text);
-    printField("变量", variableListText(variables));
+    printField("变量", variableList(variables));
 
     // ⚠️ **化简结果无条件也要给** —— 它就是那两支（`{f≥0}` 与 `{f<0}`），
     // 多元绝对值的「化简」到此为止，后面代入只是**求值**。一元分段那边就是这个顺序
