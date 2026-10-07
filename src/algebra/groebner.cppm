@@ -342,7 +342,7 @@ inline Result<std::vector<Polynomial>> groebnerBasis(const std::vector<Polynomia
   // 一趟下来主理想的基会是 {x³y², x⁴y}（两个首项互不整除，谁也不该被丢），
   // 而 gcd 需要的是 {x³y} —— 只有再约化一趟才拿得到。
   std::vector<Polynomial> minimal = basis;
-  for (std::size_t round = 0; round < 8; ++round) {
+  for (std::size_t round = 0; round < 32; ++round) {
     std::vector<Polynomial> next;
     for (std::size_t index = 0; index < minimal.size(); ++index) {
       std::vector<Polynomial> others;
@@ -473,41 +473,81 @@ inline Result<Polynomial> polynomialGcd(const Polynomial &lhs, const Polynomial 
     return Result<Polynomial>(lhs);
   }
   constexpr MonomialOrder order = MonomialOrder::Lex;
-  const Result<std::vector<Polynomial>> basis = groebnerBasis({lhs, rhs}, order);
-  if (basis.isErr()) {
-    return std::unexpected(basis.unwrapErr());
-  }
-  const std::vector<Polynomial> &generators = basis.unwrap();
-  if (generators.empty()) {
-    return Result<Polynomial>::err(MathsError::InvalidExpression);
-  }
-  // 唯一的生成元：首项整除所有其它首项
-  std::optional<Polynomial> found;
-  for (const Polynomial &candidate : generators) {
-    const std::optional<std::pair<VarPowers, Fraction>> leading = leadingTerm(candidate, order);
-    if (!leading.has_value()) {
-      continue;
+
+  // ⚠️ **Buchberger 单独给不出 gcd** —— 它给的是 Gröbner 基，而基里可能有「谁也不整除谁」
+  // 的元素：`{xy², x²y}` 就是（两者首项互不整除），此时基不是极小的、也挑不出生成元。
+  // 真正的 gcd 是首项的最大公因式生成的**新元素**，Buchberger 不会自己算出来。
+  //
+  // 所以补一步：把两个首项的最大公因式（作为单项式）加进生成元再跑一轮，
+  // 直到基里出现一个**同时整除 f 与 g** 的元素为止。有界（每轮至少降一次首项次数）。
+  std::vector<Polynomial> generators = {lhs, rhs};
+  for (std::size_t round = 0; round < 32; ++round) {
+    const Result<std::vector<Polynomial>> basis = groebnerBasis(generators, order);
+    if (basis.isErr()) {
+      return std::unexpected(basis.unwrapErr());
     }
-    bool dividesAll = true;
-    for (const Polynomial &other : generators) {
-      const std::optional<std::pair<VarPowers, Fraction>> otherLeading = leadingTerm(other, order);
-      if (!otherLeading.has_value()) {
+    // 基里找「同时整除 f 与 g」且次数最大的那个
+    std::optional<Polynomial> best;
+    std::size_t bestDegree = 0;
+    for (const Polynomial &candidate : basis.unwrap()) {
+      if (candidate.isZero()) {
         continue;
       }
-      if (!groebner_detail::monomialQuotient(otherLeading->first, leading->first).has_value()) {
-        dividesAll = false;
-        break;
+      const Result<MultivariateDivision> intoLeft = multivariateDivide(lhs, {candidate}, order);
+      const Result<MultivariateDivision> intoRight = multivariateDivide(rhs, {candidate}, order);
+      if (intoLeft.isErr() || intoRight.isErr()) {
+        continue;
+      }
+      if (!intoLeft.unwrap().remainder.isZero() || !intoRight.unwrap().remainder.isZero()) {
+        continue; // 不整除两者，不是公因式
+      }
+      const std::size_t degree = candidate.degree();
+      if (!best.has_value() || degree > bestDegree) {
+        best = monic(candidate, order);
+        bestDegree = degree;
       }
     }
-    if (dividesAll) {
-      found = monic(candidate, order);
+    if (best.has_value()) {
+      return Result<Polynomial>(best.value());
+    }
+    // 没找到 ⇒ 把两个首项的最大公因式加进去再来一轮
+    const std::optional<std::pair<VarPowers, Fraction>> leftLeading = leadingTerm(lhs, order);
+    const std::optional<std::pair<VarPowers, Fraction>> rightLeading = leadingTerm(rhs, order);
+    if (!leftLeading.has_value() || !rightLeading.has_value()) {
       break;
     }
+    const std::optional<VarPowers> shared = groebner_detail::monomialLcm(leftLeading->first, rightLeading->first);
+    if (!shared.has_value()) {
+      break;
+    }
+    VarPowers common;
+    for (const auto &[variable, exponent] : leftLeading->first) {
+      const auto other = rightLeading->first;
+      bool found = false;
+      for (const auto &[name, power] : other) {
+        if (name == variable) {
+          common.emplace_back(variable, exponent < power ? exponent : power);
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        common.emplace_back(variable, 0); // 与 0 取 min ⇒ 不出现在 gcd 里
+      }
+    }
+    VarPowers filtered;
+    for (const auto &[variable, exponent] : common) {
+      if (exponent > 0) {
+        filtered.emplace_back(variable, exponent);
+      }
+    }
+    if (filtered.empty()) {
+      break; // 首项互素 ⇒ gcd 已是 1
+    }
+    generators.push_back(Polynomial(Monomial(Fraction(1, 1), filtered)));
+    generators.back() = monic(generators.back(), order);
   }
-  if (!found.has_value()) {
-    return Result<Polynomial>::err(MathsError::InvalidExpression);
-  }
-  return Result<Polynomial>(found.value());
+  return Result<Polynomial>::err(MathsError::InvalidExpression);
 }
 
 // 常数多项式是不是 1。
@@ -525,10 +565,6 @@ inline bool isConstantOne(const Polynomial &value) {
   return terms.begin()->first.empty() && terms.begin()->second == Fraction(1, 1);
 }
 
-// f = c·h² 吗？是则返回 h（首一化），否则 nullopt。
-//
-// ⚠️ 返回的是 h 而不是 √c —— 常数因子是否平方（2·x² = (√2x)² 里的 √2）不在这里判断，
-// 因为那要开方；调用方（`|f|` 化简）只需要知道「f 是平方」这件事本身。
 inline std::optional<Polynomial> squareRootIfSquare(const Polynomial &value) {
   if (value.isZero()) {
     return Polynomial(); // 0 = 0²
@@ -552,7 +588,10 @@ inline std::optional<Polynomial> squareRootIfSquare(const Polynomial &value) {
   // ⚠️ 也**不能只对单个变量取偏导**：那样 x²y² 会走成 x²y² → xy² → y² → y → 1，
   // 平方根 `xy` 根本不在链上。全部偏导一起取才一步到位。
   Polynomial rest = value;
-  Polynomial root;
+  // ⚠️ 累乘器必须是**乘法单位元 1**，不是零多项式 ——
+  // 写成 `Polynomial root;` 的话 root 恒为 0（0·x = 0），最后返回「平方根 = 0」。
+  // 症状很怪：判定说「是平方」成立、给出的根却是 0。
+  Polynomial root = Polynomial(Monomial(Fraction(1, 1), {}));
   for (std::size_t round = 0; round < 64; ++round) {
     if (rest.variables().empty()) {
       return root; // rest 是常数 ⇒ 成功
