@@ -8,3 +8,4 @@ export import maths.real_set;
 export import maths.random;
 export import maths.algebra;
 export import maths.parser;
+export import maths.value;
