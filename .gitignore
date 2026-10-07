@@ -58,3 +58,8 @@ TAGS
 Thumbs.db
 desktop.ini
 _*.py
+
+# 一元 n 次方程求解器：只是用来**试语法/API 能不能这么用**的验证程序，
+# 不是交付物。留着它是为了随时能重跑验证，不进仓库。
+apps/polynomial/
+tests/apps/polynomial/

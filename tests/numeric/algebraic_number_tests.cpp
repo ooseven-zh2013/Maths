@@ -1,0 +1,432 @@
+#include "../check.hpp"
+
+#include <compare>
+#include <iostream>
+#include <optional>
+#include <string>
+#include <vector>
+
+import maths;
+
+using namespace maths;
+
+namespace {
+
+// x^2 - 2 在 [1, 2] 里的根，即 √2
+RealAlgebraicNumber sqrtTwo() {
+  const UnivariatePolynomial polynomial(std::vector<Fraction>{Fraction(-2, 1), Fraction(0, 1), Fraction(1, 1)});
+  return RealAlgebraicNumber::create(polynomial, Fraction(1, 1), Fraction(2, 1)).unwrap();
+}
+
+RealAlgebraicNumber sqrtOf(long long value) { return RealAlgebraicNumber::squareRootOf(Fraction(value, 1)).unwrap(); }
+
+} // namespace
+
+int runTests() {
+  std::cout << "=== 实代数数 RealAlgebraicNumber 测试 ===" << '\n';
+  std::cout << std::unitbuf; // 崩溃时也能看到已输出的断言结果
+
+  // ---------- 一元多项式基础 ----------
+  {
+    const UnivariatePolynomial poly(std::vector<Fraction>{Fraction(-2, 1), Fraction(0, 1), Fraction(1, 1)});
+    CHECK_EQ(poly.str(), std::string("x^2 - 2"));
+    CHECK_EQ(poly.latex(), std::string("x^{2} - 2"));
+    CHECK_TRUE(poly.evaluate(Fraction(2, 1)) == Fraction(2, 1));  // 4 - 2
+    CHECK_TRUE(poly.evaluate(Fraction(1, 1)) == Fraction(-1, 1)); // 1 - 2
+    CHECK_EQ(poly.derivative().str(), std::string("2x"));
+    CHECK_EQ(poly.degree(), std::size_t(2));
+
+    // 平方自由化：(x - 1)^2 (x + 1) = x^3 - x^2 - x + 1 应被约成 x^2 - 1
+    const UnivariatePolynomial repeated(
+        std::vector<Fraction>{Fraction(1, 1), Fraction(-1, 1), Fraction(-1, 1), Fraction(1, 1)});
+    CHECK_EQ(repeated.squareFreePart().str(), std::string("x^2 - 1"));
+
+    // gcd(x^2 - 1, x^2 - 2x + 1) = x - 1
+    const UnivariatePolynomial first(std::vector<Fraction>{Fraction(-1, 1), Fraction(0, 1), Fraction(1, 1)});
+    const UnivariatePolynomial second(std::vector<Fraction>{Fraction(1, 1), Fraction(-2, 1), Fraction(1, 1)});
+    CHECK_EQ(UnivariatePolynomial::gcd(first, second).str(), std::string("x - 1"));
+
+    // Sturm 计数：x^2 - 2 在 [-2, 2] 里有两个实根，在 [1, 2] 里只有一个
+    CHECK_EQ(UnivariatePolynomial::countRealRootsIn(poly, Fraction(-2, 1), Fraction(2, 1)), 2);
+    CHECK_EQ(UnivariatePolynomial::countRealRootsIn(poly, Fraction(1, 1), Fraction(2, 1)), 1);
+    CHECK_EQ(UnivariatePolynomial::countRealRootsIn(poly, Fraction(2, 1), Fraction(3, 1)), 0);
+  }
+
+  // ---------- 构造与有理退化 ----------
+  {
+    const RealAlgebraicNumber root = sqrtTwo();
+    CHECK_TRUE(!root.isRational());
+    CHECK_EQ(root.degree(), std::size_t(2));
+    CHECK_ERR(root.toFraction(), MathsError::NotARational); // 尝试降一阶失败
+
+    // 完全平方数直接落回有理数
+    const RealAlgebraicNumber four = sqrtOf(4);
+    CHECK_TRUE(four.isRational());
+    CHECK_TRUE(four == Fraction(2, 1));
+    CHECK_EQ(four.str(), std::string("2"));
+
+    const RealAlgebraicNumber zero;
+    CHECK_TRUE(zero.isZero());
+    CHECK_TRUE(zero.isRational());
+  }
+
+  // ---------- 乘除：√2 · √2 = 2 ----------
+  {
+    const RealAlgebraicNumber root = sqrtTwo();
+    const RealAlgebraicNumber squared = root * root;
+    CHECK_TRUE(squared == Fraction(2, 1));
+    CHECK_TRUE(squared.compareToRational(Fraction(2, 1)) == std::strong_ordering::equal);
+  }
+
+  // ---------- 加减：抵消与结合 ----------
+  {
+    const RealAlgebraicNumber rootTwo = sqrtTwo();
+    const RealAlgebraicNumber rootThree = sqrtOf(3);
+
+    const RealAlgebraicNumber sum = rootTwo + rootThree;
+    CHECK_TRUE((sum - rootThree) == rootTwo); // (√2 + √3) - √3 = √2
+    CHECK_TRUE((rootTwo - rootTwo).isZero()); // √2 - √2 = 0
+    CHECK_TRUE((-rootTwo + rootTwo).isZero());
+  }
+
+  // ---------- 与有理数比较 ----------
+  {
+    const RealAlgebraicNumber root = sqrtTwo();
+    CHECK_TRUE(root > Fraction(7, 5)); // 1.4 < √2
+    CHECK_TRUE(root < Fraction(3, 2)); // √2 < 1.5
+    CHECK_TRUE(root.compareToRational(Fraction(1, 1)) == std::strong_ordering::greater);
+    CHECK_TRUE(!(root == Fraction(1, 1)));
+
+    // 精化后区间应更贴近真值，但比较结论不变
+    RealAlgebraicNumber refined = sqrtTwo();
+    refined.refine();
+    refined.refine();
+    CHECK_TRUE(refined > Fraction(7, 5));
+    CHECK_TRUE(refined < Fraction(3, 2));
+    CHECK_TRUE(refined == root); // √2 与 √2 是同一个数
+  }
+
+  // ---------- 倒数 ----------
+  {
+    const RealAlgebraicNumber root = sqrtTwo();
+    const RealAlgebraicNumber reciprocal = root.inverse().unwrap();
+    CHECK_TRUE((reciprocal * root) == Fraction(1, 1));
+
+    const RealAlgebraicNumber quotient = (root / root).unwrap();
+    CHECK_TRUE(quotient == Fraction(1, 1));
+
+    // 除以零
+    const RealAlgebraicNumber zero;
+    CHECK_ERR(root / zero, MathsError::DivisionByZero);
+    CHECK_ERR(zero.inverse(), MathsError::DivisionByZero);
+  }
+
+  // ---------- n 次根 ----------
+  {
+    const RealAlgebraicNumber cubeRoot = RealAlgebraicNumber::nthRootOf(Fraction(2, 1), 3).unwrap();
+    const RealAlgebraicNumber cubed = cubeRoot * cubeRoot * cubeRoot;
+    CHECK_TRUE(cubed == Fraction(2, 1));
+    CHECK_TRUE(cubeRoot > Fraction(1, 1));
+    CHECK_TRUE(cubeRoot < Fraction(3, 2));
+
+    // 奇次根允许负数：∛(-8) = -2，且能落回有理数
+    const RealAlgebraicNumber negativeCubeRoot = RealAlgebraicNumber::nthRootOf(Fraction(-8, 1), 3).unwrap();
+    CHECK_TRUE(negativeCubeRoot.isRational());
+    CHECK_TRUE(negativeCubeRoot == Fraction(-2, 1));
+
+    // 偶数次根下为负没有实根
+    CHECK_ERR(RealAlgebraicNumber::squareRootOf(Fraction(-1, 1)), MathsError::NegativeEvenRoot);
+    CHECK_ERR(RealAlgebraicNumber::nthRootOf(Fraction(-2, 1), 4), MathsError::NegativeEvenRoot);
+
+    // 嵌套：√(√2) 的平方应等于 √2
+    const RealAlgebraicNumber root = sqrtTwo();
+    const RealAlgebraicNumber fourthRoot = root.sqrt().unwrap();
+    const RealAlgebraicNumber fourthSquared = fourthRoot * fourthRoot;
+    CHECK_TRUE(fourthSquared == root);
+  }
+
+  // ---------- 黄金比例：φ^2 = φ + 1 ----------
+  {
+    // x^2 - x - 1 在 [1, 2] 里的根
+    const UnivariatePolynomial polynomial(std::vector<Fraction>{Fraction(-1, 1), Fraction(-1, 1), Fraction(1, 1)});
+    const RealAlgebraicNumber phi = RealAlgebraicNumber::create(polynomial, Fraction(1, 1), Fraction(2, 1)).unwrap();
+
+    const RealAlgebraicNumber squared = phi * phi;
+    const RealAlgebraicNumber shifted = phi + RealAlgebraicNumber(Fraction(1, 1));
+    CHECK_TRUE(squared == shifted);
+    CHECK_TRUE(phi > Fraction(8, 5)); // 1.6 < φ
+    CHECK_TRUE(phi < Fraction(17, 10));
+  }
+
+  // ---------- 大小比较的传递性 ----------
+  {
+    const RealAlgebraicNumber rootTwo = sqrtTwo();
+    const RealAlgebraicNumber rootThree = sqrtOf(3);
+    const RealAlgebraicNumber rootFive = sqrtOf(5);
+
+    CHECK_TRUE(rootTwo < rootThree);
+    CHECK_TRUE(rootThree < rootFive);
+    CHECK_TRUE(rootTwo < rootFive);
+    CHECK_TRUE(rootFive > rootTwo);
+
+    // 和与其中一个的大小
+    const RealAlgebraicNumber sum = rootTwo + rootThree;
+    CHECK_TRUE(sum > rootTwo);
+    CHECK_TRUE(sum > rootThree);
+  }
+
+  // ---------- 非法构造 ----------
+  {
+    const UnivariatePolynomial constant(std::vector<Fraction>{Fraction(3, 1)});
+    CHECK_ERR(RealAlgebraicNumber::create(constant, Fraction(0, 1), Fraction(1, 1)), MathsError::InvalidExpression);
+
+    // 区间内含两个根，不足以唯一确定
+    const UnivariatePolynomial polynomial(std::vector<Fraction>{Fraction(-2, 1), Fraction(0, 1), Fraction(1, 1)});
+    CHECK_ERR(RealAlgebraicNumber::create(polynomial, Fraction(-2, 1), Fraction(2, 1)), MathsError::InvalidRange);
+
+    // 区间内没有根
+    CHECK_ERR(RealAlgebraicNumber::create(polynomial, Fraction(3, 1), Fraction(5, 1)), MathsError::InvalidRange);
+  }
+
+  // ---------- 输出 ----------
+  {
+    const RealAlgebraicNumber root = sqrtTwo();
+    CHECK_EQ(RealAlgebraicNumber(Fraction(-3, 2)).str(), std::string("-3/2"));
+    CHECK_EQ(RealAlgebraicNumber(Fraction(-3, 2)).latex(), std::string("-\\frac{3}{2}"));
+    CHECK_TRUE(!root.str().empty());
+    CHECK_TRUE(!root.latex().empty());
+  }
+
+  // ---------- 尝试降一阶：实代数数 → 分数 ----------
+  {
+    // √2 不是有理数
+    CHECK_ERR(sqrtTwo().toFraction(), MathsError::NotARational);
+
+    // √2 · √2 = 2，表示里还挂着 x^2 - 4，但值确实是有理数，要能降下来
+    // 自乘走平方专用路线：p 的偶部自乘后正好退化，构造上就收成有理数了
+    const RealAlgebraicNumber squared = sqrtTwo() * sqrtTwo();
+    CHECK_TRUE(squared.isRational());
+    CHECK_OK(squared.toFraction());
+    CHECK_TRUE(squared.toFraction().unwrap() == Fraction(2, 1));
+
+    // √4 = 2：完全平方数在构造时就已经退化成有理数
+    CHECK_TRUE(RealAlgebraicNumber::squareRootOf(Fraction(4, 1)).unwrap().toFraction().unwrap() == Fraction(2, 1));
+
+    // ∛2 的立方同样是 2
+    const RealAlgebraicNumber cubeRoot = RealAlgebraicNumber::nthRootOf(Fraction(2, 1), 3).unwrap();
+    CHECK_TRUE((cubeRoot * cubeRoot * cubeRoot).toFraction().unwrap() == Fraction(2, 1));
+  }
+
+  // ---------- 尝试降一阶：分数 → 整数 ----------
+  {
+    CHECK_TRUE(Fraction(6, 3).toInteger().unwrap() == Integer(2LL));
+    CHECK_TRUE(Fraction(-8, 4).toInteger().unwrap() == Integer(-2LL));
+    CHECK_TRUE(Fraction(0, 5).toInteger().unwrap() == Integer(0LL));
+    CHECK_ERR(Fraction(1, 2).toInteger(), MathsError::NotAnInteger);
+    CHECK_ERR(Fraction(-3, 2).toInteger(), MathsError::NotAnInteger);
+  }
+
+  // ---------- 字符串 → 实代数数 ----------
+  {
+    const RealAlgebraicNumber root = sqrtTwo();
+
+    // 基本根式
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt{2}").unwrap() == root);
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt {2}").unwrap() == root); // 空白不敏感
+    CHECK_TRUE(RealAlgebraicNumber::parse("(\\sqrt{2})^2").unwrap() == Fraction(2, 1));
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt{2}^{2}").unwrap() == Fraction(2, 1));
+
+    // 完全平方数落回有理数
+    const RealAlgebraicNumber four = RealAlgebraicNumber::parse("\\sqrt{4}").unwrap();
+    CHECK_TRUE(four.isRational());
+    CHECK_TRUE(four == Fraction(2, 1));
+
+    // n 次根
+    const RealAlgebraicNumber cubeRoot = RealAlgebraicNumber::parse("\\sqrt[3]{2}").unwrap();
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt[3]{2}^{3}").unwrap() == Fraction(2, 1));
+    CHECK_TRUE(cubeRoot > Fraction(1, 1));
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt[3]{-8}").unwrap() == Fraction(-2, 1));
+
+    // 隐含乘法与四则运算
+    CHECK_TRUE(RealAlgebraicNumber::parse("2\\sqrt{2}").unwrap() == root + root);
+    CHECK_TRUE(RealAlgebraicNumber::parse("1 + \\sqrt{2}").unwrap() == root + RealAlgebraicNumber(Fraction(1, 1)));
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt{8}").unwrap() == root + root); // √8 = 2√2
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\frac{1}{\\sqrt{2}}").unwrap() * root == Fraction(1, 1));
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt{2} \\cdot \\sqrt{2}").unwrap() == Fraction(2, 1));
+    CHECK_TRUE(RealAlgebraicNumber::parse("6 \\div \\sqrt{2}").unwrap() == root * RealAlgebraicNumber(Fraction(3, 1)));
+
+    // 嵌套根式：√(1 + √2) 的平方应等于 1 + √2
+    const RealAlgebraicNumber nested = RealAlgebraicNumber::parse("\\sqrt{1 + \\sqrt{2}}").unwrap();
+    const RealAlgebraicNumber nestedSquared = nested * nested;
+    CHECK_TRUE(nestedSquared == root + RealAlgebraicNumber(Fraction(1, 1)));
+    // 同一个 4 次数自乘（走平方专用路线）与减法算出来的 1 + √2 必须一致
+    CHECK_TRUE(nestedSquared == RealAlgebraicNumber::parse("1 + \\sqrt{2}").unwrap());
+
+    // 左括号修饰符
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\left(\\sqrt{2}\\right)").unwrap() == root);
+  }
+
+  // ---------- 解析的非法输入 ----------
+  {
+    CHECK_ERR(RealAlgebraicNumber::parse(""), MathsError::InvalidExpression);
+    CHECK_ERR(RealAlgebraicNumber::parse("x"), MathsError::InvalidExpression);        // 不接受变量
+    CHECK_ERR(RealAlgebraicNumber::parse("sqrt{2}"), MathsError::InvalidExpression);  // 只认 LaTeX 写法
+    CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt2"), MathsError::InvalidExpression);  // 根号下必须带花括号
+    CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt{2"), MathsError::InvalidExpression); // 括号没配平
+    CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt{}"), MathsError::InvalidExpression);
+    CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt[0]{2}"), MathsError::InvalidRange);
+    CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt{-4}"), MathsError::NegativeEvenRoot); // 偶次根下为负
+    CHECK_ERR(RealAlgebraicNumber::parse("\\frac{1}{0}"), MathsError::DivisionByZero);
+    CHECK_ERR(RealAlgebraicNumber::parse("1 +"), MathsError::InvalidExpression);
+  }
+
+  // ---------- latex 的根式渲染 ----------
+  {
+    // 单个根式还原成 \sqrt 写法
+    CHECK_EQ(RealAlgebraicNumber::parse("\\sqrt{2}").unwrap().latex(), std::string("\\sqrt{2}"));
+    CHECK_EQ(RealAlgebraicNumber::parse("\\sqrt[3]{2}").unwrap().latex(), std::string("\\sqrt[3]{2}"));
+
+    // 负号：偶次要实测符号，奇次由被开方数承载
+    CHECK_EQ((-RealAlgebraicNumber::parse("\\sqrt{2}").unwrap()).latex(), std::string("-\\sqrt{2}"));
+    CHECK_EQ(RealAlgebraicNumber::parse("\\sqrt[3]{-2}").unwrap().latex(), std::string("-\\sqrt[3]{2}"));
+
+    // 2√2 与 √8 是同一个数（多项式 x^2 − 8），渲染一致；不做最简根式化
+    CHECK_EQ(RealAlgebraicNumber::parse("2\\sqrt{2}").unwrap().latex(), std::string("\\sqrt{8}"));
+    CHECK_EQ(RealAlgebraicNumber::parse("2\\sqrt{2}").unwrap().latex(),
+             RealAlgebraicNumber::parse("\\sqrt{8}").unwrap().latex());
+
+    // 被开方数是分数
+    CHECK_EQ(RealAlgebraicNumber::parse("\\sqrt{1/2}").unwrap().latex(), std::string("\\sqrt{\\frac{1}{2}}"));
+
+    // 中间项不为零的还原不成单个根式，仍走 RootOf
+    CHECK_TRUE(
+        RealAlgebraicNumber::parse("\\sqrt{2} + \\sqrt{3}").unwrap().latex().starts_with("\\operatorname{RootOf}"));
+
+    // 有理数照旧
+    CHECK_EQ(RealAlgebraicNumber(Fraction(-3, 2)).latex(), std::string("-\\frac{3}{2}"));
+
+    // str() 保持 RootOf —— 终端诊断时多项式信息比 \sqrt{2} 有用
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt{2}").unwrap().str().starts_with("RootOf"));
+  }
+
+  // ---------- 带平移量的二次根式（x^2 + bx + c 那一类）----------
+  {
+    // 原来只有「纯根式」（最小多项式形如 x^n + c）能被还原，这一类一律退回
+    // RootOf(x^2-4x+1, [-5/8, 25/8])，可读性差一大截。
+    CHECK_TRUE(RealAlgebraicNumber::parse("2+\\sqrt{3}").unwrap().latex() == std::string("2 + \\sqrt{3}"));
+    CHECK_TRUE(RealAlgebraicNumber::parse("2-\\sqrt{3}").unwrap().latex() == std::string("2 - \\sqrt{3}"));
+    CHECK_TRUE(RealAlgebraicNumber::parse("-\\sqrt{3}").unwrap().latex() == std::string("-\\sqrt{3}"));
+    CHECK_TRUE(RealAlgebraicNumber::parse("\\sqrt{3}").unwrap().latex() == std::string("\\sqrt{3}"));
+
+    // 平移量带分数时用教科书的单分数式，别写成 1/2 + \sqrt{5/4}
+    CHECK_TRUE(RealAlgebraicNumber::parse("(1+\\sqrt{5})/2").unwrap().latex() ==
+               std::string("\\frac{1 + \\sqrt{5}}{2}"));
+
+    // 整数被开方数提出平方因子：√2400 → 20√6
+    CHECK_TRUE(RealAlgebraicNumber::parse("49+\\sqrt{2400}").unwrap().latex() == std::string("49 + 20\\sqrt{6}"));
+
+    // str() 保持 RootOf 是**有意**的：终端诊断时多项式信息比 \sqrt{2} 有用
+    CHECK_TRUE(RealAlgebraicNumber::parse("2+\\sqrt{3}").unwrap().str().starts_with("RootOf"));
+  }
+
+  // ---------- 纯根式的整数次幂：走 O(deg) 特例 ----------
+  //
+  // 回归用：x^6 配 x = √[6]{2} 曾经 NumericOverflow（x^6 = x³·x³，
+  // 而 x³ 是通用乘积，环维数 36）。根式特例按 gcd 约掉次数，直接给出答案。
+  {
+    const RealAlgebraicNumber sixthRoot = RealAlgebraicNumber::nthRootOf(Fraction(2, 1), 6).unwrap();
+    CHECK_TRUE(sixthRoot.pow(6).unwrap() == Fraction(2, 1));                                             // (⁶√2)^6 = 2
+    CHECK_TRUE(sixthRoot.pow(3).unwrap() == RealAlgebraicNumber::squareRootOf(Fraction(2, 1)).unwrap()); // √2
+    CHECK_TRUE(sixthRoot.pow(4).unwrap() == RealAlgebraicNumber::nthRootOf(Fraction(4, 1), 3).unwrap()); // ∛4
+
+    const RealAlgebraicNumber fourthRoot = RealAlgebraicNumber::nthRootOf(Fraction(2, 1), 4).unwrap();
+    CHECK_TRUE(fourthRoot.pow(6).unwrap() == RealAlgebraicNumber::squareRootOf(Fraction(8, 1)).unwrap()); // √8
+
+    // 负根式：奇次幂仍是负数
+    const RealAlgebraicNumber negativeFifthRoot = RealAlgebraicNumber::nthRootOf(Fraction(-2, 1), 5).unwrap();
+    CHECK_TRUE(negativeFifthRoot.pow(5).unwrap() == Fraction(-2, 1));
+    CHECK_TRUE(negativeFifthRoot.pow(3).unwrap() < Fraction(0, 1));
+
+    // 非根式走通用路线，结果同样正确：(√2+√3)^2 = 5 + 2√6
+    const RealAlgebraicNumber sum = RealAlgebraicNumber::parse("\\sqrt{2}+\\sqrt{3}").unwrap();
+    CHECK_TRUE(sum.pow(2).unwrap() == RealAlgebraicNumber::parse("5+2\\sqrt{6}").unwrap());
+  }
+
+  // ---------- 同一个数自加 / 自减：别绕通用路线 ----------
+  //
+  // 回归用：√2+√2 曾经渲染成 RootOf(x³−8x, …)。通用加法的候选多项式是 x(x²−8)，
+  // 它已无平方因子（去掉那个多余的 0 根要靠因式分解，库里明确不做），
+  // 于是 asSingleRadical 认不出单根式 —— 数值一直是对的，只是渲染难看。
+  {
+    const RealAlgebraicNumber rootTwo = sqrtTwo();
+
+    CHECK_EQ((rootTwo + rootTwo).latex(), std::string("\\sqrt{8}")); // 仍不做最简根式化，故不是 2√2
+    CHECK_TRUE(rootTwo + rootTwo == RealAlgebraicNumber::parse("2\\sqrt{2}").unwrap());
+    CHECK_TRUE(rootTwo + rootTwo == rootTwo * RealAlgebraicNumber(Fraction(2, 1)));
+
+    // 自减恒为 0，而且要是**规范零**（有理数 0），不是带多余根号的表示
+    CHECK_TRUE((rootTwo - rootTwo).isRational());
+    CHECK_TRUE((rootTwo - rootTwo).isZero());
+    CHECK_EQ((rootTwo - rootTwo).latex(), std::string("0"));
+
+    // 高次根式同理：2·⁶√2 = ⁶√128
+    const RealAlgebraicNumber sixthRoot = RealAlgebraicNumber::nthRootOf(Fraction(2, 1), 6).unwrap();
+    CHECK_EQ((sixthRoot + sixthRoot).latex(), std::string("\\sqrt[6]{128}"));
+    CHECK_TRUE(sixthRoot + sixthRoot == RealAlgebraicNumber::parse("2\\sqrt[6]{2}").unwrap());
+
+    // 表示能力边界：√2+√3 本来就没有单一根式写法，仍走 RootOf（不是 bug）
+    CHECK_TRUE(
+        (rootTwo + RealAlgebraicNumber::parse("\\sqrt{3}").unwrap()).latex().starts_with("\\operatorname{RootOf}"));
+  }
+
+  // ---------- 常量底数的有理指数，以及严格整数解析 ----------
+  //
+  // 回归用两件事：
+  //   常量底数的有理指数：a^{p/q}（含负指数、\frac 写法）
+  //   严格解析：解析器里裸调 std::stoull 会**只解析前缀**（"1/2" → 1），
+  //      于是 2^{1/2} 静默算成 2；`\sqrt[1/2]{2}` 同理静默算成 2。
+  {
+    const RealAlgebraicNumber rootTwo = RealAlgebraicNumber::parse("\\sqrt{2}").unwrap();
+
+    // a^{p/q} = (a^{1/q})^p
+    CHECK_TRUE(RealAlgebraicNumber::parse("2^{1/2}").unwrap() == rootTwo);
+    CHECK_TRUE(RealAlgebraicNumber::parse("13^{1/2}").unwrap() == RealAlgebraicNumber::parse("\\sqrt{13}").unwrap());
+    CHECK_TRUE(RealAlgebraicNumber::parse("9^{1/2}").unwrap() == Fraction(3, 1)); // 完全平方落回有理数
+    CHECK_TRUE(RealAlgebraicNumber::parse("8^{1/3}").unwrap() == Fraction(2, 1));
+    CHECK_TRUE(RealAlgebraicNumber::parse("2^{3/2}").unwrap() == RealAlgebraicNumber::parse("2\\sqrt{2}").unwrap());
+    CHECK_TRUE(RealAlgebraicNumber::parse("2^{2/2}").unwrap() == Fraction(2, 1));
+    CHECK_TRUE(RealAlgebraicNumber::parse("2^{0/9}").unwrap() == Fraction(1, 1));
+    CHECK_TRUE(RealAlgebraicNumber::parse("2^{2}").unwrap() == Fraction(4, 1));
+    CHECK_TRUE(RealAlgebraicNumber::parse("2^{100/50}").unwrap() == Fraction(4, 1)); // 约分交给根式特例
+    CHECK_TRUE(RealAlgebraicNumber::parse("2^{-1/2}").unwrap() ==
+               RealAlgebraicNumber::parse("\\frac{1}{\\sqrt{2}}").unwrap());
+    CHECK_TRUE(RealAlgebraicNumber::parse("2^{\\frac{1}{2}}").unwrap() == rootTwo);
+
+    // 严格解析：内容不合法一律报错，绝不做前缀解析
+    CHECK_ERR(RealAlgebraicNumber::parse("2^{a}"), MathsError::InvalidExpression);
+    CHECK_ERR(RealAlgebraicNumber::parse("2^{1/2x}"), MathsError::InvalidExpression);
+    CHECK_ERR(RealAlgebraicNumber::parse("2^{}"), MathsError::InvalidExpression);
+    CHECK_ERR(RealAlgebraicNumber::parse("2^{1/"), MathsError::InvalidExpression);
+    CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt[1/2]{2}"), MathsError::InvalidExpression);
+    CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt[3/2]{8}"), MathsError::InvalidExpression);
+    CHECK_ERR(RealAlgebraicNumber::parse("\\sqrt[4/2]{16}"), MathsError::InvalidExpression);
+
+    // 定义域
+    CHECK_ERR(RealAlgebraicNumber::parse("2^{1/0}"), MathsError::ZeroDenominator);     // 分母为 0
+    CHECK_ERR(RealAlgebraicNumber::parse("0^{-1}"), MathsError::DivisionByZero);       // 0 的负次幂
+    CHECK_ERR(RealAlgebraicNumber::parse("(-4)^{1/2}"), MathsError::NegativeEvenRoot); // 偶次根下为负
+  }
+
+  TEST_SUMMARY();
+}
+
+int main() {
+  // 包一层，避免未捕获异常把整个进程带走后只剩一个晦涩的退出码，
+  // 连是哪一步出的问题都看不到
+  try {
+    return runTests();
+  } catch (const std::exception &error) {
+    std::cout << "未捕获异常: " << error.what() << '\n';
+    return 1;
+  }
+}

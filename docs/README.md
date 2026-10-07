@@ -57,6 +57,12 @@
 | --- | --- | --- |
 | [simplify.md](apps/simplify.md) | `apps/simplify/main.cpp` → 产物 `releases/simplify/` | 交互式表达式化简：语法、条件写法、结果说明 |
 
+## examples（示例教程）
+
+| 教程 | 对应程序 | 内容 |
+| --- | --- | --- |
+| [一元方程求解器.md](examples/一元方程求解器.md) | `apps/polynomial/`（gitignore，是练习不是交付物） | 面向新手：怎么用这个库做一个一元一次至四次方程求解器 —— 公式法的边界、精确根怎么拿、隔离区间怎么收紧、测试怎么写 |
+
 ## 其他
 
 | 文档 | 对应目录 | 内容 |
