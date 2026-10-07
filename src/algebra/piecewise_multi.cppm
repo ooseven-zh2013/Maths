@@ -239,7 +239,9 @@ private:
     for (std::size_t index = 0; index < branches_.size(); ++index) {
       if (index > 0) {
         // ⚠️ 别用 `\\\\`（LaTeX 的换行）当分隔符 —— 它在数学式里没有意义。
-        result += useLatex ? ";\\quad " : " , ";
+        // 分隔符用 \`;\`，**不要 \quad** —— 这个程序的输出全进终端，
+        // 排版命令（\quad / \,）印出来是噪音。用户明确要求过。
+        result += useLatex ? "; " : ", ";
       }
       const Branch &branch = branches_[index];
       result += (useLatex ? branch.rule.latex() : branch.rule.str());

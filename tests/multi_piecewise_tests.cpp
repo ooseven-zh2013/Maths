@@ -59,7 +59,10 @@ int main() {
     CHECK_TRUE(difference.admits(point(-3, -1)).unwrap());
     // 恒真的原子不印出来（`|x-y|` 的分母是 1，`1 ≠ 0` 不该出现）
     CHECK_TRUE(difference.latex().find("ne 0") == std::string::npos);
-    CHECK_TRUE(difference.latex().find("quad") != std::string::npos);
+    // ⚠️ 分支分隔符**不能带排版命令**（`\quad` / `\\`）—— app 的输出全进终端。
+    // 这条断言当初写反了：那时我刚给分隔符加上 `\quad`，就顺手断言它存在。
+    CHECK_TRUE(difference.latex().find("quad") == std::string::npos);
+    CHECK_TRUE(difference.latex().find("\\\\") == std::string::npos);
 
     const MultiPiecewiseFunction product = parseMultiPiecewiseExpression("|x*y-1|").unwrap();
     CHECK_TRUE(product.at(point(3, 1)).unwrap() == RealAlgebraicNumber(Fraction(2, 1)));
