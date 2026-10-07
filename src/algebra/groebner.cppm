@@ -313,6 +313,20 @@ inline Result<std::vector<Polynomial>> groebnerBasis(const std::vector<Polynomia
     }
 
     const Polynomial added = monic(reduced.unwrap(), order);
+    // ⚠️ 约化结果**可能已经在基里** —— 那是「这条 S-多项式没带来新信息」，
+    // 不是新元素。加进去会产生重复项，末尾的最小化被它搞乱：
+    // `groebnerBasis({x³y², x⁴y})` 的 S-多项式约化回 x³y² ⇒ 若加进去，基里有两个
+    // 相同元素、且 x³y² 与 x⁴y 的首项互不整除 ⇒ **gcd 挑不出生成元**。
+    bool alreadyPresent = false;
+    for (const Polynomial &existing : basis) {
+      if (existing == added) {
+        alreadyPresent = true;
+        break;
+      }
+    }
+    if (alreadyPresent) {
+      continue;
+    }
     basis.push_back(added);
     if (basis.size() > kMaxBasisSize) {
       return std::unexpected(MathsError::NumericOverflow);
@@ -322,22 +336,34 @@ inline Result<std::vector<Polynomial>> groebnerBasis(const std::vector<Polynomia
     }
   }
 
-  // 去掉能被其余元素约化掉的多余元素（既有的对已全部处理完）
-  std::vector<Polynomial> minimal;
-  for (std::size_t index = 0; index < basis.size(); ++index) {
-    std::vector<Polynomial> others;
-    for (std::size_t other = 0; other < basis.size(); ++other) {
-      if (other != index) {
-        others.push_back(basis[other]);
+  // 去掉能被其余元素约化掉的多余元素。
+  //
+  // ⚠️ **要迭代到不动点**：去掉一个之后，其余元素才可能变得可约化。
+  // 一趟下来主理想的基会是 {x³y², x⁴y}（两个首项互不整除，谁也不该被丢），
+  // 而 gcd 需要的是 {x³y} —— 只有再约化一趟才拿得到。
+  std::vector<Polynomial> minimal = basis;
+  for (std::size_t round = 0; round < 8; ++round) {
+    std::vector<Polynomial> next;
+    for (std::size_t index = 0; index < minimal.size(); ++index) {
+      std::vector<Polynomial> others;
+      for (std::size_t other = 0; other < minimal.size(); ++other) {
+        if (other != index) {
+          others.push_back(minimal[other]);
+        }
+      }
+      const Result<Polynomial> reduced = normalForm(minimal[index], others, order);
+      if (reduced.isErr()) {
+        return std::unexpected(reduced.unwrapErr());
+      }
+      if (!reduced.unwrap().isZero()) {
+        next.push_back(minimal[index]);
       }
     }
-    const Result<Polynomial> reduced = normalForm(basis[index], others, order);
-    if (reduced.isErr()) {
-      return std::unexpected(reduced.unwrapErr());
+    if (next.size() == minimal.size()) {
+      minimal = next;
+      break; // 不再变短 ⇒ 已是极小
     }
-    if (!reduced.unwrap().isZero()) {
-      minimal.push_back(basis[index]);
-    }
+    minimal = next;
   }
   // ⚠️ 兜底：上面的「最小化」对**主理想**会把每个元素都被其余元素约化成 0 ——
   // gcd(x−y, 2x−2y) 的基是 {x−y, x−y}，首一化后完全相同 ⇒ 互相约化 ⇒ 结果为空。
