@@ -511,60 +511,66 @@ inline std::optional<Polynomial> squareRootIfSquare(const Polynomial &value) {
     return std::nullopt; // 非零常数：是不是有理数的平方要开方，不在这里判
   }
 
-  // gcd 链：w₀ = f，w_{k+1} = gcd(w_k, w_k 的**全部**偏导)
+  // Yun 的分解，反复做：
+  //   a := gcd(r, r 的全部偏导)      —— 剥掉每个不可约因子的一层
+  //   b := r / a
+  //   g := gcd(a, b)                 —— 这一层里「还带着偶数次幂」的部分
+  //   r := r / g² ,  h := h · g
+  // 结束时若 r 是常数，f = c·h²  ⇒ f 是平方，平方根就是 h。
   //
-  // ⚠️ 「全部偏导一起」是关键。只对单个变量取 gcd 时 `x²y²` 会走成
-  // x²y² → xy² → y² → y → 1（平方根 xy 根本不在链上）；
-  // 一起取就一步到位：gcd(x²y², 2xy², 2x²y) = xy ✓
+  // ⚠️ **为什么不能只看 a**：`x⁴y²` 时 a = x³y（每个因子剥一层），
+  // 而真正的平方根是 `x²y` —— 它既不等于 a 也不在「a 的幂」上。
+  // `g = gcd(a, b)` 才把这一层能剥的偶次幂取出来：a = x³y、b = xy ⇒ g = xy ✓
+  // 只用 a 的话 x⁴y² / a² = 1/y² 除不尽，于是被判成「不是平方」✗
   //
-  // ⚠️ 一次 gcd 只剥掉一层（gcd(h^k, ∂) = h^(k−1)），所以**不能只取第一步**：
-  // f = (x−y)² 时 w = x−y 恰好 w² = f，而 f = x⁴ 时 w = x³、w² = x⁶ 除不尽。
-  // 正确做法是**把链上每个元素都试一遍**。
-  std::vector<Polynomial> chain;
-  Polynomial current = value;
-  for (std::size_t step = 0; step < 64; ++step) {
-    Result<Polynomial> running = Result<Polynomial>(current);
-    for (const Variable &variable : current.variables()) {
-      const Result<Polynomial> derivative = partialDerivative(current, variable);
+  // ⚠️ 也**不能只对单个变量取偏导**：那样 x²y² 会走成 x²y² → xy² → y² → y → 1，
+  // 平方根 `xy` 根本不在链上。全部偏导一起取才一步到位。
+  Polynomial rest = value;
+  Polynomial root;
+  for (std::size_t round = 0; round < 64; ++round) {
+    if (rest.variables().empty()) {
+      return root; // rest 是常数 ⇒ 成功
+    }
+    Result<Polynomial> running = Result<Polynomial>(rest);
+    for (const Variable &variable : rest.variables()) {
+      const Result<Polynomial> derivative = partialDerivative(rest, variable);
       if (derivative.isErr()) {
-        continue; // 该偏导为 0（例如只含其它变量的幂），跳过
+        continue; // 该偏导为 0
       }
       const Result<Polynomial> next = polynomialGcd(running.unwrap(), derivative.unwrap());
       if (next.isErr()) {
-        return std::nullopt; // gcd 算不出来（基爆炸等）就只说「判不出」
+        return std::nullopt; // gcd 算不出来 ⇒ 只说「判不出」
       }
       running = next;
-      if (isConstantOne(running.unwrap())) {
-        break; // gcd 已是 1，再剥也没意义
-      }
     }
-    const Polynomial next = running.unwrap();
-    if (isConstantOne(next)) {
-      break;
+    const Polynomial a = running.unwrap();
+    if (isConstantOne(a)) {
+      return std::nullopt; // gcd 已是 1：r 无平方因子，不是平方
     }
-    chain.push_back(next);
-    current = next;
-    if (chain.size() > 64) {
+    const Result<MultivariateDivision> first = multivariateDivide(rest, {a}, MonomialOrder::Lex);
+    if (first.isErr() || !first.unwrap().remainder.isZero()) {
       return std::nullopt;
     }
+    const Result<Polynomial> layer = polynomialGcd(a, first.unwrap().quotients.front());
+    if (layer.isErr() || isConstantOne(layer.unwrap())) {
+      return std::nullopt; // gcd(a,b) = 1 ⇒ 这一层没有偶次幂
+    }
+    const Result<Polynomial> squared = layer.unwrap() * layer.unwrap();
+    if (squared.isErr()) {
+      return std::nullopt;
+    }
+    const Result<MultivariateDivision> peeled = multivariateDivide(rest, {squared.unwrap()}, MonomialOrder::Lex);
+    if (peeled.isErr() || !peeled.unwrap().remainder.isZero()) {
+      return std::nullopt; // g² 除不尽
+    }
+    const Result<Polynomial> product = root * layer.unwrap();
+    if (product.isErr()) {
+      return std::nullopt;
+    }
+    root = product.unwrap();
+    rest = peeled.unwrap().quotients.front();
   }
-
-  // 链上任意一个元素的平方能除尽 f 且商是常数 ⇒ 它就是平方根
-  for (const Polynomial &candidate : chain) {
-    const Result<Polynomial> square = candidate * candidate;
-    if (square.isErr()) {
-      continue;
-    }
-    const Result<MultivariateDivision> division = multivariateDivide(value, {square.unwrap()}, MonomialOrder::Lex);
-    if (division.isErr()) {
-      continue;
-    }
-    const Polynomial quotient = division.unwrap().quotients.front();
-    if (division.unwrap().remainder.isZero() && quotient.variables().empty()) {
-      return candidate;
-    }
-  }
-  return std::nullopt;
+  return std::nullopt; // 64 轮还没剥完 ⇒ 判不出
 }
 
 } // namespace maths
