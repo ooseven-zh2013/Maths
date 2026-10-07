@@ -169,22 +169,16 @@ std::optional<std::string> radicalHint(std::string_view text) {
 }
 
 // ---------------- 式子 ----------------
-
-// 式子的五种表示：
-//   RationalFunction          系数是有理数，可以含变量 —— 走「代入条件再化简」那条路
-//   RealAlgebraicNumber       纯数值且含根号 —— 直接给精确值
-//   AlgebraicRationalFunction 系数含根号、且带变量（`\sqrt{2}*x`、`x+\sqrt{2}`）——
-//                             一直在 ℚ(α) 上算，效果等同「式子 + 条件」那条路
-//   RadicalExtension          根号包着变量（`\sqrt{x}`、`\sqrt{x^2+1}`、`\sqrt{x}+\sqrt{x+1}`）——
-//                             落在函数域上，代入有理数后给精确值
-//   PiecewiseFunction         被开方数是**完全平方**的根号（`\sqrt{x^2}` = |x|）——
-//                             那不是单个式子、分段才装得下，所以单独一档
-// 最后一档 `MultiTowerExtension` 是**多元**的（变量不止一个）。它只在「代入求值」上
-// 与前几档不同：条件要给**一个点**（x=3, y=4），而一元那边给 x = 值就够了。
-// 第六个变体是多元分段（`|x-y|`）：单变量的一元分段装不下多元绝对值，
-// 而多元有理函数 / 多元塔都装不下「按符号分区域」这件事。
-using Expression = std::variant<RationalFunction, RealAlgebraicNumber, AlgebraicRationalFunction, RadicalExtension,
-                                PiecewiseFunction, TowerExtension, MultiTowerExtension, MultiPiecewiseFunction>;
+//
+// 式子的表示由库里的 `maths::Expression` 负责选择 —— app 只管「解析 / 代入 / 打印」。
+//
+// 以前这段注释 + 八档 variant 别名住在 app 里（1098 行里有 **13 处类型分派**），
+// 判断错一次就是一类 bug：
+//   · `|x|` 被多元档抢走（少了「变量 > 1」的守卫）
+//   · `x=3,y=4` 在两条路上含义不同
+//   · `\quad` 印到终端
+// 现在那套规则收在 `maths.value`（`src/value.cppm`）里，app 只在**确实需要具体表示**
+// 时用 `asXxx()` 逃生舱。
 
 struct InputExpression {
   Expression value;
@@ -205,152 +199,37 @@ std::optional<InputExpression> readExpression() {
       continue;
     }
 
-    const Result<RationalFunction> rational = parseExpression(line);
-    if (rational.isOk()) {
-      printField("解析为", rational.unwrap().latex(), true);
+    // 「什么式子该走哪一档」由库决定 —— app 不再自己判断。
+    const Result<Expression> parsed = Expression::parse(line);
+    if (parsed.isOk()) {
+      // 「解析为」要与「分段结果」用**同一套判定**（同一类输入不能给两种形态）：
+      // 输入形如 |…| 或 √(g²) 时回显绝对值写法，其余给库给的规范形。
+      std::string shown = parsed.unwrap().latex();
+      if (parsed.unwrap().writtenAsAbsoluteValue()) {
+        if (const PiecewiseFunction *piece = parsed.unwrap().asPiecewise()) {
+          if (const std::optional<std::string> absolute = absoluteValueText(*piece, true)) {
+            shown = *absolute;
+          }
+        }
+      }
+      printField("解析为", shown, true);
+      if (!parsed.unwrap().variables().empty()) {
+        printField("变量", variableList(parsed.unwrap().variables()), true);
+      }
       if (const std::optional<std::string> hint = radicalHint(line)) {
         printFeedback("提示", *hint); // sqrt(2) 这类会被当成变量相乘，解析成功但不是本意
       }
-      return InputExpression{rational.unwrap(), trim(line)};
+      return InputExpression{parsed.unwrap(), trim(line), parsed.unwrap().writtenAsAbsoluteValue()};
     }
 
-    // RationalFunction 的系数域是 ℚ，装不下根号，换代数数再试。
-    // 纯数值的代数数优先于下面那条：它给「精确值」，那条走的是化简那套。
-    const Result<RealAlgebraicNumber> algebraic = RealAlgebraicNumber::parse(line);
-    if (algebraic.isOk()) {
-      // 渲染全交给库：RealAlgebraicNumber::latex() 会把单根式还原成 \sqrt 写法，
-      // 还原不成的（如 \sqrt{2}+\sqrt{3}）退回 RootOf
-      printField("解析为", algebraic.unwrap().latex(), true);
-      return InputExpression{algebraic.unwrap(), trim(line)};
-    }
-
-    // 第三档：系数取实代数数的代数式 —— `\sqrt{2}*x`、`x+\sqrt{2}` 这种
-    // 「根号包着常数、式子又带变量」的写法走这里。以前只能绕道「式子 + 条件」。
-    const Result<AlgebraicRationalFunction> algebraicExpression = parseAlgebraicExpression(line);
-    if (algebraicExpression.isOk()) {
-      printField("解析为", algebraicExpression.unwrap().latex(), true);
-      return InputExpression{algebraicExpression.unwrap(), trim(line)};
-    }
-
-    // 第四档：根号包着**变量**的式子 —— `\sqrt{x}`、`\sqrt{x^2+1}`、`\sqrt{x}+\sqrt{x+1}`。
-    // 它落在函数域上（域按式子里出现的根号自动扩张），代入有理数后仍是精确值。
-    const Result<RadicalExtension> radicalExpression = parseRadicalExpression(line);
-    if (radicalExpression.isOk()) {
-      printField("解析为", radicalExpression.unwrap().latex(), true);
-      return InputExpression{radicalExpression.unwrap(), trim(line)};
-    }
-
-    // 第五档：被开方数是**完全平方**的根号（`\sqrt{x^2}`）与直接写的绝对值（`|x|`）——
-    // 两者是同一个东西，`|g|` 先被改写成 `\sqrt{{g}^2}` 再走同一条路。
-    //
-    // 它装不进上面任何一档：代数函数域里 `√(g²)` 不是单值元素（`ℚ(x)[y]/(y²−g²)` 可约、
-    // y 是零因子），但作为 **ℝ → ℝ 的函数**完全合法，只需要分段才表示得出来。
-    // 分段不是「化简得不好」，而是这类函数的本来面目 —— 所以单独走一条路、单独报结果。
-    // 多元的套嵌根号（`\sqrt{x^2+y^2}`、`\sqrt{1+\sqrt{x^2+y^2}}`）（`\sqrt{x^2+y^2}`、`\sqrt{1+\sqrt{x^2+y^2}}`）。
-    // 变量不止一个才走这一档 —— 单变量的输入在前面几档就成功了。
-    const Result<MultiTowerExtension> multi = parseMultiTowerExpression(line);
-    if (multi.isOk() && multi.unwrap().variables().size() > std::size_t(1)) {
-      printField("解析为", multi.unwrap().latex(), true);
-      printField("变量", variableList(multi.unwrap().variables()), true);
-      return InputExpression{multi.unwrap(), trim(line)};
-    }
-
-    // 多元的**绝对值**（`|x-y|`、`|x*y-1|`）：拆成 {f≥0} 与 {f<0} 两支，各带一个区域。
-    //
-    // 位置要紧：必须在多元塔**之后**（`|x-y|` 里没有根号，塔那一档本来就拒），
-    // 也必须在下面那个一元分段**之前** —— 一元分段见多元会报 `NotUnivariate`，
-    // 那个诊断只对「一元函数」的输入才有意义。
-    //
-    // ⚠️ `variables().size() > 1` 这个守卫**不能省** —— 少了它 `|x|` 会被这一档抢走：
-    // `parseMultiPiecewiseExpression("|x|")` 是**成功**的（它构造得出两支，只是只有 1 个变量），
-    // 于是单变量绝对值被要求给「一次给全的点」，提示变成「还差 x」/「要一次给全」，
-    // 而它本来该走一元分段那档、接受 `x = 5`。判据与上面多元塔那档一致。
-    const Result<MultiPiecewiseFunction> multiAbsolute = parseMultiPiecewiseExpression(line);
-    if (multiAbsolute.isOk() && multiAbsolute.unwrap().variables().size() > std::size_t(1)) {
-      printField("解析为", trim(line), true);
-      printField("变量", variableList(multiAbsolute.unwrap().variables()), true);
-      return InputExpression{multiAbsolute.unwrap(), trim(line), true};
-    }
-
-    const Result<PiecewiseParseResult> piecewise = parsePiecewiseExpressionDetailed(line);
-    if (piecewise.isOk()) {
-      const std::optional<std::string> shown = absoluteValueText(piecewise.unwrap().value, true);
-      printField("解析为", shown.has_value() ? *shown : piecewise.unwrap().value.latex(), true);
-      return InputExpression{piecewise.unwrap().value, trim(line), piecewise.unwrap().writtenAsAbsoluteValue};
-    }
-
-    // 第六档：**套嵌**根号（`\sqrt{1+\sqrt{x}}`）。代数函数域装不下，需要塔。
-    // 放在分段那一档之后：没有套嵌的输入在前面几档就成功了。
-    const Result<TowerExtension> tower = parseTowerExpression(line);
-    if (tower.isOk()) {
-      printField("解析为", tower.unwrap().latex(), true);
-      const Result<RealSet> domain = domainOf(tower.unwrap());
-      if (domain.isOk() && !domain.unwrap().isRealLine()) {
-        printField("定义域", domain.unwrap().latex(), true);
-      }
-      return InputExpression{tower.unwrap(), trim(line)};
-    }
-
-    // 都失败了，报谁的错误？看谁更具体：
-    //   含变量的输入 —— 有理解析器的诊断更准（它认得变量、能说清语法错在哪）
-    //   纯数值输入   —— 只有代数数解析器给得出 ZeroDenominator / DivisionByZero /
-    //                   NumericOverflow 这类具体原因（2^{1/0}、0^{-1}、(-4)^{1/2}）
-    // InvalidExpression 是各条路共有的兜底错误码，它不算「更具体」。
-    //
-    // 根式这一档还要特殊一点：`RadicandIsSquare` / `RadicandsNotIndependent` 都是在
-    // **整条输入按根号语法解析成功之后**、最后一步合法性校验才抛出来的 ——
-    // 也就是说语法没问题，卡住的是「√(x²) 是 |x|」这种数学上的限制。
-    // 那种诊断比「不支持的表达式」有用得多，必须报出来。
-    // （这里原来把 `RadicandIsSquare` 排除在外，于是 `\sqrt{x^2}` 只显示
-    //   「不支持的表达式」，用户看不到真正的原因。）
-    const MathsError algebraicError = algebraic.unwrapErr();
-    const MathsError radicalError = radicalExpression.unwrapErr();
-    const MathsError piecewiseError = piecewise.unwrapErr();
-    MathsError reported = rational.unwrapErr();
-    if (algebraicError != MathsError::InvalidExpression) {
-      reported = algebraicError;
-    }
-    if (radicalError != MathsError::InvalidExpression) {
-      reported = radicalError;
-    }
-    // 第五档（分段）排在最后压轴：它认得「绝对值内部是 √(g²)���所以 `|x-2√x|` 是套嵌、
-    // `|a+b|` 是多元」这些**只有它看得出**的原因。只看第四档的话这两种都只剩
-    // 「不支持的表达式」。
-    if (piecewiseError != MathsError::InvalidExpression) {
-      reported = piecewiseError;
-    }
-    // 塔那一档对「套嵌」的诊断最准，放最后压轴
-    if (tower.unwrapErr() != MathsError::InvalidExpression) {
-      reported = tower.unwrapErr();
-    }
-    // ⚠️ 「这一档表示不了」的错误码同样要透出，不能让它们退回「不支持的表达式」。
-    //
-    // `NotUnivariate` 就是这样漏掉的：`|x-y|` 在四档里都因为「含多个自变量」被拒，
-    // 而四档**本来就不该收多元** —— 于是这个「装不下」的信息被兜底错误码吃掉了，
-    // 用户只看到「不支持的表达式」，完全不知道是哪个表示装不下。
-    //
-    // 这里能加是安全的：这段代码只在**所有档都失败**之后才跑，
-    // 所以「五档说多元」不会盖掉「三档收下了」——那种情况根本不会走到这里。
-    if (reported == MathsError::InvalidExpression) {
-      if (piecewiseError == MathsError::NotUnivariate) {
-        reported = piecewiseError;
-      } else if (algebraicError == MathsError::DomainNotDecidable) {
-        reported = algebraicError;
-      }
-    }
-    // 只报**原因**，不报「该怎么办」—— 原因本身已经够具体（每个限制都有专属错误码），
-    // 补救办法写在 docs/apps/simplify.md 里，不必每次敲一遍。
-    // 「根号里不能再套根号」是**内部形式**的说法 —— 用户写的是 `|\sqrt{x}|`，只写了一个根号。
-    // 内部要把 `|g|` 变成 `\sqrt{g^2}`，g 自带根号才套上；拿内部形态去报错，
-    // 等于让用户怀疑自己写错了。所以这里翻译成他看得懂的那句话。
-    // （真写成 `\sqrt{\sqrt{x}}` 的，报原错误码就是对的，不用翻。）
-    std::string_view reason = describe(reported);
-    if (reported == MathsError::NestedRadical && line.find('|') != std::string::npos) {
+    // 失败：报库给出的**最具体**原因，并把「用户可能写错了」的那一条提示分开讲。
+    // 「根号里不能再套根号」是**内部形式**的说法 —— 用户写的是 `|\sqrt{x}|`，
+    // 拿内部形态去报错等于让他怀疑自己写错了，所以翻译成他看得懂的那句话。
+    std::string_view reason = describe(parsed.unwrapErr());
+    if (parsed.unwrapErr() == MathsError::NestedRadical && line.find('|') != std::string::npos) {
       reason = "绝对值里面不能再带根号";
     }
     printFeedback("不接受", reason);
-    // 唯一保留的提示：输入**解析成功了**但很可能不是本意（`sqrt(2)` 被当成 s·q·r·t·(2)）——
-    // 那不是限制的说明，是「你可能写错了」的提醒。
     if (const std::optional<std::string> hint = radicalHint(line)) {
       printFeedback("提示", *hint);
     }
@@ -882,28 +761,27 @@ int main() {
     return 0;
   }
 
-  if (const RealAlgebraicNumber *algebraic = std::get_if<RealAlgebraicNumber>(&input->value)) {
+  if (const RealAlgebraicNumber *algebraic = input->value.asAlgebraicNumber()) {
     // 含根号的纯数值式子不是有理函数，没有「代入条件」可言，直接给精确值
     printFeedback("提示", "根号按精确代数数计算，不需要代入条件");
     std::cout << "\n--- 结果 ---\n";
     printField("式子", input->text);
     printField("精确值", exactValueLatex(*algebraic));
-  } else if (const AlgebraicRationalFunction *algebraicExpression =
-                 std::get_if<AlgebraicRationalFunction>(&input->value)) {
+  } else if (const AlgebraicRationalFunction *algebraicExpression = input->value.asAlgebraicRational()) {
     // 系数里含根号的式子（\sqrt{2}*x、x+\sqrt{2}）：条件照读，一直在 ℚ(α) 上算
     printFeedback("提示", "式子里含根号系数，按代数数精确计算");
     Scope scope;
     std::vector<Constraint> constraints;
     printExpressionAndCollectConstraints(*algebraicExpression, scope, constraints);
     printAlgebraicResult(*algebraicExpression, constraints);
-  } else if (const RadicalExtension *radical = std::get_if<RadicalExtension>(&input->value)) {
+  } else if (const RadicalExtension *radical = input->value.asRadical()) {
     // 根号包着变量的式子（\sqrt{x}、\sqrt{x^2+1}）：条件照读，但取值要有理数
     printFeedback("提示", "式子里含带变量的根号，按函数域精确计算；条件请给有理数取值");
     Scope scope;
     std::vector<Constraint> constraints;
     printExpressionAndCollectConstraints(*radical, scope, constraints);
     printRadicalResult(*radical, constraints);
-  } else if (const PiecewiseFunction *piecewise = std::get_if<PiecewiseFunction>(&input->value)) {
+  } else if (const PiecewiseFunction *piecewise = input->value.asPiecewise()) {
     // √(x²) 与 |x| 是同一个东西：内部按符号分段算，输出还原成 |x|。
     // 条件照读 —— 分段函数一样能代入求值，只是取的是「命中哪一支」。
     Scope scope;
@@ -952,7 +830,7 @@ int main() {
         printField("精确值", exactValueLatex(value.unwrap()));
       }
     }
-  } else if (const MultiTowerExtension *multi = std::get_if<MultiTowerExtension>(&input->value)) {
+  } else if (const MultiTowerExtension *multi = input->value.asMultiTower()) {
     // 多元：条件要给一个**点**（x=3, y=4），不是一条一元约束
     const std::set<Variable> variables = multi->variables();
     const std::optional<Scope> point = readPoint(variables);
@@ -971,7 +849,7 @@ int main() {
       return 0;
     }
     printField("精确值", exactValueLatex(value.unwrap()));
-  } else if (const MultiPiecewiseFunction *multiAbsolute = std::get_if<MultiPiecewiseFunction>(&input->value)) {
+  } else if (const MultiPiecewiseFunction *multiAbsolute = input->value.asMultiPiecewise()) {
     // 多元绝对值：和多元塔一样，条件要给一个**点**（x=3, y=4）。
     // 点落在哪一支就取那一支 —— 分支的定义域就是符号本身，所以不需要「判符号」。
     const std::set<Variable> variables = multiAbsolute->variables();
@@ -1030,7 +908,7 @@ int main() {
       return 0;
     }
     printField("精确值", exactValueLatex(value.unwrap()));
-  } else if (const TowerExtension *tower = std::get_if<TowerExtension>(&input->value)) {
+  } else if (const TowerExtension *tower = input->value.asTower()) {
     // 套嵌根号（`\sqrt{1+\sqrt{x}}`）：代数函数域装不下，走塔。定义域在解析时给过了。
     Scope scope;
     std::vector<Constraint> constraints;
@@ -1067,7 +945,7 @@ int main() {
     }
     printField("精确值", exactValueLatex(value.unwrap()));
   } else {
-    const RationalFunction &expression = std::get<RationalFunction>(input->value);
+    const RationalFunction &expression = *input->value.asRational();
     Scope scope;
     std::vector<Constraint> constraints;
 

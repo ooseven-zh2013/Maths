@@ -92,6 +92,25 @@ public:
   // 在给定点求值 → 精确值。
   Result<RealAlgebraicNumber> evaluate(const Scope &point) const;
 
+  // ==================== 逃生舱 ====================
+  //
+  // **多数调用方不需要下面这些。** 它们存在的唯一理由是「代码已经知道自己在处理
+  // 哪种表示」（例如渲染要读 PiecewiseFunction 的分支、或要给塔算定义域）。
+  //
+  // 判据：**如果你先问「它是哪种表示」再决定怎么做，那段代码就是分派** ——
+  // 能换成 `variables/evaluate/latex` 就换掉。返回 nullptr 表示「不是这种表示」。
+
+  const RationalFunction *asRational() const { return rational_ ? &*rational_ : nullptr; }
+  const RealAlgebraicNumber *asAlgebraicNumber() const { return algebraicNumber_ ? &*algebraicNumber_ : nullptr; }
+  const AlgebraicRationalFunction *asAlgebraicRational() const {
+    return algebraicRational_ ? &*algebraicRational_ : nullptr;
+  }
+  const RadicalExtension *asRadical() const { return radical_ ? &*radical_ : nullptr; }
+  const PiecewiseFunction *asPiecewise() const { return piecewise_ ? &*piecewise_ : nullptr; }
+  const TowerExtension *asTower() const { return tower_ ? &*tower_ : nullptr; }
+  const MultiTowerExtension *asMultiTower() const { return multiTower_ ? &*multiTower_ : nullptr; }
+  const MultiPiecewiseFunction *asMultiPiecewise() const { return multiPiecewise_ ? &*multiPiecewise_ : nullptr; }
+
 private:
   Representation representation_{Representation::Rational};
   std::set<Variable> variables_;
