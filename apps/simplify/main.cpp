@@ -984,13 +984,37 @@ int main() {
     // ⚠️ **化简结果无条件也要给** —— 它就是那两支（`{f≥0}` 与 `{f<0}`），
     // 多元绝对值的「化简」到此为止，后面代入只是**求值**。一元分段那边就是这个顺序
     // （先印分段结果，条件非空才代入），多元这边以前反过来了。
-    printField("分段结果", multiAbsolute->latex());
+    // 整空间（完全平方短路出来的那一支）渲染成 `(x,y) \in \mathbb{R}^{2}` ——
+    // 区域本身没有约束原子、不知道维数，`Region::latex()` 只能给一个占位的
+    // `\mathbb{R}^{n}`，所以维数由 app 用**实际变量数**补上。
+    const auto conditionOf = [&variables](const Region &domain) {
+      if (!domain.isWholeSpace()) {
+        return domain.latex();
+      }
+      std::string names = "(";
+      bool first = true;
+      for (const Variable &variable : variables) {
+        if (!first) {
+          names += ",";
+        }
+        names += variable.str();
+        first = false;
+      }
+      names += ") \\in \\mathbb{R}^{" + std::to_string(variables.size()) + "}";
+      return names;
+    };
+
+    std::string summary;
+    for (const MultiPiecewiseFunction::Branch &branch : multiAbsolute->branches()) {
+      if (!summary.empty()) {
+        summary += "; ";
+      }
+      summary += branch.rule.latex() + "   当 " + conditionOf(branch.domain);
+    }
+    printField("分段结果", summary);
     printSection("各支");
     for (const MultiPiecewiseFunction::Branch &branch : multiAbsolute->branches()) {
-      // 整空间（完全平方短路出来的那一支）不要印 `\mathbb{R}^{n}` ——
-      // 区域本身没有约束原子、不知道维数，那个 n 是占位的。直接说「恒成立」。
-      const std::string condition = branch.domain.isWholeSpace() ? "恒成立" : branch.domain.latex();
-      printListItem(branch.rule.latex() + "   当 " + condition);
+      printListItem(branch.rule.latex() + "   当 " + conditionOf(branch.domain));
     }
 
     if (!point.has_value()) {

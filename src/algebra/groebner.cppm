@@ -507,39 +507,64 @@ inline std::optional<Polynomial> squareRootIfSquare(const Polynomial &value) {
   if (value.isZero()) {
     return Polynomial(); // 0 = 0²
   }
-  const std::set<Variable> variables = value.variables();
-  if (variables.empty()) {
+  if (value.variables().empty()) {
     return std::nullopt; // 非零常数：是不是有理数的平方要开方，不在这里判
   }
-  // w := gcd(f, ∂f/∂x, …)
-  Result<Polynomial> running = Result<Polynomial>(value);
-  for (const Variable &variable : variables) {
-    const Result<Polynomial> derivative = partialDerivative(value, variable);
-    if (derivative.isErr()) {
-      continue; // 这个变量的偏导是 0（例如 f 只含 x 的幂而…不至于），跳过
+
+  // gcd 链：w₀ = f，w_{k+1} = gcd(w_k, w_k 的**全部**偏导)
+  //
+  // ⚠️ 「全部偏导一起」是关键。只对单个变量取 gcd 时 `x²y²` 会走成
+  // x²y² → xy² → y² → y → 1（平方根 xy 根本不在链上）；
+  // 一起取就一步到位：gcd(x²y², 2xy², 2x²y) = xy ✓
+  //
+  // ⚠️ 一次 gcd 只剥掉一层（gcd(h^k, ∂) = h^(k−1)），所以**不能只取第一步**：
+  // f = (x−y)² 时 w = x−y 恰好 w² = f，而 f = x⁴ 时 w = x³、w² = x⁶ 除不尽。
+  // 正确做法是**把链上每个元素都试一遍**。
+  std::vector<Polynomial> chain;
+  Polynomial current = value;
+  for (std::size_t step = 0; step < 64; ++step) {
+    Result<Polynomial> running = Result<Polynomial>(current);
+    for (const Variable &variable : current.variables()) {
+      const Result<Polynomial> derivative = partialDerivative(current, variable);
+      if (derivative.isErr()) {
+        continue; // 该偏导为 0（例如只含其它变量的幂），跳过
+      }
+      const Result<Polynomial> next = polynomialGcd(running.unwrap(), derivative.unwrap());
+      if (next.isErr()) {
+        return std::nullopt; // gcd 算不出来（基爆炸等）就只说「判不出」
+      }
+      running = next;
+      if (isConstantOne(running.unwrap())) {
+        break; // gcd 已是 1，再剥也没意义
+      }
     }
-    const Result<Polynomial> next = polynomialGcd(running.unwrap(), derivative.unwrap());
-    if (next.isErr()) {
-      return std::nullopt; // gcd 算不出来（基爆炸等）就只说「判不出」
+    const Polynomial next = running.unwrap();
+    if (isConstantOne(next)) {
+      break;
     }
-    running = next;
-    if (isConstantOne(running.unwrap())) {
-      return std::nullopt; // gcd 已经是 1 ⇒ f 不可能是平方
+    chain.push_back(next);
+    current = next;
+    if (chain.size() > 64) {
+      return std::nullopt;
     }
   }
-  const Result<Polynomial> square = running.unwrap() * running.unwrap();
-  if (square.isErr()) {
-    return std::nullopt;
+
+  // 链上任意一个元素的平方能除尽 f 且商是常数 ⇒ 它就是平方根
+  for (const Polynomial &candidate : chain) {
+    const Result<Polynomial> square = candidate * candidate;
+    if (square.isErr()) {
+      continue;
+    }
+    const Result<MultivariateDivision> division = multivariateDivide(value, {square.unwrap()}, MonomialOrder::Lex);
+    if (division.isErr()) {
+      continue;
+    }
+    const Polynomial quotient = division.unwrap().quotients.front();
+    if (division.unwrap().remainder.isZero() && quotient.variables().empty()) {
+      return candidate;
+    }
   }
-  const Result<MultivariateDivision> division = multivariateDivide(value, {square.unwrap()}, MonomialOrder::Lex);
-  if (division.isErr()) {
-    return std::nullopt;
-  }
-  const Polynomial quotient = division.unwrap().quotients.front();
-  if (!division.unwrap().remainder.isZero() || !quotient.variables().empty()) {
-    return std::nullopt; // 除不尽，或者商不是常数 ⇒ 不是平方
-  }
-  return running.unwrap();
+  return std::nullopt;
 }
 
 } // namespace maths

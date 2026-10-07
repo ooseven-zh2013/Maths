@@ -177,6 +177,12 @@ int main() {
     CHECK_TRUE(squareRootIfSquare(polynomial("2*x^2")).has_value());
     CHECK_TRUE(squareRootIfSquare(polynomial("(x+y)^2")).value().latex() == "x + y");
     CHECK_TRUE(squareRootIfSquare(polynomial("x^2+y^2-2xy")).value().latex() == "x - y");
+    // 重数 > 2 的情形：一次 gcd 只剥一层，所以要沿 gcd 链往下走
+    CHECK_TRUE(squareRootIfSquare(polynomial("x^4")).value().latex() == "x^2");
+    CHECK_TRUE(squareRootIfSquare(polynomial("x^2y^2")).value().latex() == "xy");
+    CHECK_TRUE(squareRootIfSquare(polynomial("(x-y)^4")).value().latex() == "(x - y)^2");
+    CHECK_TRUE(!squareRootIfSquare(polynomial("x^3")).has_value());
+    CHECK_TRUE(!squareRootIfSquare(polynomial("x^2y")).has_value());
     CHECK_TRUE(!squareRootIfSquare(polynomial("x^2+y^2")).has_value());
     CHECK_TRUE(!squareRootIfSquare(polynomial("x*y")).has_value());
     CHECK_TRUE(!squareRootIfSquare(polynomial("x^2+2xy")).has_value());
