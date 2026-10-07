@@ -187,7 +187,9 @@ template <class... Values> MathsError mostSpecific(const Values &...attempts) {
 } // namespace expression_detail
 
 inline Result<Expression> Expression::parse(std::string_view text) {
-  auto make = [](auto value, Expression::Representation representation, std::set<Variable> names,
+  // ⚠️ `value` 收 const 引用：按值收会**每个参数都复制一份**却只当 const 引用用
+  // （clang-tidy 的 performance-unnecessary-value-param 会报，CI 按 error 处理）
+  auto make = [](const auto &value, Expression::Representation representation, std::set<Variable> names,
                  bool asAbsoluteValue) {
     Expression expression;
     expression.representation_ = representation;
