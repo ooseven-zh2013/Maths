@@ -42,6 +42,7 @@ if (result.isErr()) { /* result.unwrapErr() */ }     // Result 路径
 | `NestedRadical` | 根号里不能再套根号（根式套根式本库不做）| `|g|` 的内部形式是 `\sqrt{g^2}`，g 自带根号时套嵌；`\sqrt{1+\sqrt{x}}` |
 | `MultiVariableRadical` | 根号里含多个变量（本库的根号只支持单变量）| `\sqrt{ab}`；`\sqrt{x}\sqrt{y}` |
 | `EmptyCollection` | 样本为空或观测数不够，没有该统计量 | `maximumOf` / `meanOf` / `varianceOf` 收到空序列或空集；`sampleVarianceOf` 少于 2 个观测 |
+| `DomainNotDecidable` | 这层被开方数的符号判不了（定义域只支持每层对前一个生成元线性的情形） | 层的条件里一次出现多个生成元 |
 | `NotFiniteSet` | 不是有限点集（含区间块）—— 连续集合上的求和是积分，不是求和 | `sumOf(RealSet)` / `meanOf(RealSet)` 等收到含区间块的集合 |
 
 ## 两条传递路径

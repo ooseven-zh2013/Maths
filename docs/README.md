@@ -36,12 +36,20 @@
 | [function.md](src/algebra/function.md) | `src/algebra/function.cppm` | 一元实函数 `RealFunction`（规则 + `RealSet` 定义域）：求值、四则、复合、集合拉回、像集 |
 | [piecewise.md](src/algebra/piecewise.md) | `src/algebra/piecewise.cppm` | 分段函数 `PiecewiseFunction`：绝对值 `|x|`、逐点取大取小、分支归一化与四则 |
 | [aggregate.md](src/algebra/aggregate.md) | `src/algebra/aggregate.cppm` | 集合 → 数：求和 / 求积 / 最值 / 平均 / 方差 / 标准差、上确界与下确界 |
+| [tower.md](src/algebra/tower.md) | `src/algebra/tower.cppm` | 套嵌根号（单变量）：塔的构造、逐层条件、代入求值 |
+| [piecewise_multi.md](src/algebra/piecewise_multi.md) | `src/algebra/piecewise_multi.cppm` | 多元分段：区域 + 规则、多元绝对值 |
 
 ### parser — 文本 → 式子
 
 | 文档 | 对应模块文件 | 内容 |
 | --- | --- | --- |
 | [expression_parser.md](src/parser/expression_parser.md) | `src/parser/parser.cppm` | 表达式与代入条件的解析、相关性判定 |
+
+### 顶层 — `Expression`
+
+| 文档 | 对应模块文件 | 内容 |
+| --- | --- | --- |
+| [value.md](src/value.md) | `src/value.cppm`（模块 `maths.value`） | `Expression`：调用方看到的那一个值类型 —— 一个 `parse` 入口 + 变量/化简/代入/求值/渲染 |
 
 ### 横切
 

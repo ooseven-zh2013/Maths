@@ -1,6 +1,6 @@
 # maths.algebra:piecewise_multi — 多元分段函数与多元绝对值
 
-对应 `src/algebra/piecewise_multi.cppm`。一元的���对在 `maths.algebra:piecewise`。
+对应 `src/algebra/piecewise_multi.cppm`。一元的绝对值在 `maths.algebra:piecewise`。
 
 ## 分支是「规则 + 区域」，不是「规则 + 一维区间」
 
@@ -73,7 +73,7 @@ app 里逐个试过：
 
 | 输入 | 结果 |
 | --- | --- |
-| `\|x-y\|` | ✅ `rac{1}{\sqrt{x^2+y^2}}` 那类正常处理 |
+| `\|x-y\|` | ✅ 拆成两支：`x - y` 当 `x - y ≥ 0`；`-x + y` 当 `x - y < 0`（分子是完全平方时短路成一支）|
 | `\|\|x-y\|\|`（嵌套） | ❌ `不支持的表达式`（`InvalidExpression`） |
 | `\|√(x²+y²)-1\|`（内层带根号） | ❌ `不支持的表达式` |
 | `\|\|x\|-y\|` | ❌ `不支持的表达式` |

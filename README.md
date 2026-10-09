@@ -76,11 +76,12 @@ const Fraction value = (a / Fraction(1, 2)).unwrap();  // 失败则抛 MathsExce
 **`import maths;` 一次导入全部模块** —— 下表所有名字都从它导出，直接 `import maths;`
 就能用，不必逐个写。伞模块是**两级**的：
 
-    maths                      （8 个 export import）
+    maths                      （9 个 export import）
      ├─ maths.numbers / maths.real_set / maths.algebraic_number
      ├─ maths.error / maths.result / maths.random
      ├─ maths.algebra          （再转发 19 个分区模块）
-     └─ maths.parser
+     ├─ maths.parser
+     └─ maths.value            （`Expression`：一个入口做解析/代入/求值，不必自己判表示）
 
 只要一个模块时按需单写（见上面「构建与运行」的例子）—— 编译更快、依赖更清楚。
 

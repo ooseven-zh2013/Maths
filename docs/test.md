@@ -58,4 +58,4 @@ using namespace maths;   // 类型都收进了 namespace maths
 ## 测试里不要用裸 unwrap()
 
 `parseExpression(...).unwrap()` 一旦失败就**抛异常中断整个测试**，只留一句 `terminate`，极难定位。
-用辅助宏（如 parser 测试里的 `LATEX_OF`、`PARSE`）把失败转成断言失败并报出行号。
+用辅助宏（如 parser 测试里的 `LATEX_OF`、`algebra` 测试里的 `PARSE`）把失败转成断言失败并报出行号。
