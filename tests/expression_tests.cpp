@@ -4,7 +4,7 @@
 // 那段「什么式子该走哪一档」的规则以前是 app 的 if 链，判断错一次就是一类 bug
 // （单变量 |x| 被多元档抢走、同一句话在两条路上含义不同）。
 
-#include "../check.hpp"
+#include "check.hpp"
 
 #include <initializer_list>
 #include <set>
