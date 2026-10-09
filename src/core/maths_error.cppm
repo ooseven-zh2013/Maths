@@ -5,7 +5,7 @@ import std;
 export namespace maths {
 
 // 全库统一的错误分类。
-// 异常路径（MathsException）与返回值路径（Result / Expr）共用这一套错误码，
+// 异常路径（MathsException）与返回值路径（Result）共用这一套错误码，
 // 因此调用方的错误处理逻辑只需写一次。
 
 enum class MathsError {

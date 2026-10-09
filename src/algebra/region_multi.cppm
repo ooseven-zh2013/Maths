@@ -3,7 +3,6 @@ export module maths.algebra:region_multi;
 import std;
 import maths.error;
 import maths.result;
-import maths.numbers;
 import :expression;
 import :scope;
 import :constraint_system;

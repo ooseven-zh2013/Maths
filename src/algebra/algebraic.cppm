@@ -1,7 +1,6 @@
 export module maths.algebra:algebraic;
 
 import std;
-import maths.error;
 import maths.result;
 import maths.numbers;
 import maths.algebraic_number;

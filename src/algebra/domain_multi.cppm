@@ -4,7 +4,6 @@ import std;
 import maths.error;
 import maths.result;
 import maths.numbers;
-import maths.algebraic_number;
 import :expression;
 import :scope;
 import maths.real_set;

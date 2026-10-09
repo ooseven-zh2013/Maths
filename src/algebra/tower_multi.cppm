@@ -8,7 +8,6 @@ import maths.algebraic_number;
 import :expression;
 import :scope;
 import :rational_multi;
-import :domain_multi;
 
 // ==================== 多元塔 ====================
 //

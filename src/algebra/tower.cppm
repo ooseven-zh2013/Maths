@@ -9,7 +9,6 @@ import maths.real_set;
 import :expression;
 import :rational;
 import :scope;
-import :algebraic;
 import :constraint;
 import :radical;
 
@@ -763,61 +762,6 @@ inline Result<TowerExtension> evaluateOverPlaceholders(const RationalFunction &v
   }
   if (denominator.unwrap().isZero()) {
     return Result<TowerExtension>::err(MathsError::ZeroDenominator);
-  }
-  return numerator.unwrap().dividedBy(denominator.unwrap());
-}
-
-inline Result<TowerExtension> substituteVariable(const RationalFunction &value, const Variable &name,
-                                                 const TowerExtension &replacement) {
-  const auto overTower = [&name, &replacement](const Polynomial &polynomial) -> Result<TowerExtension> {
-    std::optional<TowerExtension> total;
-    for (const auto &[factors, coefficient] : polynomial.getTerms()) {
-      unsigned exponent = 0;
-      VarPowers rest;
-      for (const auto &[variable, power] : factors) {
-        if (variable == name) {
-          exponent = power;
-        } else {
-          rest.push_back({variable, power});
-        }
-      }
-      Result<TowerExtension> term = replacement.lifting(RationalFunction(Monomial(coefficient, rest)));
-      for (unsigned step = 0; step < exponent; ++step) {
-        if (term.isErr()) {
-          return term;
-        }
-        Result<TowerExtension> product = term.unwrap() * replacement;
-        if (product.isErr()) {
-          return product;
-        }
-        term = product;
-      }
-      if (term.isErr()) {
-        return term;
-      }
-      if (!total.has_value()) {
-        total = term.unwrap();
-        continue;
-      }
-      Result<TowerExtension> sum = total.value() + term.unwrap();
-      if (sum.isErr()) {
-        return sum;
-      }
-      total = sum.unwrap();
-    }
-    if (!total.has_value()) {
-      return replacement.lifting(RationalFunction(Fraction(0, 1)));
-    }
-    return Result<TowerExtension>(total.value());
-  };
-
-  Result<TowerExtension> numerator = overTower(value.getNumerator());
-  if (numerator.isErr()) {
-    return numerator;
-  }
-  Result<TowerExtension> denominator = overTower(value.getDenominator());
-  if (denominator.isErr()) {
-    return denominator;
   }
   return numerator.unwrap().dividedBy(denominator.unwrap());
 }

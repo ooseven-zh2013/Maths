@@ -168,12 +168,6 @@ using VarPowers = std::vector<std::pair<Variable, unsigned long long>>;
 
 namespace detail {
 
-inline std::string renderFraction(const Fraction &value) {
-  std::ostringstream os;
-  os << value;
-  return os.str();
-}
-
 // 分数的 LaTeX 形式：整数直接输出，真分数写成 \frac{分子}{分母}，负号提到最前
 inline std::string renderFractionLatex(const Fraction &value) {
   if (value.getDenominator() == 1) {

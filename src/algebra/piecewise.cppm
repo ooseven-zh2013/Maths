@@ -9,7 +9,6 @@ import maths.real_set;
 import :expression;
 import :rational;
 import :scope;
-import :algebraic;
 import :constraint;
 import :radical;
 import :function;

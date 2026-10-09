@@ -5,7 +5,6 @@ import maths.error;
 import maths.result;
 import maths.numbers;
 import maths.algebra;
-import maths.real_set;
 import maths.algebraic_number;
 import maths.parser;
 
