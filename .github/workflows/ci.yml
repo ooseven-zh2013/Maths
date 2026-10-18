@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
 
+# mcppls 的 job 要往 GitHub 代码扫描传 SARIF，需要这个权限。
+# 只给这一个 job（写在 job 里而不是顶层），别的 job 仍然是默认的最小权限。
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     name: build-and-test (${{ matrix.os }})
@@ -127,6 +132,100 @@ jobs:
   #    有的是 `x86_64-pc-windows-msvc` —— 所以这个 job 跑在 **windows-latest** 上。
   #
   # 失败时长这样：满屏 `built from a different branch` ⇒ 来源/版本又不对了，**别去改代码**。
+  # mcppls —— C++ 模块语言服务器。**clang-tidy 的补充，不是替代**（tidy 明确保留）。
+  #
+  # 为什么两个都要：职责不重叠。
+  #   clang-tidy  → 代码质量规则（performance-*、readability-* …），它对模块一无所知
+  #   mcppls      → **模块级**语义：模块图、跨 import 的引用与调用、一个改动的影响面
+  # 后者 clang-tidy 看不见（它不建模块图）；前者 mcppls 也不做（它不带 tidy 那套规则）。
+  #
+  # ⚠️ **它用哪个 clang**：跑 `mcpp emit build-database` 问 mcpp，所以用的是
+  #    mcpp.toml 里声明的 `llvm@20.1.7` —— 与本机编辑器一致，这正是接它进 CI 的目的。
+  #    payload 里自带的那份 clangd 23.1.0 只是「机器上没有任何编译器」时的兜底，
+  #    有 mcpp 工具链就轮不到它。
+  #
+  # ⚠️ **先 continue-on-error**：v0.0.16 是 pre-1.0 的单人项目，误报率未知。
+  #    让它先把发现报到代码扫描里（Security 页可见），等我们摸清了再去掉这个开关。
+  #    去掉的那天也就是「mcppls 也当门」的那天，届时记得同步更新本注释。
+  mcppls:
+    name: mcppls (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    timeout-minutes: 30
+    permissions:
+      security-events: write     # 只为传 SARIF；contents 已读
+    strategy:
+      fail-fast: false
+      matrix:
+        # 三平台都跑：mcppls 的卖点就是「跨编译器一致的模块语义」，
+        # 只在 Windows 上验等于没验它跨平台那部分。
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # review 要跟 base 比，浅克隆会拿不到 base 那个 commit
+          fetch-depth: 2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install mcpp
+        run: pip install --upgrade mcpp-bin
+
+      # 按平台取 payload。⚠️ macOS runner（macos-latest = macos-14）是 arm64，
+      # 不是 x64 —— 取错包的症状是「binary not found」而不是报错信息不好懂。
+      - name: Fetch mcppls payload
+        shell: bash
+        run: |
+          set -e
+          case "${{ matrix.os }}" in
+            windows-latest) asset=payload-win32-x64.tar.gz ;;
+            ubuntu-latest)  asset=payload-linux-x64.tar.gz ;;
+            macos-latest)   asset=payload-darwin-arm64.tar.gz ;;
+            *) echo "没覆盖的平台: ${{ matrix.os }}" >&2; exit 1 ;;
+          esac
+          url=https://github.com/Sunrisepeak/mcpp-language-server/releases/download/v0.0.16/$asset
+          mkdir -p mcppls-tmp
+          curl -fsSL --retry 3 "$url" -o mcppls-tmp/payload.tar.gz
+          tar -xzf mcppls-tmp/payload.tar.gz -C mcppls-tmp --strip-components=1
+          # 二进制名：Windows 带 .exe，别处不带
+          if [ -x ./mcppls-tmp/bin/mcppls.exe ]; then bin=mcppls.exe; else bin=mcppls; fi
+          ./mcppls-tmp/bin/$bin version
+          # 给后面几步用。必须是 POSIX 路径（mcppls 拿它做可执行判断）
+          echo "MCPPLS=$(pwd)/mcppls-tmp/bin/$bin" >> "$GITHUB_ENV"
+
+      # BMI 由 mcpp 的 clang 编，所以必须先 build。目标必须与 review 同一平台。
+      - name: Build
+        run: mcpp build
+
+      # 工具链识别对不对，先打出来 —— 这一行是「CI 与本地是否一致」的直接证据。
+      # 本机编辑器状态栏显示的就是它；对不上就说明 mcppls 没读到 mcpp.toml。
+      - name: Show detected toolchain
+        shell: bash
+        run: '"$MCPPLS" model | head -20'
+
+      - name: Review (SARIF)
+        shell: bash
+        run: |
+          set -e
+          # --base HEAD~1：push 到 main 时看的是上一个 commit 以来的变化。
+          # PR 上 github.event.pull_request.base.sha 更准，但两者取值一样能用，
+          # 先不为此加分支逻辑。
+          '"$MCPPLS"' review --base HEAD~1 --format sarif --output mcppls.sarif
+          # 没发现也要有个合法的空 SARIF，否则上传步骤会失败
+          test -s mcppls.sarif || echo '{"version":"2.1.0","runs":[]}' > mcppls.sarif
+          echo "发现条数: $(grep -c '"ruleId"' mcppls.sarif || true)"
+
+      - name: Upload SARIF
+        # category 按平台分开：三个 matrix job 传同一个 commit，
+        # 同一个 category 会互相覆盖，代码扫描里就只剩一个平台的结果。
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: mcppls.sarif
+          category: mcppls-${{ matrix.os }}
   tidy:
     name: clang-tidy
     runs-on: windows-latest
