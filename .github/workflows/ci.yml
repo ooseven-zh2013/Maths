@@ -175,9 +175,14 @@ jobs:
       - name: Install mcpp
         run: pip install --upgrade mcpp-bin
 
-      # 按平台取 payload。⚠️ macOS runner（macos-latest = macos-14）是 arm64，
-      # 不是 x64 —— 取错包的症状是「binary not found」而不是报错信息不好懂。
-      - name: Fetch mcppls payload
+      # 取包、build、review 全在**一步**里做完。
+      #
+      # ⚠️ 为什么合成一步：分成多步时，Fetch 里解出来的 mcppls-tmp/ 到下一步就找不到了
+      #    （2026-10-18 三平台全挂在这：`"$MCPPLS": command not found`，而 Fetch 本身是
+      #    成功的、GITHUB_ENV 里的路径也对）。本地复现同样的 shell 机制却完全正常，
+      #    所以是 runner 上文件被清 —— 没空去查是谁清的，合成一步绕开它：
+      #    工具产物不是构建输入，没必要跨步骤存活。
+      - name: mcppls review
         shell: bash
         run: |
           set -e
@@ -193,35 +198,21 @@ jobs:
           tar -xzf mcppls-tmp/payload.tar.gz -C mcppls-tmp --strip-components=1
           # 二进制名：Windows 带 .exe，别处不带
           if [ -x ./mcppls-tmp/bin/mcppls.exe ]; then bin=mcppls.exe; else bin=mcppls; fi
+          # 取证：这一步挂了先看这两行 —— 文件在不在、可不可执行
+          ls -l ./mcppls-tmp/bin/
           ./mcppls-tmp/bin/$bin version
-          # 给后面几步用。必须是 POSIX 路径（mcppls 拿它做可执行判断）
-          echo "MCPPLS=$(pwd)/mcppls-tmp/bin/$bin" >> "$GITHUB_ENV"
 
-      # BMI 由 mcpp 的 clang 编，所以必须先 build。目标必须与 review 同一平台。
-      - name: Build
-        run: mcpp build
+          # BMI 由 mcpp 的 clang 编，必须先 build（目标与 review 同平台）
+          mcpp build
 
-      # 工具链识别对不对，先打出来 —— 这一行是「CI 与本地是否一致」的直接证据。
-      # 本机编辑器状态栏显示的就是它；对不上就说明 mcppls 没读到 mcpp.toml。
-      # ⚠️ **不要写成 `mcppls model | head -20`**：head 提前关掉管道，mcppls 下一次
-      #    写就撞 EPIPE，而它不处理这个异常 ⇒ `libc++abi: terminating ...
-      #    failed to write formatted output: Operation not permitted` + abort。
-      #    本地输出小、赶在 head 退出前写完了所以看不出问题，CI 上时序一抖就挂
-      #    （2026-10-18 三个平台全是这么挂的）。先落文件，再对文件做 head。
-      - name: Show detected toolchain
-        shell: bash
-        run: |
-          '"$MCPPLS"' model > model.json 2>&1 || true
+          # 工具链识别结果 —— 这一行是「CI 与本地是否一致」的直接证据，
+          # 本机编辑器状态栏显示的就是它。
+          # ⚠️ 输出**落文件再截**，别写 `mcppls model | head`：head 提前关管道，
+          #    mcppls 撞 EPIPE 且不处理 ⇒ libc++abi abort（2026-10-18 踩过）。
+          ./mcppls-tmp/bin/$bin model > model.json 2>&1 || true
           head -20 model.json
 
-      - name: Review (SARIF)
-        shell: bash
-        run: |
-          set -e
-          # --base HEAD~1：push 到 main 时看的是上一个 commit 以来的变化。
-          # PR 上 github.event.pull_request.base.sha 更准，但两者取值一样能用，
-          # 先不为此加分支逻辑。
-          '"$MCPPLS"' review --base HEAD~1 --format sarif --output mcppls.sarif
+          ./mcppls-tmp/bin/$bin review --base HEAD~1 --format sarif --output mcppls.sarif
           # 没发现也要有个合法的空 SARIF，否则上传步骤会失败
           test -s mcppls.sarif || echo '{"version":"2.1.0","runs":[]}' > mcppls.sarif
           echo "发现条数: $(grep -c '"ruleId"' mcppls.sarif || true)"
