@@ -203,9 +203,16 @@ jobs:
 
       # 工具链识别对不对，先打出来 —— 这一行是「CI 与本地是否一致」的直接证据。
       # 本机编辑器状态栏显示的就是它；对不上就说明 mcppls 没读到 mcpp.toml。
+      # ⚠️ **不要写成 `mcppls model | head -20`**：head 提前关掉管道，mcppls 下一次
+      #    写就撞 EPIPE，而它不处理这个异常 ⇒ `libc++abi: terminating ...
+      #    failed to write formatted output: Operation not permitted` + abort。
+      #    本地输出小、赶在 head 退出前写完了所以看不出问题，CI 上时序一抖就挂
+      #    （2026-10-18 三个平台全是这么挂的）。先落文件，再对文件做 head。
       - name: Show detected toolchain
         shell: bash
-        run: '"$MCPPLS" model | head -20'
+        run: |
+          '"$MCPPLS"' model > model.json 2>&1 || true
+          head -20 model.json
 
       - name: Review (SARIF)
         shell: bash
