@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
 
+# mcppls 的 job 要往 GitHub 代码扫描传 SARIF，需要这个权限。
+# 只给那一个 job（写在 job 里而不是顶层），别的 job 仍是默认的最小权限。
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     name: build-and-test (${{ matrix.os }})
@@ -127,6 +132,109 @@ jobs:
   #    有的是 `x86_64-pc-windows-msvc` —— 所以这个 job 跑在 **windows-latest** 上。
   #
   # 失败时长这样：满屏 `built from a different branch` ⇒ 来源/版本又不对了，**别去改代码**。
+  # mcppls —— C++ 模块语言服务器。**clang-tidy 的补充，不是替代**（tidy 明确保留）。
+  #
+  # 分工：
+  #   clang-tidy  → 代码质量规则（performance-*、readability-* …），它对模块一无所知
+  #   mcppls      → **模块级**语义：模块图、跨 import 的引用、一个改动的影响面
+  # 后者 clang-tidy 看不见（它不建模块图）；前者 mcppls 也不做（它不带 tidy 那套规则）。
+  #
+  # ⚠️⚠️ **必须 `--engine none`**（2026-10-18 实测三种配置，只有这个在 CI 上跑得通）：
+  #   默认（自带 clangd 23.1.0）：读不了 mcpp 的 clang 20.1.7 编的 BMI => 自己重建 =>
+  #     重建要 `std` => 退回 payload 的 semantic kit => **kit 在 runner 上是坏的**
+  #     （`kit/share/libc++/v1/std.compat.cppm:16:10: fatal error: '__config' file not found`）
+  #     => 最终 `src/core/maths_error.cppm:71:8: use of undeclared identifier 'std'`，全盘失败。
+  #   `--clangd <官方 20.1.7>`：不报错但**永远卡在 preparing**，diagnostics 迟迟不发布
+  #     （实测 550s / 184s 两次都是 `complete: false`）。
+  #   `--engine none`：完全不起 clangd，只用 mcppls 自己的模块引擎 + `mcpp emit
+  #     build-database` 给的工具链语义。**8 秒跑完，且真能抓到模块级错误**
+  #     （实测注入一个不存在的 `import maths.does_not_exist;`
+  #      => `error: module 'maths.does_not_exist' not found`）。
+  #
+  # 代价：没有 clangd 的语义诊断（类型错误之类）—— 那些 CI 里本来就有
+  # `mcpp build` + clang-tidy 覆盖，不缺这一份。
+  #
+  # ⚠️ **先 continue-on-error**：v0.0.16 是 pre-1.0 的单人项目，误报率未知。
+  #    让它先把发现报到代码扫描里（Security 页可见），等摸清了再去掉这个开关。
+  mcppls:
+    name: mcppls (modules)
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    timeout-minutes: 20
+    permissions:
+      security-events: write     # 只为传 SARIF；contents 已读
+    strategy:
+      fail-fast: false
+      matrix:
+        # 三平台都跑：mcppls 的卖点就是「跨编译器一致的模块语义」，
+        # 只在 Windows 上验等于没验它跨平台那部分。
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # review 要跟 base 比，浅克隆（默认 depth 1）拿不到 base 那个 commit
+          fetch-depth: 2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install mcpp
+        run: pip install --upgrade mcpp-bin
+
+      # 取包 + review 合成**一步**：
+      # ⚠️ 分成多步时，Fetch 解出来的 mcppls-tmp/ 到下一步就找不到了
+      #    （`"$MCPPLS": command not found`，而 Fetch 成功、GITHUB_ENV 里的路径也对、
+      #    本地复现同样的 shell 机制却完全正常）。没查是谁清的，合成一步绕开。
+      # ⚠️ 也不需要 `mcpp build`：`--engine none` 不起 clangd、不消费 BMI，
+      #    只要 mcpp 能 `emit build-database` 说出工具链是什么。
+      - name: mcppls review
+        shell: bash
+        run: |
+          set -e
+          case "${{ matrix.os }}" in
+            windows-latest) asset=payload-win32-x64.tar.gz ;;
+            ubuntu-latest)  asset=payload-linux-x64.tar.gz ;;
+            macos-latest)   asset=payload-darwin-arm64.tar.gz ;;
+            *) echo "没覆盖的平台: ${{ matrix.os }}" >&2; exit 1 ;;
+          esac
+          url=https://github.com/Sunrisepeak/mcpp-language-server/releases/download/v0.0.16/$asset
+          # ⚠️ payload 解到**仓库外**（兄弟目录），不能放仓库里：
+          #    放仓库里 mcppls 会把它自带的 semantic kit 当成项目文件扫，
+          #    然后报它自己的病 —— `mcppls-tmp/kit/share/libc++/v1/std.compat.cppm
+          #    imports std, which 2 units provide`（module/import-unresolved，error）。
+          #    那是**误报**，每次运行都会出现一条。放到 ../ 下面去就干净了。
+          #    （2026-10-18 实测：放仓库内 1 条误报，放仓库外 0 条。）
+          payload=../mcppls-payload
+          mkdir -p "$payload"
+          curl -fsSL --retry 3 "$url" -o "$payload/payload.tar.gz"
+          tar -xzf "$payload/payload.tar.gz" -C "$payload" --strip-components=1
+          # 二进制名：Windows 带 .exe，别处不带
+          if [ -x "$payload/bin/mcppls.exe" ]; then bin=mcppls.exe; else bin=mcppls; fi
+          ls -l "$payload/bin/"
+          "$payload/bin/$bin" version
+
+          # 工具链识别结果 —— 这一行是「CI 与本地是否一致」的直接证据，
+          # 本机编辑器状态栏显示的就是它。
+          # ⚠️ 输出**落文件再截**，别写 `mcppls model | head`：head 提前关管道，
+          #    mcppls 撞 EPIPE 且不处理 => libc++abi abort（2026-10-18 踩过）。
+          "$payload/bin/$bin" --engine none --payload "$payload" model > model.json 2>&1 || true
+          head -20 model.json
+
+          "$payload/bin/$bin" --engine none --payload "$payload" review --base HEAD~1 --format sarif --output mcppls.sarif
+          # 没发现也要有个合法的空 SARIF，否则上传步骤会失败
+          test -s mcppls.sarif || echo '{"version":"2.1.0","runs":[]}' > mcppls.sarif
+          echo "发现条数: $(grep -c '"ruleId"' mcppls.sarif || true)"
+
+      - name: Upload SARIF
+        # category 按平台分开：三个 matrix job 传同一个 commit，
+        # 同一个 category 会互相覆盖，代码扫描里就只剩一个平台的结果。
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: mcppls.sarif
+          category: mcppls-${{ matrix.os }}
   tidy:
     name: clang-tidy
     runs-on: windows-latest
