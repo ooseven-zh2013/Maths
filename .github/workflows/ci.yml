@@ -184,12 +184,20 @@ jobs:
       - name: Install mcpp
         run: pip install --upgrade mcpp-bin
 
+      # ⚠️ **必须先让 mcpp 环境就绪**（这一步就是干这个的）：
+      #    不然 `mcpp emit build-database` 报
+      #    `MCPP_BUILD_DATABASE_PLAN_FAILED: the provider's environment is not initialized`，
+      #    mcppls 拿不到工具链（model 里 `"toolchains": {}`），**静默降级到 L4**
+      #    （只扫源码 + 自带 kit）—— job 会是绿的，但完全没用上工具链语义。
+      #    `--engine none` 不消费 BMI，但**要 mcpp 肯说话**。
+      #    （2026-10-18：删掉 build 后三平台全绿但 toolchains 是空的，就是这个坑。）
+      - name: Prepare mcpp environment
+        run: mcpp build
+
       # 取包 + review 合成**一步**：
       # ⚠️ 分成多步时，Fetch 解出来的 mcppls-tmp/ 到下一步就找不到了
       #    （`"$MCPPLS": command not found`，而 Fetch 成功、GITHUB_ENV 里的路径也对、
       #    本地复现同样的 shell 机制却完全正常）。没查是谁清的，合成一步绕开。
-      # ⚠️ 也不需要 `mcpp build`：`--engine none` 不起 clangd、不消费 BMI，
-      #    只要 mcpp 能 `emit build-database` 说出工具链是什么。
       - name: mcppls review
         shell: bash
         run: |
