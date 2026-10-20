@@ -255,6 +255,33 @@ public:
   // 幂运算：指数为 Integer（实现在 Integer 类之后）
   Result<Fraction> pow(const Integer &exp) const;
 
+  // ==================== 渲染 ====================
+
+  // 终端形式：`1/2`、`-3`（分母为 1 时只印整数）。
+  // ⚠️ 以前只有 `operator<<`，调用方要拿字符串得自己套 ostringstream ——
+  // 而 Fraction 是全库用得最多的类型（每个系数都是它），这个缺口最疼。
+  // 现在与其它类型对齐：`str()` 面向终端，`latex()` 面向排版。
+  std::string str() const {
+    std::ostringstream os;
+    os << *this;
+    return os.str();
+  }
+
+  // 排版形式：`\frac{1}{2}`、`-3`（整数不变）。
+  std::string latex() const {
+    // ⚠️ **负号放在 \frac 外面，不是分子里**：`-\frac{1}{2}` 而不是 `\frac{-1}{2}`。
+    // 全库一致的约定（`-x`、`-3` 都是号在外的）。
+    // 2026-10-20 加这个函数时写成号在内，被 algebraic_monomial_tests 当场抓住。
+    const ll numerator = getNumerator();
+    if (b == 1) {
+      return std::to_string(numerator);
+    }
+    const bool negative = numerator < 0;
+    const std::string body =
+        "\\frac{" + std::to_string(negative ? -numerator : numerator) + "}{" + std::to_string(getDenominator()) + "}";
+    return negative ? "-" + body : body;
+  }
+
   // ==================== 友元函数 ====================
 
   friend std::ostream &operator<<(std::ostream &os, const Fraction &frac) {
@@ -620,6 +647,18 @@ public:
   }
 
   // ==================== 友元函数 ====================
+
+  // ==================== 渲染 ====================
+
+  // 与 Fraction 对齐（见那边的说明）：Integer 以前也只有 operator<<。
+  std::string str() const {
+    std::ostringstream os;
+    os << *this;
+    return os.str();
+  }
+
+  // LaTeX 里整数就是数字本身，没有额外形式。
+  std::string latex() const { return str(); }
 
   friend std::ostream &operator<<(std::ostream &os, const Integer &num) {
     if (num.sign) {
