@@ -279,7 +279,7 @@ public:
       if (value.isErr()) {
         return "0";
       }
-      return detail::coefficientText(value.unwrap()); // 分母非零由构造保证
+      return value.unwrap().str(); // 分母非零由构造保证
     }
 
     // 分母恰为常数 1：按多项式输出。

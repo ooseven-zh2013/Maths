@@ -83,12 +83,6 @@ inline Fraction powInt(const Fraction &base, unsigned exponent) {
   return result;
 }
 
-inline std::string fractionText(const Fraction &value) {
-  std::ostringstream os;
-  os << value;
-  return os.str();
-}
-
 inline std::string fractionLatex(const Fraction &value) {
   if (value.getDenominator() == 1) {
     return std::to_string(value.getNumerator());
@@ -690,7 +684,7 @@ public:
         result += negative ? " - " : " + ";
       }
       if (power == 0 || !(magnitude == 1LL)) {
-        result += algebraic_detail::fractionText(magnitude);
+        result += magnitude.str();
       }
       if (power > 0) {
         result += 'x';
@@ -1435,12 +1429,11 @@ public:
 
   std::string str() const {
     if (isRational()) {
-      return algebraic_detail::fractionText(low_);
+      return low_.str();
     }
     // 这里**故意**保持 RootOf：str() 是终端诊断用的形态，多项式与隔离区间比 \sqrt{2} 有用。
     // 展示形态（2±√3）由 latex() 负责。
-    return "RootOf(" + poly_.str() + ", [" + algebraic_detail::fractionText(low_) + ", " +
-           algebraic_detail::fractionText(high_) + "])";
+    return "RootOf(" + poly_.str() + ", [" + low_.str() + ", " + high_.str() + "])";
   }
 
   std::string latex() const {

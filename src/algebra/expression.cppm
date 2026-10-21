@@ -232,12 +232,6 @@ template <class Coefficient> inline bool isNegativeCoefficient(const Coefficient
   }
 }
 
-template <class Coefficient> inline std::string coefficientText(const Coefficient &value) {
-  std::ostringstream os;
-  os << value;
-  return os.str();
-}
-
 template <class Coefficient> inline std::string coefficientLatex(const Coefficient &value) {
   if constexpr (requires { value.latex(); }) {
     return value.latex();
@@ -384,13 +378,13 @@ public:
       return "0";
     }
     if (factors.empty()) {
-      return detail::coefficientText(coeff);
+      return coeff.str();
     }
     std::string result;
     if (coeff == detail::coefficientMinusOne<Coefficient>()) {
       result += '-';
     } else if (!(coeff == detail::coefficientOne<Coefficient>())) {
-      result += detail::coefficientText(coeff);
+      result += coeff.str();
       result += ' ';
     }
     for (std::size_t i = 0; i < factors.size(); ++i) {
