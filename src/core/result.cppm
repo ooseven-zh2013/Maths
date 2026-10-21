@@ -97,6 +97,40 @@ public:
 
   const MathsError &error() const { return std::get<1>(data_); }
 
+  // ==================== 函数式传播 ====================
+  //
+  // 这两个是给「不想写 MATHS_TRY 宏、也不想手写 if-isErr-return」的场合用的：
+  // 纯库内实现，**跨模块可用**（宏不行，宏不随 import 传递，见 common/maths_try.hpp）。
+  //
+  // 传播语义与 MATHS_TRY 一致：Err 时短路，且**原样保留错误**，不调用 f。
+
+  // map：变换成功的值。f 失败的情形由调用方保证不会发生（返回 T 而非 Result<T>）。
+  template <class F> auto map(F &&f) const {
+    using U = std::invoke_result_t<F, const T &>;
+    if (isErr()) {
+      return Result<U>::err(error());
+    }
+    return Result<U>::ok(f(std::get<0>(data_)));
+  }
+
+  // andThen：串下一个**也可能失败**的运算。f 返回 Result<U>。
+  // 这是「链式版 MATHS_TRY」：
+  //   MATHS_TRY 写法                        andThen 写法
+  //   const A a = MATHS_TRY(f());           return f().andThen([](const A &a) {
+  //   const B b = MATHS_TRY(g(a));            return g(a);
+  //   return Result<C>::ok(h(a, b));        }).andThen([](const B &b) {
+  //                                          ... 需要 a 时得靠闭包捕获
+  //                                        });
+  // 单步链 andThen 更短；**多步且后一步要用前几步的值**时 MATHS_TRY 更清晰
+  // （闭包捕获会越写越丑）。两者并存，按形状选。
+  template <class F> auto andThen(F &&f) const {
+    using U = typename std::invoke_result_t<F, const T &>::ValueType;
+    if (isErr()) {
+      return Result<U>::err(error());
+    }
+    return f(std::get<0>(data_));
+  }
+
   // ==================== 运算：短路传播 ====================
   // 两侧都失败时保留左侧错误（先左后右）
 
