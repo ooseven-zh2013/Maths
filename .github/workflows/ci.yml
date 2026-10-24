@@ -41,8 +41,17 @@ jobs:
       - name: Run tests
         run: mcpp test
 
-  # Linux / macOS 跑 sh 版，Windows 跑 ps1 版，两边做完的事必须一致：
-  # 产物进 releases/<程序名>/，pack 的暂存区 target/dist 清掉，构建缓存留着。
+  # 打包：直接用 `mcpp pack`，产物落在 **target/dist/<程序>/**。
+  #
+  # 以前是 `scripts/pack-releases.{sh,ps1}` 两个手写脚本，把 exe + README + LICENSE
+  # 复制到 `releases/`。现在两条都不要了：
+  #   · `mcpp pack` 本身就是干这个的（还支持 self-contained / static 等模式），
+  #     手写脚本只是在复刻它的能力，还得两边维护同一份逻辑；
+  #   · 产物留在 `target/` 里，和构建缓存同一个地盘 —— 不再有「target 是临时、
+  #     releases 是正式」这种两套语义，也就不会出现「releases 里躺着一个 17 天前
+  #     的旧 exe，用户拿它测出来以为是新 bug」这种事。
+  #
+  # 三平台都跑一遍：pack 的产出跟平台相关（.exe / 无后缀），必须各验各的。
   packaging:
     name: packaging (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -62,42 +71,29 @@ jobs:
       - name: Install mcpp
         run: pip install --upgrade mcpp-bin
 
-      - name: 打包（Linux / macOS）
-        if: runner.os != 'Windows'
-        run: sh scripts/pack-releases.sh
-
-      - name: 打包（Windows）
-        if: runner.os == 'Windows'
-        run: powershell -ExecutionPolicy Bypass -File scripts\pack-releases.ps1
+      - name: Pack
+        shell: bash
+        run: |
+          set -e
+          mcpp pack simplify --format dir -o target/dist/simplify
+          echo "--- target/dist/simplify ---"
+          ls -1 target/dist/simplify
 
       - name: 校验产物
         shell: bash
         run: |
           set -e
-          echo "--- releases/simplify ---"
-          ls -1 releases/simplify
-
-          if [ -f "releases/simplify/simplify.exe" ]; then
-            exe="releases/simplify/simplify.exe"
+          if [ -f "target/dist/simplify/simplify.exe" ]; then
+            exe="target/dist/simplify/simplify.exe"
           else
-            exe="releases/simplify/simplify"
+            exe="target/dist/simplify/simplify"
           fi
           test -x "$exe" || { echo "产物不可执行: $exe"; exit 1; }
 
-          # pack 的暂存区必须被清掉（产物已经复制到 releases，留着就是重复）
-          if [ -e target/dist ]; then
-            echo "FAIL: target/dist 还在，脚本没清理"
-            exit 1
-          fi
-          echo "ok: target/dist 已清理"
-
-          # 构建缓存要留着，删了下次就是全量重编
-          test -d target || { echo "FAIL: target/ 构建缓存被误删"; exit 1; }
-          echo "ok: target/ 构建缓存保留"
-
           echo "--- 跑一遍产物 ---"
-          printf '2x + 3x\nx = 5\n0=0\n' | "$exe" | tee /tmp/out.txt
-          grep -q '化简结果: 25' /tmp/out.txt || { echo "FAIL: 产物输出不对"; exit 1; }
+          printf '2x + 3x\nx = 5\n0=0\n' | "$exe" | tee produce.txt
+          grep -q '化简结果: 25' produce.txt || { echo "FAIL: 产物输出不对"; exit 1; }
+          rm -f produce.txt
           echo "ok: 产物运行正常"
 
   format:

@@ -6,7 +6,6 @@ output/
 out/
 
 # 打包产物：平时忽略，发布时上传到 GitHub 自带的 Releases 页面
-releases/
 /test_*
 *.o
 *.out

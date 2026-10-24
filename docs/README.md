@@ -63,7 +63,7 @@
 
 | 文档 | 对应程序 | 内容 |
 | --- | --- | --- |
-| [simplify.md](apps/simplify.md) | `apps/simplify/main.cpp` → 产物 `releases/simplify/` | 交互式表达式化简：语法、条件写法、结果说明 |
+| [simplify.md](apps/simplify.md) | `apps/simplify/main.cpp` → 产物 `target/dist/simplify/` | 交互式表达式化简：语法、条件写法、结果说明 |
 
 ## examples（示例教程）
 

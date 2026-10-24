@@ -59,27 +59,27 @@ jobs:
       - name: Install mcpp
         run: pip install --upgrade mcpp-bin
 
-      # 与 ci.yml 的 packaging job 同一套脚本：Linux / macOS 走 sh，Windows 走 ps1
-      - name: 打包（Linux / macOS）
-        if: runner.os != 'Windows'
-        run: sh scripts/pack-releases.sh
-
-      - name: 打包（Windows）
-        if: runner.os == 'Windows'
-        run: powershell -ExecutionPolicy Bypass -File scripts\pack-releases.ps1
+      # 与 ci.yml 的 packaging job 同一条命令：`mcpp pack`，产物在 target/dist/
+      - name: 打包
+        shell: bash
+        run: |
+          set -e
+          mcpp pack simplify --format dir -o target/dist/simplify
+          ls -1 target/dist/simplify
 
       - name: 跑一遍产物
         shell: bash
         run: |
           set -e
-          exe="releases/simplify/simplify.exe"
-          [ -f "$exe" ] || exe="releases/simplify/simplify"
+          exe="target/dist/simplify/simplify.exe"
+          [ -f "$exe" ] || exe="target/dist/simplify/simplify"
           test -x "$exe" || { echo "产物不可执行: $exe"; exit 1; }
           printf '2x + 3x\nx = 5\n0=0\n' | "$exe" | tee out.txt
           grep -q '化简结果: 25' out.txt || { echo "FAIL: 产物输出不对"; exit 1; }
+          rm -f out.txt
 
       # 三个平台的可执行文件同名（都叫 simplify），挂到同一个 release 上会互相覆盖 ——
-      # 所以先按平台与架构改名。
+      # 所以先按平台与架构改名。改名后的文件也放在 target/dist/ 下，不另建目录。
       - name: 按平台改名
         shell: bash
         run: |
@@ -89,16 +89,16 @@ jobs:
             macos-latest)   name=simplify-macos-arm64 ;;
             windows-latest) name=simplify-windows-x86_64.exe ;;
           esac
-          src="releases/simplify/simplify.exe"
-          [ -f "$src" ] || src="releases/simplify/simplify"
-          cp "$src" "releases/$name"
+          src="target/dist/simplify/simplify.exe"
+          [ -f "$src" ] || src="target/dist/simplify/simplify"
+          cp "$src" "target/dist/$name"
           echo "BUNDLE_NAME=$name" >> "$GITHUB_ENV"
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
           name: bundle-${{ matrix.os }}
-          path: releases/${{ env.BUNDLE_NAME }}
+          path: target/dist/${{ env.BUNDLE_NAME }}
           if-no-files-found: error
 
   publish:
