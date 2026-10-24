@@ -265,6 +265,63 @@ public:
     return division.unwrap().quotient;
   }
 
+  // ==================== 约分（长除法） ====================
+  //
+  // 长除一方向能整除，就给出一个**更简单的等价形式**。两个方向是同一件事：
+  //   · 分母整除分子（P = m·Q）⇒ P/Q = m        —— 结果分母化成 1，即多项式
+  //   · 分子整除分母（Q = m·P）⇒ P/Q = 1/m
+  // 所以对外只有这一个入口，不区分「可化为多项式」和「可约分」——
+  // 那只是 `value` 的分母恰好是不是 1 而已。
+  //
+  // ⚠️ 这是**派生视图**，与 toPolynomial 同一套路：const、不改动 *this。
+  // 因此不需要动 `discardedConstraints`：原式的分母还在，定义域照旧从它取，
+  // 约掉 `cancelled` 带来的额外条件（cancelled ≠ 0）随返回值交给调用方。
+  //
+  // 为什么不做多项式 GCD：见文件头（多元 GCD 复杂、辗转相除会系数爆炸）。
+  // 单次长除没有迭代、没有中间系数膨胀，所以能安全地做。
+  //
+  // 覆盖范围：仅当**一方整除另一方**。`(x^2-1)/(x^3-1)` 余 x-1，这里返回 nullopt
+  // —— 那需要反复长除（Euclid GCD），不在本方法范围内。
+
+  struct ReducedForm {
+    RationalFunctionOf value; // 等价形式；分母为 1 时就是多项式
+    PolynomialType cancelled; // 被约掉的因子；等价性要求 cancelled ≠ 0
+  };
+
+  std::optional<ReducedForm> tryReduce() const {
+    // 分母是常数时本式已经是多项式（L1 已把内容约干净），再报只是把原式抄一遍
+    if (const std::optional<MonomialType> lead = leadingMonomial(denominator); lead && lead->isConstant()) {
+      return std::nullopt;
+    }
+    if (numerator.isZero()) {
+      return std::nullopt;
+    }
+
+    // 方向一：P ÷ Q 整除 ⇒ P/Q = 商
+    if (const Result<PolynomialDivisionOf<Coefficient>> forward = divideWithRemainder(numerator, denominator);
+        forward.isOk() && forward.unwrap().remainder.isZero() && !forward.unwrap().quotient.isZero()) {
+      RationalFunctionOf value;
+      value.numerator = forward.unwrap().quotient;
+      value.simplify();
+      return ReducedForm{std::move(value), denominator};
+    }
+
+    // 方向二：Q ÷ P 整除 ⇒ P/Q = 1/商。P 为常数时只是在把 1/Q 换个写法，不是化简
+    if (const std::optional<MonomialType> numeratorLead = leadingMonomial(numerator);
+        !numeratorLead || numeratorLead->isConstant()) {
+      return std::nullopt;
+    }
+    const Result<PolynomialDivisionOf<Coefficient>> backward = divideWithRemainder(denominator, numerator);
+    if (backward.isErr() || !backward.unwrap().remainder.isZero() || backward.unwrap().quotient.isZero()) {
+      return std::nullopt;
+    }
+    RationalFunctionOf value;
+    value.numerator = PolynomialType(MonomialType(detail::coefficientOne<Coefficient>()));
+    value.denominator = backward.unwrap().quotient;
+    value.simplify();
+    return ReducedForm{std::move(value), numerator};
+  }
+
   // ==================== 输出 ====================
 
   std::string str() const {

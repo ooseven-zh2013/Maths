@@ -1,6 +1,7 @@
 #include "../check.hpp"
 
 #include <iostream>
+#include <optional>
 #include <string>
 
 import maths;
@@ -156,6 +157,83 @@ int main() {
     sum.simplify(); // 再次化简不应重复记录约束
     sum.simplify();
     CHECK_EQ(sum.discardedConstraints().size(), 1ULL);
+  }
+
+  // ==================== 约分（长除，两个方向合一） ====================
+  //
+  // 派生视图：长除任一方向整除就给出更简单的等价形式，条件随返回值走，
+  // 不进 discardedConstraints（原式分母还在，定义域不受影响）。
+
+  // 13. 反向： (x^2 - 16) / (x^4 - 16x^2) = 1 / x^2，条件 x^2 - 16 ≠ 0
+  {
+    const Polynomial x2 = (Polynomial(x1) * Polynomial(x1)).unwrap();
+    const Polynomial sixteen = Polynomial(Monomial(Fraction(16, 1)));
+    const Polynomial numerator = x2 - sixteen;                // P = x^2 - 16
+    const Polynomial denominator = (x2 * numerator).unwrap(); // Q = x^2 * P
+    const RationalFunction r = RationalFunction::make(numerator, denominator).unwrap();
+
+    const std::optional<RationalFunction::ReducedForm> reduced = r.tryReduce();
+    CHECK_TRUE(reduced.has_value());
+    if (reduced) {
+      CHECK_EQ(reduced->value.str(), std::string("(1) / (x^2)"));
+      CHECK_EQ(reduced->cancelled.str(), std::string("x^2 - 16"));
+    }
+    // 派生视图不能改动原式
+    CHECK_EQ(r.getDenominator().str(), denominator.str());
+    // 也不是多项式，所以正向长除失败
+    CHECK_ERR(r.toPolynomial(), MathsError::NotAPolynomial);
+  }
+
+  // 13b. 正向： (x^2 - 1) / (x + 1) = x - 1，条件 x + 1 ≠ 0
+  //      与反向走同一个入口 —— 结果的分母恰好是 1，看起来才像「多项式」
+  {
+    const Polynomial xPlusOne = Polynomial(x1) + Polynomial(one1);
+    const Polynomial xMinusOne = Polynomial(x1) - Polynomial(one1);
+    const RationalFunction r = RationalFunction::make((xPlusOne * xMinusOne).unwrap(), xPlusOne).unwrap();
+
+    const std::optional<RationalFunction::ReducedForm> reduced = r.tryReduce();
+    CHECK_TRUE(reduced.has_value());
+    if (reduced) {
+      CHECK_EQ(reduced->value.str(), std::string("x - 1"));
+      CHECK_EQ(reduced->cancelled.str(), std::string("x + 1"));
+    }
+  }
+
+  // 14. (x + 1) / (x^2 - 1) = 1 / (x - 1)，条件 x + 1 ≠ 0
+  {
+    const Polynomial xPlusOne = Polynomial(x1) + Polynomial(one1);
+    const Polynomial xMinusOne = Polynomial(x1) - Polynomial(one1);
+    const RationalFunction r = RationalFunction::make(xPlusOne, (xPlusOne * xMinusOne).unwrap()).unwrap();
+
+    const std::optional<RationalFunction::ReducedForm> reduced = r.tryReduce();
+    CHECK_TRUE(reduced.has_value());
+    if (reduced) {
+      CHECK_EQ(reduced->value.str(), std::string("(1) / (x - 1)"));
+      CHECK_EQ(reduced->cancelled.str(), std::string("x + 1"));
+    }
+  }
+
+  // 15. 分子不整除分母时不报 —— 这需要真正的 GCD，不在本方法的范围
+  {
+    // (x^2 - 1) / (x^3 - 1) = (x + 1) / (x^2 + x + 1)，但要先求出公因式 x - 1
+    const Polynomial x2 = (Polynomial(x1) * Polynomial(x1)).unwrap();
+    const Polynomial x3 = (x2 * Polynomial(x1)).unwrap();
+    const Polynomial numerator = x2 - Polynomial(one1);
+    const Polynomial denominator = x3 - Polynomial(one1);
+    const RationalFunction r = RationalFunction::make(numerator, denominator).unwrap();
+    CHECK_TRUE(!r.tryReduce().has_value());
+  }
+
+  // 16. 分子是常数时不报 —— 那只是把 1/Q 换个写法，不是化简
+  {
+    const RationalFunction r = RationalFunction::make(Polynomial(Monomial(Fraction(2, 1))), Polynomial(x1)).unwrap();
+    CHECK_TRUE(!r.tryReduce().has_value());
+  }
+
+  // 17. 分子为零时不报
+  {
+    const RationalFunction r = RationalFunction::make(Polynomial(), Polynomial(x1)).unwrap();
+    CHECK_TRUE(!r.tryReduce().has_value());
   }
 
   // ==================== 化为多项式（长除法） ====================

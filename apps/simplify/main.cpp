@@ -670,18 +670,21 @@ void printRationalResult(const RationalFunction &expression, const Scope &scope)
   //
   // 但**只有分母含变量时才值得报**。常数分母恒非零，没有零点可丢，报出来只是把
   // 化简结果再抄一遍（5/6 会被报成「可化为多项式: \frac{5}{6}」，毫无信息量）。
-  const Result<Monomial> denominatorMonomial = result.getDenominator().toMonomial();
-  const bool denominatorIsConstant = denominatorMonomial.isOk() && denominatorMonomial.unwrap().isConstant();
-
-  const Result<Polynomial> polynomial = result.toPolynomial();
-  if (polynomial.isOk() && !denominatorIsConstant) {
-    // 原式的要求 = 化简结果的分母非零 + 化简时约掉的变量非零。
-    // 少了后半截，「1」这个结论在 x = 0 上就是错的（原式在那里无定义）。
-    std::string requirements = result.getDenominator().latex() + " \\neq 0";
+  // 约分：长除能整除时给出一个更简单的等价形式。
+  //
+  // **不区分「可化为多项式」与「可约分」** —— 那是同一种操作（长除），
+  // 区别只是结果的分母恰好是不是 1：
+  //   分母整除分子 ⇒ P/Q = 商（分母化成 1，即多项式）
+  //   分子整除分母 ⇒ P/Q = 1/商
+  //
+  // 条件 = 被约掉的因子非零 + 化简时约掉的变量非零。少了任一项，
+  // 这个等价关系在某些点上就是错的（原式在那里无定义）。
+  if (const std::optional<RationalFunction::ReducedForm> reduced = result.tryReduce(); reduced) {
+    std::string requirements = reduced->cancelled.latex() + " \\neq 0";
     if (const std::string dropped = discardedConditionLatex(result.discardedConstraints()); !dropped.empty()) {
       requirements += " \\land " + dropped;
     }
-    printField("可化为多项式", polynomial.unwrap().latex() + "（原式要求 " + requirements + "）");
+    printField("可约分", reduced->value.latex() + "（原式要求 " + requirements + "）");
   }
 
   const Result<Fraction> evaluated = result.evaluate(scope);
