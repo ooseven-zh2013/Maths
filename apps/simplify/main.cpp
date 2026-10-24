@@ -614,18 +614,21 @@ void printConstraintList(const std::vector<Constraint> &constraints) {
   }
 }
 
-void printDiscardedNote(const std::set<Variable> &discarded) {
-  if (discarded.empty()) {
-    return;
-  }
-  std::string names;
+// 化简时约掉的变量 —— 等价关系**只在这些变量非零时**成立。
+//
+// 以前是单独印一句「注意：化简中约去了 x，上述等价关系仅在这些变量非零时成立」。
+// 那句话两头不讨好：既重复（读者已经看到式子在约分），又含糊（真正的条件是
+// `x \neq 0`，它没说）。现在只生成条件文本，由调用方并进「原式要求」那一行 ——
+// 读者要的是条件本身，不是「我们做了什么」。
+std::string discardedConditionLatex(const std::set<Variable> &discarded) {
+  std::string text;
   for (const Variable &variable : discarded) {
-    if (!names.empty()) {
-      names += ' ';
+    if (!text.empty()) {
+      text += " \\land ";
     }
-    names += variable.str();
+    text += variable.str() + " \\neq 0";
   }
-  printField("注意", "化简中约去了 " + names + "，上述等价关系仅在这些变量非零时成立");
+  return text;
 }
 
 // 读条件、打式子与条件区。三种式子里只有「纯数值的代数数」不读条件，
@@ -672,16 +675,19 @@ void printRationalResult(const RationalFunction &expression, const Scope &scope)
 
   const Result<Polynomial> polynomial = result.toPolynomial();
   if (polynomial.isOk() && !denominatorIsConstant) {
-    const std::string note = "（原式要求 " + result.getDenominator().latex() + " \\neq 0）";
-    printField("可化为多项式", polynomial.unwrap().latex() + note);
+    // 原式的要求 = 化简结果的分母非零 + 化简时约掉的变量非零。
+    // 少了后半截，「1」这个结论在 x = 0 上就是错的（原式在那里无定义）。
+    std::string requirements = result.getDenominator().latex() + " \\neq 0";
+    if (const std::string dropped = discardedConditionLatex(result.discardedConstraints()); !dropped.empty()) {
+      requirements += " \\land " + dropped;
+    }
+    printField("可化为多项式", polynomial.unwrap().latex() + "（原式要求 " + requirements + "）");
   }
 
   const Result<Fraction> evaluated = result.evaluate(scope);
   if (evaluated.isOk()) {
     printField("常数结果", evaluated.unwrap());
   }
-
-  printDiscardedNote(result.discardedConstraints());
 }
 
 // 代数路径：式子的系数含根号、或某条条件的值是根号时，ℚ 上的代入算不出精确值
@@ -711,7 +717,12 @@ void printAlgebraicResult(const AlgebraicRationalFunction &expression, const std
     printField("化简结果", substituted.unwrap().latex());
   }
 
-  printDiscardedNote(substituted.unwrap().discardedConstraints());
+  // 这条路径没有「可化为多项式」那一行可并，所以单列一条**条件本身**。
+  // 仍不印「约去了什么」—— 那是过程，读者要的是结论。
+  if (const std::string dropped = discardedConditionLatex(substituted.unwrap().discardedConstraints());
+      !dropped.empty()) {
+    printField("定义域补充", dropped);
+  }
 }
 
 // 根式路径：根号包里是变量，值落在函数域上。求值要把每个被开方数都开出来，
