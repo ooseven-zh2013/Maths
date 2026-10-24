@@ -118,11 +118,16 @@ inline std::string normalizeLatex(std::string_view source) {
         result += "\\frac"; // 结构不完整，原样保留，交给解析器报错
         continue;
       }
-      result += '(';
+      // ⚠️ **外层这对括号不能省**：`\frac{a}{b}` 必须整体作为一个 primary。
+      // 只写 `(a)/(b)` 的话，`A/\frac{c}{d}` 会变成 `A/(c)/(d)` —— 左结合成
+      // `(A/c)/d`，结果错成 `A/(cd)` 而正确值是 `Ad/c`。
+      // （2026-10-24 用户实测：`1/\frac{x}{2}` 被算成 `1/(2x)`，正确是 `2/x`；
+      //   `\frac{a}{b}/\frac{c}{d}` 算成 `a/(bcd)`，正确是 `ad/(bc)`。）
+      result += "((";
       result += normalizeLatex(numerator);
       result += ")/(";
       result += normalizeLatex(denominator);
-      result += ')';
+      result += "))";
       continue;
     }
     if (source.compare(position, 5, "\\cdot") == 0) {

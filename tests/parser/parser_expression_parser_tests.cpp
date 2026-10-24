@@ -205,6 +205,15 @@ int main() {
     // 嵌套：\frac{\frac{1}{2}}{3} = 1/6
     CHECK_EQ(LATEX_OF("\\frac{\\frac{1}{2}}{3}"), std::string("\\frac{1}{6}"));
 
+    // ⚠️ 回归：`\frac` 必须整体作为一个 primary，否则 `A/\frac{c}{d}` 会被算成
+    // `A/(c)/(d)`（左结合）而不是 `Ad/c`。2026-10-24 用户实测出来的：
+    //   `1/\frac{x}{2}` 曾给出 `1/(2x)`，正确是 `2/x`
+    CHECK_EQ(LATEX_OF("1/\\frac{x}{2}"), std::string("\\frac{2}{x}"));
+    CHECK_EQ(LATEX_OF("2/\\frac{1}{x}"), std::string("2x"));
+    CHECK_EQ(LATEX_OF("\\frac{a}{b}/\\frac{c}{d}"), std::string("\\frac{ad}{bc}"));
+    // 乘的那一侧同样：`\frac{a}{b} \cdot \frac{c}{d}` 不该受影响
+    CHECK_EQ(LATEX_OF("\\frac{a}{b} \\cdot \\frac{c}{d}"), std::string("\\frac{ac}{bd}"));
+
     CHECK_EQ(LATEX_OF("2 \\cdot x"), std::string("2x"));
     CHECK_EQ(LATEX_OF("2 \\times x"), std::string("2x"));
     CHECK_EQ(LATEX_OF("6 \\div 3"), std::string("2"));
