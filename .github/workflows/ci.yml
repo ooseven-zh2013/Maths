@@ -252,8 +252,15 @@ jobs:
         with:
           python-version: '3.12'
 
+      # ⚠️ **锁版本，只锁这个 job**：别的 job（build-and-test / packaging / mcppls）
+      #    不读 compile_commands.json，跟最新就好，改动面小一点。
+      #    锁的原因是上游漂了：mcpp **2026.11.2.2 起，普通 `mcpp build` 不再顺带产出
+      #    compile_commands.json**（2026.10.24.1 还会）。于是 tidy 在一个**纯文档提交**
+      #    上就红了（run 41629770652 失败 / 40109347300 通过，同一份剧本换了个 mcpp 版本）。
+      #    run-tidy.sh 现在缺文件会自己 `--configure-only` 生成（第一道保险），
+      #    这里是第二道：tidy 还要读 BMI，结果不该因为上游发版而变红或变绿。
       - name: Install mcpp
-        run: pip install --upgrade mcpp-bin
+        run: pip install "mcpp-bin==2026.10.24.1"
 
       # 官方发布包：从 llvmorg-20.1.7 这个 tag 的 git 检出构建 ⇒ 分支信息与 mcpp 的 clang 一致
       #
@@ -273,6 +280,8 @@ jobs:
           echo "CLANG_TIDY=$(pwd)/llvm-tmp/bin/clang-tidy.exe" >> "$GITHUB_ENV"
 
       # BMI 由 mcpp 的 clang 编，所以必须先 build（且目标要与 tidy 同为 windows）
+      # （compile_commands.json 不指望这一步产出 —— 新版 mcpp 已经不给了，
+      #   缺的话 run-tidy.sh 自己 `--configure-only` 生成）
       - name: Build
         run: mcpp build
 

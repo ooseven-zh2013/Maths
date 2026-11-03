@@ -12,13 +12,18 @@
 # ⚠️ **耗时**：模块文件约 57 秒一个（要读 .pcm），全量 28 个模块文件 ≈ 27 分钟。
 #   日常只跑改动的那几个 —— 它不是能随手当快速检查用的东西。
 #
-# 依赖：仓库根要有 compile_commands.json（`mcpp build` 生成，已在 .gitignore 里）。
-# 读不到就直接报错退出 —— 拿「没检查」当「检查通过」是最糟的。
+# 依赖：仓库根要有 compile_commands.json（已在 .gitignore 里；本机别删，clangd 要读它）。
+# ⚠️ 缺了脚本会**自己现场生成**（`mcpp build --configure-only`），不再要求你先手动跑一遍 build。
+#   生成不出来就直接报错退出 —— 拿「没检查」当「检查通过」是最糟的。
+# ⚠️ 但自愈出来的 DB **不一定完整**（不含 bin 目标），所以后面还有一道
+#   **覆盖面校验**：仓库里该检查的源文件只要有一个不在 DB 里，就报错退出、逐个列出。
 
 set -e
 
 TIDY="${CLANG_TIDY:-E:/Tools/clang-tidy-20.1.0/bin/clang-tidy.exe}"
 PYTHON="${PYTHON:-python3}"
+# mcpp 不在 PATH 的机器（本机就是）或 CI 上要换版本时，用 MCPP 覆盖，别改脚本。
+MCPP="${MCPP:-mcpp}"
 FILTER="${1:-}"
 
 # 找不到就退而从 Python 包里找 —— CI 上就是这么装的（pip install clang-tidy==20.1.0），
@@ -36,9 +41,106 @@ if [ ! -x "$TIDY" ]; then
   exit 1
 fi
 
-if [ ! -f compile_commands.json ]; then
-  echo "没有 compile_commands.json —— 先跑 mcpp build" >&2
-  exit 1
+# compile_commands.json 缺了就**自己现场生成**，不指望前面正好跑过 `mcpp build`。
+#
+# ⚠️ 为什么必须有这段（别删回去）：mcpp **2026.11.2.2 起，普通 `mcpp build` 不再
+#   顺带产出 compile_commands.json**（2026.10.24.1 还会）。这里原来写的是
+#   「没有就报错 —— 先跑 mcpp build」，于是上游一改行为，CI 的 tidy job 在一个
+#   **纯文档提交**上就红了（run 41629770652），跟代码改动一点关系都没有。
+#   现在改成脚本自己保证前置条件 —— `--configure-only` 的帮助文本就是
+#   "Generate compile_commands.json without compiling or linking"，
+#   不编译、不链接，几秒钟出结果。
+# ⚠️ 但**生成失败必须报错退出**：拿「没检查」当「检查通过」是最糟的。
+# ⚠️ 判定用 -s（存在且**非空**）而不是 -f：0 字节的 DB 属于「有文件没内容」，
+#   与没有一样，同样该走自愈 —— 否则后面会静默地一个文件都查不到。
+if [ ! -s compile_commands.json ]; then
+  echo "没有（或为空的）compile_commands.json —— 用 '$MCPP build --configure-only' 现场生成" >&2
+  # 进度输出引到 stderr：stdout 后面要装文件清单，不能混进来。
+  generate_failed=0
+  "$MCPP" build --configure-only >&2 || generate_failed=$?
+  if [ "$generate_failed" -ne 0 ] || [ ! -s compile_commands.json ]; then
+    echo "生成 compile_commands.json 失败。" >&2
+    echo "试过：$MCPP build --configure-only（\$MCPP 来自 MCPP 变量，默认 mcpp）" >&2
+    if [ "$generate_failed" -ne 0 ]; then
+      echo "  → 命令本身失败，退出码 $generate_failed（多半是 mcpp 不存在或工具链没就绪）" >&2
+    else
+      echo "  → 命令退出码 0，但当前目录下没有非空的 compile_commands.json" >&2
+    fi
+    echo "装 mcpp：pip install mcpp-bin==2026.10.24.1（版本别让它飘，同 .github/workflows/ci.yml）" >&2
+    echo "mcpp 不在 PATH 时：export MCPP=/绝对/路径/mcpp（git-bash 要给 E:/... 正斜杠路径）" >&2
+    exit 1
+  fi
+  # 条数用 Python 数（别用 grep -c，见下面「为什么用 Python 解析 JSON」）。
+  # ⚠️ 这个数字要能被一眼看懂：完整 `mcpp build` 是 66 条，
+  #   `--configure-only` 只有 65 —— 少的那条是 bin 目标，见下面的覆盖面校验。
+  entries=$("$PYTHON" -c 'import json
+with open("compile_commands.json", encoding="utf-8") as handle:
+    print(len(json.load(handle)))' 2>/dev/null || echo "?")
+  echo "已生成 compile_commands.json（$entries 条）" >&2
+fi
+
+# ---- 覆盖面校验：DB 里必须包含仓库里**每一个该检查的源文件** ----
+#
+# ⚠️ 为什么必须有（这是兜底路径的兜底，别删）：
+#   `mcpp build --configure-only` 生成的 DB **不含 bin 目标** —— 实测 65 条，
+#   而完整 `mcpp build` 是 66 条，少的正是 mcpp.toml 里
+#   `[targets.simplify] kind = "bin", main = "apps/simplify/main.cpp"` 那一条。
+#   而 CI 的 tidy job 跑的是**无 filter 全量**：一旦走到自愈路径，这个文件就
+#   **静默不检查、脚本照样 exit 0** —— 正是本文件反复强调的
+#   「拿没检查当检查通过」，只是缩小了一号。兜底路径有洞也是洞。
+#   顺带兜住另一个场景：**新增了 .cppm 却没重建**，DB 过期 —— 那时也该报错，
+#   而不是悄悄少查一个文件。
+#
+# ⚠️ 用 `git ls-files` 而不是 `find`：apps/polynomial/main.cpp 是 gitignore 的
+#   练习程序、不属于任何 target，find 会把它算进来，造成永远消不掉的误报。
+#
+# ⚠️ `src/*.cppm` 那一条不能省：git 的路径规范里 `**` **要至少吃掉一层目录**，
+#   光写 `src/**/*.cppm` 匹配不到 src/maths.cppm、src/value.cppm（实测少 2 个，
+#   30 → 28），而这两个恰恰在 DB 里 —— 于是会变成「DB 齐全却报缺失」的假警报。
+expected=$(git ls-files 'src/*.cppm' 'src/**/*.cppm' 'apps/**/*.cpp' 2>/dev/null | sort -u || true)
+
+if [ -z "$expected" ]; then
+  # 拿不到清单（不是 git 检出、或没装 git）→ **大声**说明跳过，不静默放过。
+  echo "⚠️ git ls-files 没取到源文件清单，跳过覆盖面校验（不是 git 检出？）" >&2
+else
+  # 差集：把 DB 里的绝对路径归一成「仓库相对 POSIX 路径」再和 expected 比。
+  missing=$(printf '%s\n' "$expected" | "$PYTHON" -c '
+import json, os, sys
+
+with open("compile_commands.json", encoding="utf-8") as handle:
+    entries = json.load(handle)
+
+
+def normalize(path):
+    """DB 里可能是 Windows 反斜杠绝对路径；归一成仓库相对 POSIX 路径。"""
+    path = path.replace(chr(92), "/")
+    try:
+        return os.path.relpath(path, os.getcwd()).replace(chr(92), "/")
+    except ValueError:
+        return path
+
+
+have = set()
+for entry in entries:
+    name = entry.get("file")
+    if not name:
+        arguments = entry.get("arguments") or []
+        name = arguments[0] if arguments else None
+    if name:
+        have.add(normalize(name))
+
+for line in sys.stdin:
+    path = line.strip()
+    if path and path not in have:
+        print(path)
+')
+  if [ -n "$missing" ]; then
+    echo "compile_commands.json 不完整 —— 以下文件**不会被检查**：" >&2
+    printf '%s\n' "$missing" | while IFS= read -r line; do echo "  · $line" >&2; done
+    echo "疑为 \`mcpp build --configure-only\` 不含 bin 目标，或新增源文件后没重建。" >&2
+    echo "处理：跑一次**完整**的 \`$MCPP build\` 再重试本脚本（它会产出完整的 DB）。" >&2
+    exit 1
+  fi
 fi
 
 # 从 compile_commands.json 取 "file" 字段。
