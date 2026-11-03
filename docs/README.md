@@ -76,7 +76,7 @@
 | 文档 | 对应目录 | 内容 |
 | --- | --- | --- |
 | [test.md](test.md) | `tests/` | 断言宏、跑测试、新增测试的注意事项 |
-| [packaging.md](packaging.md) | `scripts/` | 打包脚本与在 GitHub Releases 上发布 |
+| [packaging.md](packaging.md) | — | `mcpp pack` 打包（产物落 `target/dist/`）与打标签发布 |
 
 ## 怎么读
 
