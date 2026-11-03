@@ -2,8 +2,11 @@
 # 跑 clang-tidy —— 静态检查。
 #
 # 为什么需要这个脚本：mcpp 的 llvm 包是**精简版、不含 clang-tidy**，索引里也没登记。
-# 本机这份是单独装的（与工具链同版本，装在项目外），路径由 CLANG_TIDY 给，
-# 默认 E:\Tools\clang-tidy-20.1.0\bin\clang-tidy.exe。
+# 它要单独准备：**版本必须与 mcpp 的 llvm 一致**，否则读不了 BMI、结论不可信。
+# 查找顺序：CLANG_TIDY 环境变量 → PATH 上的 clang-tidy → Python 包 clang_tidy.data
+# ⚠️ PATH 上那份可能就是系统装的 LLVM（版本未必对），**建议显式 export CLANG_TIDY**：
+#      export CLANG_TIDY=/绝对路径/bin/clang-tidy
+#    本机路径属于环境，**不写进仓库** —— 公开仓库里的绝对路径会暴露目录结构。
 #
 # 用法：
 #   sh scripts/run-tidy.sh            # 全部源文件（慢，见下面耗时）
@@ -20,7 +23,13 @@
 
 set -e
 
-TIDY="${CLANG_TIDY:-E:/Tools/clang-tidy-20.1.0/bin/clang-tidy.exe}"
+TIDY="${CLANG_TIDY:-clang-tidy}"
+# 裸命令名要走 PATH 解析：下面用的是 `[ -x "$TIDY" ]`，它测的是**字面路径**，
+# 对 `clang-tidy` 这种只有名字的写法永远为假（会误判成「没装」）。
+case "$TIDY" in
+  */*) ;; # 含路径分隔符，按原样用
+  *) TIDY=$(command -v "$TIDY" 2>/dev/null || true) ;;
+esac
 PYTHON="${PYTHON:-python3}"
 # mcpp 不在 PATH 的机器（本机就是）或 CI 上要换版本时，用 MCPP 覆盖，别改脚本。
 MCPP="${MCPP:-mcpp}"
@@ -40,6 +49,16 @@ if [ ! -x "$TIDY" ]; then
   echo "（git-bash 里要给 E:/... 这样的正斜杠绝对路径，原生 Windows 程序不认 /e/...）" >&2
   exit 1
 fi
+
+# ⚠️ 版本告警（不阻断）：mcpp 的工具链固定 llvm@20.1.7。主版本不一致时 clang-tidy 读 BMI
+#    的行为会变 —— 实测 LLVM 22 直接报 `module file ... uses an older format that is no
+#    longer supported`，即「响亮失败」而不是静默出错；但仍提醒一句，免得把这类报错
+#    误当成代码问题去查。
+tidy_version=$("$TIDY" --version 2>/dev/null | grep -oE 'version [0-9]+\.[0-9]+' | head -1)
+case "$tidy_version" in
+  "version 20"*) ;;
+  *) echo "⚠️ clang-tidy 是「$tidy_version」，与 mcpp 的 llvm@20.1.7 不一致 —— 读 BMI 会失败或结论不可信" >&2 ;;
+esac
 
 # compile_commands.json 缺了就**自己现场生成**，不指望前面正好跑过 `mcpp build`。
 #
