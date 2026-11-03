@@ -31,7 +31,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install mcpp
-        run: pip install --upgrade mcpp-bin
+        run: pip install "mcpp-bin==2026.10.5.3"
 
       - name: Build
         run: mcpp build
@@ -57,7 +57,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install mcpp
-        run: pip install --upgrade mcpp-bin
+        run: pip install "mcpp-bin==2026.10.5.3"
 
       # 与 ci.yml 的 packaging job 同一条命令：`mcpp pack`，产物在 target/dist/
       - name: 打包

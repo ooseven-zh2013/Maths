@@ -29,7 +29,7 @@ jobs:
       # mcpp-bin 的 wheel 覆盖 Linux x86_64/aarch64、macOS arm64 与 Windows x86_64，
       # 装上后 mcpp 直接进 PATH，比各平台各自的安装脚本省事也更稳。
       - name: Install mcpp
-        run: pip install --upgrade mcpp-bin
+        run: pip install "mcpp-bin==2026.10.5.3"
 
       - name: mcpp version
         run: mcpp self version
@@ -69,7 +69,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install mcpp
-        run: pip install --upgrade mcpp-bin
+        run: pip install "mcpp-bin==2026.10.5.3"
 
       - name: Pack
         shell: bash
@@ -178,7 +178,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install mcpp
-        run: pip install --upgrade mcpp-bin
+        run: pip install "mcpp-bin==2026.10.5.3"
 
       # ⚠️ **必须先让 mcpp 环境就绪**（这一步就是干这个的）：
       #    不然 `mcpp emit build-database` 报
@@ -252,15 +252,17 @@ jobs:
         with:
           python-version: '3.12'
 
-      # ⚠️ **锁版本，只锁这个 job**：别的 job（build-and-test / packaging / mcppls）
-      #    不读 compile_commands.json，跟最新就好，改动面小一点。
-      #    锁的原因是上游漂了：mcpp **2026.11.2.2 起，普通 `mcpp build` 不再顺带产出
-      #    compile_commands.json**（2026.10.24.1 还会）。于是 tidy 在一个**纯文档提交**
-      #    上就红了（run 41629770652 失败 / 40109347300 通过，同一份剧本换了个 mcpp 版本）。
-      #    run-tidy.sh 现在缺文件会自己 `--configure-only` 生成（第一道保险），
-      #    这里是第二道：tidy 还要读 BMI，结果不该因为上游发版而变红或变绿。
+      # ⚠️ **所有 job 都锁同一个版本，且与本地开发环境一致**（见下面其它 job 的安装步骤）。
+      #    两条理由：
+      #    1. 上游会漂：mcpp **2026.11.2.2 起，普通 `mcpp build` 不再顺带产出
+      #       compile_commands.json**（2026.10.5.3 还会）。于是 tidy 曾在一个**纯文档提交**
+      #       上就红了（run 41629770652），同一份剧本只是换了个 mcpp 版本。
+      #    2. 本地与 CI 版本不一致时，本地复现不出 CI 的问题。2026.10.24.1 那次就是这样：
+      #       本机是 2026.9.21.3，怎么试都正常。
+      #    现在的版本即开发者本机那份；`run-tidy.sh` 另有自愈与覆盖面校验作为双保险，
+      #    但**不再依赖它**——`mcpp build` 本身就会产出完整的 DB（31 条，含 bin 目标）。
       - name: Install mcpp
-        run: pip install "mcpp-bin==2026.10.24.1"
+        run: pip install "mcpp-bin==2026.10.5.3"
 
       # 官方发布包：从 llvmorg-20.1.7 这个 tag 的 git 检出构建 ⇒ 分支信息与 mcpp 的 clang 一致
       #
